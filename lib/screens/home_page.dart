@@ -541,7 +541,12 @@ class HomePage extends StatelessWidget {
                       label: 'Alertes',
                       color: Colors.red,
                       onTap: () {
-                        // TODO: Navigate to Alertes page
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const NotificationsPage(),
+                          ),
+                        );
                       },
                     ),
                     _buildActionButton(
