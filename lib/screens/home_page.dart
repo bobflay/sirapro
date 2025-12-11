@@ -4,6 +4,7 @@ import 'package:sirapro/screens/clients_page.dart';
 import 'package:sirapro/screens/notifications_page.dart';
 import 'package:sirapro/screens/user_profile_page.dart';
 import 'package:sirapro/screens/sync_page.dart';
+import 'package:sirapro/screens/alertes_page.dart';
 import 'package:sirapro/screens/login_screen.dart';
 import 'package:sirapro/services/auth_service.dart';
 
@@ -537,11 +538,16 @@ class HomePage extends StatelessWidget {
                     ),
                     _buildActionButton(
                       context,
-                      icon: Icons.notifications,
+                      icon: Icons.warning_amber,
                       label: 'Alertes',
                       color: Colors.red,
                       onTap: () {
-                        // TODO: Navigate to Alertes page
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const AlertesPage(),
+                          ),
+                        );
                       },
                     ),
                     _buildActionButton(
