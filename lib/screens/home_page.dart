@@ -1,9 +1,52 @@
 import 'package:flutter/material.dart';
 import 'package:sirapro/screens/tournee_detail_page.dart';
 import 'package:sirapro/screens/clients_page.dart';
+import 'package:sirapro/screens/notifications_page.dart';
+import 'package:sirapro/screens/user_profile_page.dart';
+import 'package:sirapro/screens/sync_page.dart';
+import 'package:sirapro/screens/login_screen.dart';
+import 'package:sirapro/services/auth_service.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
+
+  Future<void> _handleLogout(BuildContext context) async {
+    final authService = AuthService();
+
+    // Show confirmation dialog
+    final shouldLogout = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Déconnexion'),
+        content: const Text('Voulez-vous vraiment vous déconnecter?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Annuler'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Déconnexion'),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldLogout == true && context.mounted) {
+      // Clear login state
+      await authService.logout();
+
+      // Navigate to login screen
+      if (context.mounted) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(
+            builder: (context) => const LoginScreen(),
+          ),
+          (route) => false,
+        );
+      }
+    }
+  }
 
   String _getGreeting() {
     final hour = DateTime.now().hour;
@@ -101,7 +144,12 @@ class HomePage extends StatelessWidget {
           IconButton(
             icon: const Icon(Icons.person),
             onPressed: () {
-              // TODO: Navigate to user information page
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const UserProfilePage(),
+                ),
+              );
             },
             tooltip: 'Informations utilisateur',
           ),
@@ -129,7 +177,12 @@ class HomePage extends StatelessWidget {
               ],
             ),
             onPressed: () {
-              // TODO: Trigger sync or show sync status
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const SyncPage(),
+                ),
+              );
             },
             tooltip: 'Synchronisation',
           ),
@@ -165,9 +218,36 @@ class HomePage extends StatelessWidget {
               ],
             ),
             onPressed: () {
-              // TODO: Navigate to notifications page
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const NotificationsPage(),
+                ),
+              );
             },
             tooltip: 'Notifications',
+          ),
+          // Logout Menu
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert),
+            tooltip: 'Menu',
+            onSelected: (value) {
+              if (value == 'logout') {
+                _handleLogout(context);
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'logout',
+                child: Row(
+                  children: [
+                    Icon(Icons.logout, color: Colors.red),
+                    SizedBox(width: 8),
+                    Text('Déconnexion'),
+                  ],
+                ),
+              ),
+            ],
           ),
           const SizedBox(width: 8),
         ],
@@ -220,7 +300,7 @@ class HomePage extends StatelessWidget {
 
               // Cards Section
               SizedBox(
-                height: 280,
+                height: 220,
                 child: Row(
                   children: [
                     // Tournee du Jour Card
@@ -235,7 +315,7 @@ class HomePage extends StatelessWidget {
                           );
                         },
                         child: Container(
-                          padding: const EdgeInsets.all(20),
+                          padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
                             color: Colors.white,
                             borderRadius: BorderRadius.circular(12),
@@ -253,37 +333,37 @@ class HomePage extends StatelessWidget {
                             children: [
                               Icon(
                                 Icons.route,
-                                size: 48,
+                                size: 40,
                                 color: Theme.of(context).primaryColor,
                               ),
-                              const SizedBox(height: 16),
+                              const SizedBox(height: 12),
                               const Text(
                                 'Tournée du Jour',
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
-                                  fontSize: 18,
+                                  fontSize: 16,
                                   fontWeight: FontWeight.bold,
                                   color: Colors.black87,
                                 ),
                               ),
-                              const SizedBox(height: 16),
+                              const SizedBox(height: 12),
                               const Text(
                                 '1/4',
                                 style: TextStyle(
-                                  fontSize: 24,
+                                  fontSize: 20,
                                   fontWeight: FontWeight.bold,
                                   color: Colors.black87,
                                 ),
                               ),
-                              const SizedBox(height: 8),
+                              const SizedBox(height: 4),
                               const Text(
                                 'visites',
                                 style: TextStyle(
-                                  fontSize: 14,
+                                  fontSize: 12,
                                   color: Colors.grey,
                                 ),
                               ),
-                              const SizedBox(height: 16),
+                              const SizedBox(height: 12),
                               // Progress Bar
                               Column(
                                 children: [
@@ -291,18 +371,18 @@ class HomePage extends StatelessWidget {
                                     borderRadius: BorderRadius.circular(10),
                                     child: LinearProgressIndicator(
                                       value: 0.25,
-                                      minHeight: 8,
+                                      minHeight: 6,
                                       backgroundColor: Colors.grey[200],
                                       valueColor: AlwaysStoppedAnimation<Color>(
                                         Theme.of(context).primaryColor,
                                       ),
                                     ),
                                   ),
-                                  const SizedBox(height: 8),
+                                  const SizedBox(height: 6),
                                   const Text(
                                     '25%',
                                     style: TextStyle(
-                                      fontSize: 16,
+                                      fontSize: 14,
                                       fontWeight: FontWeight.bold,
                                       color: Colors.black87,
                                     ),
@@ -328,7 +408,7 @@ class HomePage extends StatelessWidget {
                           );
                         },
                         child: Container(
-                          padding: const EdgeInsets.all(20),
+                          padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
                             color: Colors.white,
                             borderRadius: BorderRadius.circular(12),
@@ -346,33 +426,33 @@ class HomePage extends StatelessWidget {
                             children: [
                               Icon(
                                 Icons.shopping_bag,
-                                size: 48,
+                                size: 40,
                                 color: Theme.of(context).primaryColor,
                               ),
-                              const SizedBox(height: 16),
+                              const SizedBox(height: 12),
                               const Text(
                                 'Clients',
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
-                                  fontSize: 18,
+                                  fontSize: 16,
                                   fontWeight: FontWeight.bold,
                                   color: Colors.black87,
                                 ),
                               ),
-                              const SizedBox(height: 16),
+                              const SizedBox(height: 12),
                               const Text(
                                 '6',
                                 style: TextStyle(
-                                  fontSize: 36,
+                                  fontSize: 32,
                                   fontWeight: FontWeight.bold,
                                   color: Colors.black87,
                                 ),
                               ),
-                              const SizedBox(height: 8),
+                              const SizedBox(height: 4),
                               Text(
                                 'clients actifs',
                                 style: TextStyle(
-                                  fontSize: 14,
+                                  fontSize: 12,
                                   color: Colors.grey[600],
                                 ),
                               ),
