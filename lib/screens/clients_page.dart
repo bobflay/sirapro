@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:sirapro/screens/create_client_page.dart';
 
 class ClientsPage extends StatelessWidget {
   const ClientsPage({super.key});
@@ -169,6 +170,20 @@ class ClientsPage extends StatelessWidget {
             ],
           ),
         ),
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const CreateClientPage(),
+            ),
+          );
+        },
+        backgroundColor: Theme.of(context).primaryColor,
+        foregroundColor: Colors.white,
+        icon: const Icon(Icons.add),
+        label: const Text('Nouveau Client'),
       ),
     );
   }
