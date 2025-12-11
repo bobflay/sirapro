@@ -48,6 +48,45 @@ class HomePage extends StatelessWidget {
     return '$weekday, $day $month $year';
   }
 
+  Widget _buildActionButton(
+    BuildContext context, {
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              icon,
+              size: 32,
+              color: color,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              label,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: Colors.black87,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -57,6 +96,81 @@ class HomePage extends StatelessWidget {
         backgroundColor: Theme.of(context).primaryColor,
         foregroundColor: Colors.white,
         elevation: 0,
+        actions: [
+          // User Information Icon
+          IconButton(
+            icon: const Icon(Icons.person),
+            onPressed: () {
+              // TODO: Navigate to user information page
+            },
+            tooltip: 'Informations utilisateur',
+          ),
+          // Cloud Sync Icon with Status
+          IconButton(
+            icon: Stack(
+              children: [
+                const Icon(Icons.cloud),
+                Positioned(
+                  right: 0,
+                  top: 0,
+                  child: Container(
+                    width: 10,
+                    height: 10,
+                    decoration: BoxDecoration(
+                      color: Colors.green,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: Colors.white,
+                        width: 1.5,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            onPressed: () {
+              // TODO: Trigger sync or show sync status
+            },
+            tooltip: 'Synchronisation',
+          ),
+          // Notifications Icon
+          IconButton(
+            icon: Stack(
+              children: [
+                const Icon(Icons.notifications),
+                Positioned(
+                  right: 0,
+                  top: 0,
+                  child: Container(
+                    padding: const EdgeInsets.all(2),
+                    decoration: BoxDecoration(
+                      color: Colors.red,
+                      shape: BoxShape.circle,
+                    ),
+                    constraints: const BoxConstraints(
+                      minWidth: 16,
+                      minHeight: 16,
+                    ),
+                    child: const Text(
+                      '3',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            onPressed: () {
+              // TODO: Navigate to notifications page
+            },
+            tooltip: 'Notifications',
+          ),
+          const SizedBox(width: 8),
+        ],
       ),
       body: SafeArea(
         child: Padding(
@@ -105,7 +219,8 @@ class HomePage extends StatelessWidget {
               const SizedBox(height: 24),
 
               // Cards Section
-              Expanded(
+              SizedBox(
+                height: 280,
                 child: Row(
                   children: [
                     // Tournee du Jour Card
@@ -126,7 +241,7 @@ class HomePage extends StatelessWidget {
                             borderRadius: BorderRadius.circular(12),
                             boxShadow: [
                               BoxShadow(
-                                color: Colors.grey.withOpacity(0.1),
+                                color: Colors.grey.withValues(alpha: 0.1),
                                 spreadRadius: 1,
                                 blurRadius: 5,
                                 offset: const Offset(0, 2),
@@ -219,7 +334,7 @@ class HomePage extends StatelessWidget {
                             borderRadius: BorderRadius.circular(12),
                             boxShadow: [
                               BoxShadow(
-                                color: Colors.grey.withOpacity(0.1),
+                                color: Colors.grey.withValues(alpha: 0.1),
                                 spreadRadius: 1,
                                 blurRadius: 5,
                                 offset: const Offset(0, 2),
@@ -265,6 +380,107 @@ class HomePage extends StatelessWidget {
                           ),
                         ),
                       ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+
+              // Actions Rapides Section
+              const Text(
+                'Actions Rapides',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.grey.withValues(alpha: 0.1),
+                      spreadRadius: 1,
+                      blurRadius: 5,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: GridView.count(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  crossAxisCount: 3,
+                  mainAxisSpacing: 16,
+                  crossAxisSpacing: 16,
+                  childAspectRatio: 1,
+                  children: [
+                    _buildActionButton(
+                      context,
+                      icon: Icons.route,
+                      label: 'Ma Tournée',
+                      color: Colors.blue,
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const TourneeDetailPage(),
+                          ),
+                        );
+                      },
+                    ),
+                    _buildActionButton(
+                      context,
+                      icon: Icons.people,
+                      label: 'Clients',
+                      color: Colors.green,
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const ClientsPage(),
+                          ),
+                        );
+                      },
+                    ),
+                    _buildActionButton(
+                      context,
+                      icon: Icons.location_on,
+                      label: 'Visites',
+                      color: Colors.orange,
+                      onTap: () {
+                        // TODO: Navigate to Visites page
+                      },
+                    ),
+                    _buildActionButton(
+                      context,
+                      icon: Icons.notifications,
+                      label: 'Alertes',
+                      color: Colors.red,
+                      onTap: () {
+                        // TODO: Navigate to Alertes page
+                      },
+                    ),
+                    _buildActionButton(
+                      context,
+                      icon: Icons.shopping_cart,
+                      label: 'Commandes',
+                      color: Colors.purple,
+                      onTap: () {
+                        // TODO: Navigate to Commandes page
+                      },
+                    ),
+                    _buildActionButton(
+                      context,
+                      icon: Icons.map,
+                      label: 'Carte',
+                      color: Colors.teal,
+                      onTap: () {
+                        // TODO: Navigate to Carte page
+                      },
                     ),
                   ],
                 ),

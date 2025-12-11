@@ -27,7 +27,7 @@ class _LoginScreenState extends State<LoginScreen> {
       final password = _passwordController.text;
 
       // Check credentials
-      if (email == 'commercial@sira.pro' && password == '1234') {
+      if (email == 'commercial@sira.pro' && password == '123456') {
         // Navigate to home page
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(
