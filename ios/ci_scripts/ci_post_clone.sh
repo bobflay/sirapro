@@ -10,21 +10,19 @@ echo "======================================"
 echo "🚀 Starting Flutter Setup for Xcode Cloud"
 echo "======================================"
 
-# Define Flutter version (you can change this to match your local version)
-FLUTTER_VERSION="3.38.4"
+# Define Flutter channel (use stable branch instead of specific version)
 FLUTTER_DIR="$HOME/flutter"
 
 # Install Flutter
-echo "📦 Installing Flutter ${FLUTTER_VERSION}..."
+echo "📦 Installing Flutter from stable channel..."
 if [ ! -d "$FLUTTER_DIR" ]; then
     git clone https://github.com/flutter/flutter.git -b stable "$FLUTTER_DIR"
-    cd "$FLUTTER_DIR"
-    git checkout "$FLUTTER_VERSION"
 else
     echo "Flutter already exists, updating..."
     cd "$FLUTTER_DIR"
     git fetch
-    git checkout "$FLUTTER_VERSION"
+    git checkout stable
+    git pull
 fi
 
 # Add Flutter to PATH

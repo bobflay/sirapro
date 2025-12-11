@@ -8,7 +8,7 @@ This folder contains custom scripts for Xcode Cloud to build your Flutter app au
 **When it runs:** Immediately after Xcode Cloud clones your repository
 
 **What it does:**
-- Installs Flutter SDK (version 3.24.0)
+- Installs Flutter SDK (latest stable version)
 - Configures Flutter environment
 - Runs `flutter pub get` to install dependencies
 - Runs `pod install` for iOS dependencies
@@ -119,15 +119,9 @@ If your app uses API keys or secrets:
    const apiKey = String.fromEnvironment('EXAMPLE_API_KEY');
    ```
 
-### Step 5: Customize Flutter Version
+### Step 5: Flutter Version
 
-If you need a different Flutter version:
-
-1. Open `ci_post_clone.sh`
-2. Change line 11:
-   ```bash
-   FLUTTER_VERSION="3.24.0"  # Change to your version
-   ```
+The script uses the latest stable Flutter version from the stable channel. This ensures compatibility and automatically gets updates. If you need a specific version, you can modify `ci_post_clone.sh` to checkout a specific tag instead of the stable branch.
 
 ---
 
@@ -229,7 +223,7 @@ pod install
 
 ## 📝 Notes
 
-- These scripts are configured for Flutter 3.24.0 - update if needed
+- These scripts use the latest stable Flutter version
 - The scripts automatically run `flutter clean` and `pub get`
 - CocoaPods are automatically updated and installed
 - Tests run before archiving (can be disabled)
