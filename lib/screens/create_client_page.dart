@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:io';
+import 'package:sirapro/models/client.dart';
 
 class CreateClientPage extends StatefulWidget {
   const CreateClientPage({super.key});
@@ -47,11 +48,20 @@ class _CreateClientPageState extends State<CreateClientPage> {
   ];
 
   final List<String> _zones = [
-    'Casablanca - Centre',
-    'Casablanca - Ain Sebaa',
-    'Casablanca - Sidi Bernoussi',
-    'Rabat - Agdal',
-    'Rabat - Hassan',
+    'Abidjan - Cocody',
+    'Abidjan - Plateau',
+    'Abidjan - Yopougon',
+    'Abidjan - Abobo',
+    'Abidjan - Adjamé',
+    'Abidjan - Marcory',
+    'Abidjan - Treichville',
+    'Abidjan - Koumassi',
+    'Abidjan - Port-Bouët',
+    'Bouaké - Centre',
+    'Yamoussoukro',
+    'San-Pédro',
+    'Daloa',
+    'Korhogo',
     'Autre',
   ];
 
@@ -94,19 +104,36 @@ class _CreateClientPageState extends State<CreateClientPage> {
 
       if (!mounted) return;
 
-      // Close loading
+      // Close loading dialog
       Navigator.of(context).pop();
 
-      // Show success message
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Client créé avec succès'),
-          backgroundColor: Colors.green,
-        ),
+      // Create new Client object from form data
+      final newClient = Client(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        boutiqueName: _boutiqueNameController.text.trim(),
+        type: _selectedType ?? 'Boutique',
+        gerantName: _gerantNameController.text.trim(),
+        phone: _phoneController.text.trim(),
+        whatsapp: _whatsappController.text.trim().isNotEmpty
+            ? _whatsappController.text.trim()
+            : null,
+        email: _emailController.text.trim().isNotEmpty
+            ? _emailController.text.trim()
+            : null,
+        address: _addressController.text.trim(),
+        quartier: _quartierController.text.trim(),
+        ville: _villeController.text.trim(),
+        zone: _selectedZone,
+        gpsLocation: _gpsLocation,
+        potentiel: _potentiel,
+        frequenceVisite: _frequenceVisite,
+        status: 'En attente',
+        isActive: false,
+        createdAt: DateTime.now(),
       );
 
-      // Return to clients page
-      Navigator.of(context).pop();
+      // Return to clients page with the new client
+      Navigator.of(context).pop(newClient);
     }
   }
 
@@ -389,7 +416,7 @@ class _CreateClientPageState extends State<CreateClientPage> {
           onPressed: () {
             // TODO: Get GPS location
             setState(() {
-              _gpsLocation = '33.5731° N, 7.5898° W';
+              _gpsLocation = '5.3600° N, 4.0083° W'; // Abidjan coordinates
             });
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
