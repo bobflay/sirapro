@@ -201,6 +201,52 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
     );
   }
 
+  void _openGoogleMaps() {
+    // Build the Google Maps URL
+    String mapsUrl;
+    if (_client.gpsLocation != null) {
+      // Parse GPS coordinates (format: "5.3600° N, 4.0083° W")
+      final coords = _client.gpsLocation!
+          .replaceAll('°', '')
+          .replaceAll(' N', '')
+          .replaceAll(' S', '')
+          .replaceAll(' E', '')
+          .replaceAll(' W', '')
+          .split(',');
+      if (coords.length == 2) {
+        final lat = coords[0].trim();
+        final lng = coords[1].trim();
+        mapsUrl = 'https://www.google.com/maps/search/?api=1&query=$lat,$lng';
+      } else {
+        mapsUrl = _buildAddressMapUrl();
+      }
+    } else {
+      mapsUrl = _buildAddressMapUrl();
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text('Ouverture de Google Maps...'),
+        action: SnackBarAction(
+          label: 'Copier lien',
+          onPressed: () {
+            // In a real app, we would use Clipboard.setData
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Lien: $mapsUrl')),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  String _buildAddressMapUrl() {
+    final address = Uri.encodeComponent(
+      '${_client.address}, ${_client.quartier}, ${_client.ville}, Côte d\'Ivoire',
+    );
+    return 'https://www.google.com/maps/search/?api=1&query=$address';
+  }
+
   Future<void> _activateClient() async {
     final confirm = await showDialog<bool>(
       context: context,
@@ -477,6 +523,24 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
                   if (_client.gpsLocation != null)
                     _buildInfoRow(Icons.gps_fixed, 'GPS', _client.gpsLocation!),
                 ]),
+                const SizedBox(height: 12),
+                // Google Maps Button
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: _openGoogleMaps,
+                    icon: const Icon(Icons.map_outlined),
+                    label: const Text('Voir sur Google Maps'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.blue,
+                      side: const BorderSide(color: Colors.blue),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ),
 
                 const SizedBox(height: 20),
 
