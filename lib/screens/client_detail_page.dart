@@ -1,0 +1,910 @@
+import 'package:flutter/material.dart';
+import 'package:sirapro/models/client.dart';
+
+class ClientDetailPage extends StatefulWidget {
+  final Client client;
+
+  const ClientDetailPage({super.key, required this.client});
+
+  @override
+  State<ClientDetailPage> createState() => _ClientDetailPageState();
+}
+
+class _ClientDetailPageState extends State<ClientDetailPage> {
+  late Client _client;
+  bool _isEditing = false;
+
+  // Form controllers
+  late TextEditingController _boutiqueNameController;
+  late TextEditingController _gerantNameController;
+  late TextEditingController _phoneController;
+  late TextEditingController _whatsappController;
+  late TextEditingController _emailController;
+  late TextEditingController _addressController;
+  late TextEditingController _quartierController;
+  late TextEditingController _villeController;
+
+  String? _selectedType;
+  String? _selectedZone;
+  String? _selectedPotentiel;
+  String? _selectedFrequence;
+
+  final _formKey = GlobalKey<FormState>();
+
+  final List<String> _types = [
+    'Boutique',
+    'Supermarché',
+    'Demi-grossiste',
+    'Grossiste',
+    'Distributeur',
+    'Autre',
+  ];
+
+  final List<String> _zones = [
+    'Abidjan - Cocody',
+    'Abidjan - Plateau',
+    'Abidjan - Yopougon',
+    'Abidjan - Abobo',
+    'Abidjan - Adjamé',
+    'Abidjan - Marcory',
+    'Abidjan - Treichville',
+    'Abidjan - Koumassi',
+    'Abidjan - Port-Bouët',
+    'Bouaké - Centre',
+    'Yamoussoukro',
+    'San-Pédro',
+    'Daloa',
+    'Korhogo',
+    'Autre',
+  ];
+
+  final List<String> _potentiels = ['A', 'B', 'C'];
+
+  final List<String> _frequences = [
+    'Hebdomadaire',
+    'Bimensuelle',
+    'Mensuelle',
+    'Autre',
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _client = widget.client;
+    _initControllers();
+  }
+
+  void _initControllers() {
+    _boutiqueNameController = TextEditingController(text: _client.boutiqueName);
+    _gerantNameController = TextEditingController(text: _client.gerantName);
+    _phoneController = TextEditingController(text: _client.phone);
+    _whatsappController = TextEditingController(text: _client.whatsapp ?? '');
+    _emailController = TextEditingController(text: _client.email ?? '');
+    _addressController = TextEditingController(text: _client.address);
+    _quartierController = TextEditingController(text: _client.quartier);
+    _villeController = TextEditingController(text: _client.ville);
+
+    _selectedType = _client.type;
+    _selectedZone = _client.zone;
+    _selectedPotentiel = _client.potentiel;
+    _selectedFrequence = _client.frequenceVisite;
+  }
+
+  @override
+  void dispose() {
+    _boutiqueNameController.dispose();
+    _gerantNameController.dispose();
+    _phoneController.dispose();
+    _whatsappController.dispose();
+    _emailController.dispose();
+    _addressController.dispose();
+    _quartierController.dispose();
+    _villeController.dispose();
+    super.dispose();
+  }
+
+  void _toggleEdit() {
+    setState(() {
+      if (_isEditing) {
+        // Cancel editing - reset controllers
+        _initControllers();
+      }
+      _isEditing = !_isEditing;
+    });
+  }
+
+  Future<void> _saveChanges() async {
+    if (_formKey.currentState!.validate()) {
+      // Show loading
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+
+      // Simulate save
+      await Future.delayed(const Duration(seconds: 1));
+
+      if (!mounted) return;
+
+      Navigator.of(context).pop(); // Close loading
+
+      // Create updated client
+      final updatedClient = _client.copyWith(
+        boutiqueName: _boutiqueNameController.text.trim(),
+        type: _selectedType,
+        gerantName: _gerantNameController.text.trim(),
+        phone: _phoneController.text.trim(),
+        whatsapp: _whatsappController.text.trim().isNotEmpty
+            ? _whatsappController.text.trim()
+            : null,
+        email: _emailController.text.trim().isNotEmpty
+            ? _emailController.text.trim()
+            : null,
+        address: _addressController.text.trim(),
+        quartier: _quartierController.text.trim(),
+        ville: _villeController.text.trim(),
+        zone: _selectedZone,
+        potentiel: _selectedPotentiel,
+        frequenceVisite: _selectedFrequence,
+      );
+
+      setState(() {
+        _client = updatedClient;
+        _isEditing = false;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Client mis à jour avec succès'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    }
+  }
+
+  void _makePhoneCall(String phoneNumber) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Appel vers $phoneNumber'),
+        action: SnackBarAction(
+          label: 'OK',
+          onPressed: () {},
+        ),
+      ),
+    );
+  }
+
+  void _openWhatsApp(String phoneNumber) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Ouvrir WhatsApp: $phoneNumber'),
+        action: SnackBarAction(
+          label: 'OK',
+          onPressed: () {},
+        ),
+      ),
+    );
+  }
+
+  void _sendEmail(String email) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Email vers $email'),
+        action: SnackBarAction(
+          label: 'OK',
+          onPressed: () {},
+        ),
+      ),
+    );
+  }
+
+  Future<void> _activateClient() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Activer le client'),
+        content: Text(
+          'Voulez-vous activer "${_client.boutiqueName}" ?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Annuler'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Activer'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      setState(() {
+        _client = _client.copyWith(status: 'Actif', isActive: true);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Client activé'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    }
+  }
+
+  String _formatDate(DateTime date) {
+    final months = [
+      'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
+      'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'
+    ];
+    return '${date.day} ${months[date.month - 1]} ${date.year}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return WillPopScope(
+      onWillPop: () async {
+        Navigator.pop(context, _client);
+        return false;
+      },
+      child: Scaffold(
+        backgroundColor: Colors.grey[100],
+        appBar: AppBar(
+          title: Text(_isEditing ? 'Modifier Client' : 'Détails Client'),
+          backgroundColor: Theme.of(context).primaryColor,
+          foregroundColor: Colors.white,
+          elevation: 0,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => Navigator.pop(context, _client),
+          ),
+          actions: [
+            if (!_isEditing)
+              IconButton(
+                icon: const Icon(Icons.edit),
+                onPressed: _toggleEdit,
+                tooltip: 'Modifier',
+              )
+            else ...[
+              IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: _toggleEdit,
+                tooltip: 'Annuler',
+              ),
+              IconButton(
+                icon: const Icon(Icons.check),
+                onPressed: _saveChanges,
+                tooltip: 'Enregistrer',
+              ),
+            ],
+          ],
+        ),
+        body: _isEditing ? _buildEditMode() : _buildViewMode(),
+      ),
+    );
+  }
+
+  Widget _buildViewMode() {
+    return SingleChildScrollView(
+      child: Column(
+        children: [
+          // Header Section
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: Theme.of(context).primaryColor,
+              borderRadius: const BorderRadius.only(
+                bottomLeft: Radius.circular(30),
+                bottomRight: Radius.circular(30),
+              ),
+            ),
+            child: Column(
+              children: [
+                // Icon
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.2),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    _getIconForType(_client.type),
+                    size: 50,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                // Name
+                Text(
+                  _client.boutiqueName,
+                  style: const TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+                // Type
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    _client.type,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      color: Colors.white,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                // Status and Potentiel
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: _client.isActive ? Colors.green : Colors.orange,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        _client.status,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                    if (_client.potentiel != null) ...[
+                      const SizedBox(width: 12),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: _getPotentielColor(_client.potentiel!),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          'Potentiel ${_client.potentiel}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 20),
+
+          // Quick Actions
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                Expanded(
+                  child: _buildQuickAction(
+                    icon: Icons.phone,
+                    label: 'Appeler',
+                    color: Colors.green,
+                    onTap: () => _makePhoneCall(_client.phone),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildQuickAction(
+                    icon: Icons.chat,
+                    label: 'WhatsApp',
+                    color: const Color(0xFF25D366),
+                    onTap: _client.whatsapp != null
+                        ? () => _openWhatsApp(_client.whatsapp!)
+                        : null,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildQuickAction(
+                    icon: Icons.email,
+                    label: 'Email',
+                    color: Colors.blue,
+                    onTap: _client.email != null
+                        ? () => _sendEmail(_client.email!)
+                        : null,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 20),
+
+          // Information Sections
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Contact Information
+                _buildSectionTitle('Informations de contact'),
+                const SizedBox(height: 12),
+                _buildInfoCard([
+                  _buildInfoRow(Icons.person, 'Gérant', _client.gerantName),
+                  _buildInfoRow(Icons.phone, 'Téléphone', _client.phone),
+                  if (_client.whatsapp != null)
+                    _buildInfoRow(Icons.chat, 'WhatsApp', _client.whatsapp!),
+                  if (_client.email != null)
+                    _buildInfoRow(Icons.email, 'Email', _client.email!),
+                ]),
+
+                const SizedBox(height: 20),
+
+                // Location Information
+                _buildSectionTitle('Localisation'),
+                const SizedBox(height: 12),
+                _buildInfoCard([
+                  _buildInfoRow(Icons.location_on, 'Adresse', _client.address),
+                  _buildInfoRow(Icons.map, 'Quartier', _client.quartier),
+                  _buildInfoRow(Icons.location_city, 'Ville', _client.ville),
+                  if (_client.zone != null)
+                    _buildInfoRow(Icons.grid_view, 'Zone', _client.zone!),
+                  if (_client.gpsLocation != null)
+                    _buildInfoRow(Icons.gps_fixed, 'GPS', _client.gpsLocation!),
+                ]),
+
+                const SizedBox(height: 20),
+
+                // Commercial Information
+                _buildSectionTitle('Informations commerciales'),
+                const SizedBox(height: 12),
+                _buildInfoCard([
+                  _buildInfoRow(Icons.category, 'Type', _client.type),
+                  if (_client.potentiel != null)
+                    _buildInfoRow(Icons.star, 'Potentiel', _client.potentiel!),
+                  if (_client.frequenceVisite != null)
+                    _buildInfoRow(
+                      Icons.schedule,
+                      'Fréquence de visite',
+                      _client.frequenceVisite!,
+                    ),
+                  _buildInfoRow(
+                    Icons.calendar_today,
+                    'Client depuis',
+                    _formatDate(_client.createdAt),
+                  ),
+                ]),
+
+                const SizedBox(height: 20),
+
+                // Activate button if client is pending
+                if (!_client.isActive) ...[
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: _activateClient,
+                      icon: const Icon(Icons.check_circle),
+                      label: const Text('Activer ce client'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEditMode() {
+    return Form(
+      key: _formKey,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Administrative Data
+            _buildSectionTitle('Données administratives'),
+            const SizedBox(height: 16),
+            _buildTextField(
+              controller: _boutiqueNameController,
+              label: 'Nom de la boutique *',
+              validator: (value) {
+                if (value == null || value.isEmpty) {
+                  return 'Veuillez entrer le nom de la boutique';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 16),
+            _buildDropdown(
+              value: _selectedType,
+              label: 'Type *',
+              items: _types,
+              onChanged: (value) => setState(() => _selectedType = value),
+            ),
+            const SizedBox(height: 16),
+            _buildTextField(
+              controller: _gerantNameController,
+              label: 'Nom du gérant *',
+              validator: (value) {
+                if (value == null || value.isEmpty) {
+                  return 'Veuillez entrer le nom du gérant';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 16),
+            _buildTextField(
+              controller: _phoneController,
+              label: 'Téléphone *',
+              keyboardType: TextInputType.phone,
+              prefixIcon: Icons.phone,
+              validator: (value) {
+                if (value == null || value.isEmpty) {
+                  return 'Veuillez entrer le numéro de téléphone';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 16),
+            _buildTextField(
+              controller: _whatsappController,
+              label: 'WhatsApp',
+              keyboardType: TextInputType.phone,
+              prefixIcon: Icons.chat,
+            ),
+            const SizedBox(height: 16),
+            _buildTextField(
+              controller: _emailController,
+              label: 'Email',
+              keyboardType: TextInputType.emailAddress,
+              prefixIcon: Icons.email,
+            ),
+
+            const SizedBox(height: 24),
+
+            // Geographic Data
+            _buildSectionTitle('Données géographiques'),
+            const SizedBox(height: 16),
+            _buildTextField(
+              controller: _addressController,
+              label: 'Adresse *',
+              validator: (value) {
+                if (value == null || value.isEmpty) {
+                  return 'Veuillez entrer l\'adresse';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 16),
+            _buildTextField(
+              controller: _quartierController,
+              label: 'Quartier *',
+              validator: (value) {
+                if (value == null || value.isEmpty) {
+                  return 'Veuillez entrer le quartier';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 16),
+            _buildTextField(
+              controller: _villeController,
+              label: 'Ville *',
+              validator: (value) {
+                if (value == null || value.isEmpty) {
+                  return 'Veuillez entrer la ville';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 16),
+            _buildDropdown(
+              value: _selectedZone,
+              label: 'Zone / Secteur',
+              items: _zones,
+              onChanged: (value) => setState(() => _selectedZone = value),
+            ),
+
+            const SizedBox(height: 24),
+
+            // Commercial Data
+            _buildSectionTitle('Données commerciales'),
+            const SizedBox(height: 16),
+            const Text(
+              'Potentiel du client',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                color: Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: _potentiels.map((potentiel) {
+                return Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: ChoiceChip(
+                      label: SizedBox(
+                        width: double.infinity,
+                        child: Text(
+                          potentiel,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: _selectedPotentiel == potentiel
+                                ? Colors.white
+                                : Colors.black87,
+                          ),
+                        ),
+                      ),
+                      selected: _selectedPotentiel == potentiel,
+                      onSelected: (selected) {
+                        setState(() {
+                          _selectedPotentiel = selected ? potentiel : null;
+                        });
+                      },
+                      selectedColor: _getPotentielColor(potentiel),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 16),
+            _buildDropdown(
+              value: _selectedFrequence,
+              label: 'Fréquence de visite',
+              items: _frequences,
+              onChanged: (value) => setState(() => _selectedFrequence = value),
+            ),
+
+            const SizedBox(height: 32),
+
+            // Save Button
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _saveChanges,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Theme.of(context).primaryColor,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: const Text(
+                  'Enregistrer les modifications',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSectionTitle(String title) {
+    return Text(
+      title,
+      style: const TextStyle(
+        fontSize: 18,
+        fontWeight: FontWeight.bold,
+        color: Colors.black87,
+      ),
+    );
+  }
+
+  Widget _buildInfoCard(List<Widget> children) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withValues(alpha: 0.1),
+            spreadRadius: 1,
+            blurRadius: 5,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        children: children,
+      ),
+    );
+  }
+
+  Widget _buildInfoRow(IconData icon, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: Colors.grey[600]),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[500],
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.black87,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQuickAction({
+    required IconData icon,
+    required String label,
+    required Color color,
+    VoidCallback? onTap,
+  }) {
+    final isEnabled = onTap != null;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        decoration: BoxDecoration(
+          color: isEnabled ? color.withValues(alpha: 0.1) : Colors.grey[200],
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          children: [
+            Icon(
+              icon,
+              color: isEnabled ? color : Colors.grey,
+              size: 28,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: isEnabled ? color : Colors.grey,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTextField({
+    required TextEditingController controller,
+    required String label,
+    TextInputType? keyboardType,
+    IconData? prefixIcon,
+    String? Function(String?)? validator,
+  }) {
+    return TextFormField(
+      controller: controller,
+      keyboardType: keyboardType,
+      decoration: InputDecoration(
+        labelText: label,
+        prefixIcon: prefixIcon != null ? Icon(prefixIcon) : null,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        filled: true,
+        fillColor: Colors.white,
+      ),
+      validator: validator,
+    );
+  }
+
+  Widget _buildDropdown({
+    required String? value,
+    required String label,
+    required List<String> items,
+    required void Function(String?) onChanged,
+  }) {
+    return DropdownButtonFormField<String>(
+      value: items.contains(value) ? value : null,
+      decoration: InputDecoration(
+        labelText: label,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        filled: true,
+        fillColor: Colors.white,
+      ),
+      items: items.map((item) {
+        return DropdownMenuItem(
+          value: item,
+          child: Text(item),
+        );
+      }).toList(),
+      onChanged: onChanged,
+    );
+  }
+
+  IconData _getIconForType(String type) {
+    switch (type) {
+      case 'Supermarché':
+        return Icons.store;
+      case 'Grossiste':
+        return Icons.warehouse;
+      case 'Demi-grossiste':
+        return Icons.inventory_2;
+      case 'Distributeur':
+        return Icons.local_shipping;
+      default:
+        return Icons.shopping_bag;
+    }
+  }
+
+  Color _getPotentielColor(String potentiel) {
+    switch (potentiel) {
+      case 'A':
+        return Colors.green;
+      case 'B':
+        return Colors.orange;
+      case 'C':
+        return Colors.red;
+      default:
+        return Colors.grey;
+    }
+  }
+}
