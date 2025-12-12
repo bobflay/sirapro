@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:sirapro/models/client.dart';
 
 class ClientDetailPage extends StatefulWidget {
@@ -245,6 +246,87 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
       '${_client.address}, ${_client.quartier}, ${_client.ville}, Côte d\'Ivoire',
     );
     return 'https://www.google.com/maps/search/?api=1&query=$address';
+  }
+
+  /// Parses GPS coordinates from format "5.3600° N, 4.0083° W" to LatLng
+  /// Returns null if parsing fails
+  LatLng? _parseGpsCoordinates(String? gpsLocation) {
+    if (gpsLocation == null) return null;
+
+    try {
+      // Remove degree symbols and split by comma
+      final parts = gpsLocation.split(',');
+      if (parts.length != 2) return null;
+
+      final latPart = parts[0].trim();
+      final lngPart = parts[1].trim();
+
+      // Parse latitude (e.g., "5.3600° N" or "5.3600 N")
+      final latMatch = RegExp(r'([\d.]+)°?\s*([NS])?').firstMatch(latPart);
+      if (latMatch == null) return null;
+      double lat = double.parse(latMatch.group(1)!);
+      if (latMatch.group(2) == 'S') lat = -lat;
+
+      // Parse longitude (e.g., "4.0083° W" or "4.0083 W")
+      final lngMatch = RegExp(r'([\d.]+)°?\s*([EW])?').firstMatch(lngPart);
+      if (lngMatch == null) return null;
+      double lng = double.parse(lngMatch.group(1)!);
+      if (lngMatch.group(2) == 'W') lng = -lng;
+
+      return LatLng(lat, lng);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /// Returns LatLng for the client, using GPS coordinates if available
+  /// or a default location for the city
+  LatLng _getClientLocation() {
+    // Try to parse GPS coordinates first
+    final gpsLatLng = _parseGpsCoordinates(_client.gpsLocation);
+    if (gpsLatLng != null) return gpsLatLng;
+
+    // Default to Abidjan coordinates if no GPS
+    return const LatLng(5.3600, -4.0083);
+  }
+
+  Widget _buildMapWidget() {
+    final location = _getClientLocation();
+    return Container(
+      height: 200,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withValues(alpha: 0.2),
+            spreadRadius: 1,
+            blurRadius: 5,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: GoogleMap(
+        initialCameraPosition: CameraPosition(
+          target: location,
+          zoom: 15,
+        ),
+        markers: {
+          Marker(
+            markerId: MarkerId(_client.id),
+            position: location,
+            infoWindow: InfoWindow(
+              title: _client.boutiqueName,
+              snippet: _client.fullAddress,
+            ),
+          ),
+        },
+        zoomControlsEnabled: true,
+        mapToolbarEnabled: false,
+        myLocationButtonEnabled: false,
+        liteModeEnabled: true,
+      ),
+    );
   }
 
   Future<void> _activateClient() async {
@@ -523,6 +605,9 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
                   if (_client.gpsLocation != null)
                     _buildInfoRow(Icons.gps_fixed, 'GPS', _client.gpsLocation!),
                 ]),
+                const SizedBox(height: 12),
+                // Google Maps Widget
+                _buildMapWidget(),
                 const SizedBox(height: 12),
                 // Google Maps Button
                 SizedBox(
