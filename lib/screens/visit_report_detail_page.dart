@@ -594,6 +594,10 @@ class VisitReportDetailPage extends StatelessWidget {
 
   Future<void> _shareReport(BuildContext context) async {
     try {
+      // Get the render box before any async operations
+      final box = context.findRenderObject() as RenderBox?;
+      final sharePositionOrigin = box != null ? box.localToGlobal(Offset.zero) & box.size : null;
+
       // Show loading indicator
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -631,6 +635,7 @@ class VisitReportDetailPage extends StatelessWidget {
         [XFile(pdfFile.path)],
         subject: 'Rapport de visite - ${report.clientName}',
         text: 'Rapport de visite du ${_formatDate(report.startTime)}',
+        sharePositionOrigin: sharePositionOrigin,
       );
 
       // Show success message
