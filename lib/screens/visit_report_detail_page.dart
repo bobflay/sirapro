@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:share_plus/share_plus.dart';
 import '../models/visit_report.dart';
+import '../services/pdf_report_service.dart';
 
 /// Page d'affichage détaillé d'un rapport de visite existant
 class VisitReportDetailPage extends StatelessWidget {
@@ -590,13 +592,71 @@ class VisitReportDetailPage extends StatelessWidget {
     }
   }
 
-  void _shareReport(BuildContext context) {
-    // TODO: Implement report sharing
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Fonction de partage en cours de développement'),
-        backgroundColor: Colors.blue,
-      ),
-    );
+  Future<void> _shareReport(BuildContext context) async {
+    try {
+      // Show loading indicator
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  ),
+                ),
+                SizedBox(width: 16),
+                Text('Génération du PDF en cours...'),
+              ],
+            ),
+            duration: Duration(seconds: 30),
+            backgroundColor: Colors.blue,
+          ),
+        );
+      }
+
+      // Generate PDF
+      final pdfFile = await PdfReportService.generateVisitReportPdf(report);
+
+      // Hide loading indicator
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      }
+
+      // Share the PDF
+      final result = await Share.shareXFiles(
+        [XFile(pdfFile.path)],
+        subject: 'Rapport de visite - ${report.clientName}',
+        text: 'Rapport de visite du ${_formatDate(report.startTime)}',
+      );
+
+      // Show success message
+      if (context.mounted && result.status == ShareResultStatus.success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Rapport partagé avec succès'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      // Hide loading indicator
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      }
+
+      // Show error message
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur lors du partage: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 }
