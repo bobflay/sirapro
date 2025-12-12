@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:sirapro/screens/create_client_page.dart';
 import 'package:sirapro/screens/client_detail_page.dart';
 import 'package:sirapro/models/client.dart';
+import 'package:sirapro/data/mock_clients.dart';
 
 class ClientsPage extends StatefulWidget {
   const ClientsPage({super.key});
@@ -21,7 +22,7 @@ class _ClientsPageState extends State<ClientsPage> {
   @override
   void initState() {
     super.initState();
-    _clients = _getInitialClients();
+    _clients = MockClients.getClients();
     _filteredClients = _clients;
     _searchController.addListener(_filterClients);
   }
@@ -60,139 +61,6 @@ class _ClientsPageState extends State<ClientsPage> {
         return matchesSearch && matchesStatus && matchesType && matchesPotentiel;
       }).toList();
     });
-  }
-
-  List<Client> _getInitialClients() {
-    return [
-      Client(
-        id: '1',
-        boutiqueName: 'Supermarché Bonheur',
-        type: 'Supermarché',
-        gerantName: 'Kouassi Yao Jean',
-        phone: '+225 07 12 34 56 78',
-        address: 'Rue du Commerce',
-        quartier: 'Cocody Riviera',
-        ville: 'Abidjan',
-        zone: 'Abidjan - Cocody',
-        potentiel: 'A',
-        frequenceVisite: 'Hebdomadaire',
-        status: 'Actif',
-        isActive: true,
-        createdAt: DateTime.now().subtract(const Duration(days: 120)),
-      ),
-      Client(
-        id: '2',
-        boutiqueName: 'Alimentation Chez Adjoua',
-        type: 'Boutique',
-        gerantName: 'Adjoua Kouamé Marie',
-        phone: '+225 05 98 76 54 32',
-        whatsapp: '+225 05 98 76 54 32',
-        address: 'Boulevard de la Paix',
-        quartier: 'Yopougon Siporex',
-        ville: 'Abidjan',
-        zone: 'Abidjan - Yopougon',
-        potentiel: 'B',
-        frequenceVisite: 'Bimensuelle',
-        status: 'Actif',
-        isActive: true,
-        createdAt: DateTime.now().subtract(const Duration(days: 90)),
-      ),
-      Client(
-        id: '3',
-        boutiqueName: 'Demi-Gros Akissi',
-        type: 'Demi-grossiste',
-        gerantName: 'Akissi N\'Guessan Awa',
-        phone: '+225 07 11 22 33 44',
-        email: 'akissi.nguessan@email.ci',
-        address: 'Avenue Houphouët-Boigny',
-        quartier: 'Plateau',
-        ville: 'Abidjan',
-        zone: 'Abidjan - Plateau',
-        potentiel: 'A',
-        frequenceVisite: 'Hebdomadaire',
-        status: 'Actif',
-        isActive: true,
-        createdAt: DateTime.now().subtract(const Duration(days: 200)),
-      ),
-      Client(
-        id: '4',
-        boutiqueName: 'Épicerie du Marché',
-        type: 'Boutique',
-        gerantName: 'Koné Mamadou Ibrahim',
-        phone: '+225 01 55 66 77 88',
-        address: 'Près du Grand Marché',
-        quartier: 'Adjamé',
-        ville: 'Abidjan',
-        zone: 'Abidjan - Adjamé',
-        potentiel: 'B',
-        frequenceVisite: 'Bimensuelle',
-        status: 'Actif',
-        isActive: true,
-        createdAt: DateTime.now().subtract(const Duration(days: 60)),
-      ),
-      Client(
-        id: '5',
-        boutiqueName: 'Mini Market Traoré',
-        type: 'Boutique',
-        gerantName: 'Traoré Sékou Oumar',
-        phone: '+225 07 44 33 22 11',
-        address: 'Rue des Jardins',
-        quartier: 'Marcory Zone 4',
-        ville: 'Abidjan',
-        zone: 'Abidjan - Marcory',
-        potentiel: 'C',
-        frequenceVisite: 'Mensuelle',
-        status: 'Actif',
-        isActive: true,
-        createdAt: DateTime.now().subtract(const Duration(days: 45)),
-      ),
-      Client(
-        id: '6',
-        boutiqueName: 'Cash & Carry Diallo',
-        type: 'Grossiste',
-        gerantName: 'Diallo Fatoumata Binta',
-        phone: '+225 05 77 88 99 00',
-        whatsapp: '+225 05 77 88 99 00',
-        email: 'cashcarry.diallo@gmail.com',
-        address: 'Zone Industrielle',
-        quartier: 'Treichville',
-        ville: 'Abidjan',
-        zone: 'Abidjan - Treichville',
-        potentiel: 'A',
-        frequenceVisite: 'Hebdomadaire',
-        status: 'Actif',
-        isActive: true,
-        createdAt: DateTime.now().subtract(const Duration(days: 180)),
-      ),
-      Client(
-        id: '7',
-        boutiqueName: 'Boutique Bamba',
-        type: 'Boutique',
-        gerantName: 'Bamba Lacina',
-        phone: '+225 01 00 11 22 33',
-        address: 'Carrefour Principal',
-        quartier: 'Abobo Gare',
-        ville: 'Abidjan',
-        zone: 'Abidjan - Abobo',
-        status: 'En attente',
-        isActive: false,
-        createdAt: DateTime.now().subtract(const Duration(days: 5)),
-      ),
-      Client(
-        id: '8',
-        boutiqueName: 'Magasin Ouattara',
-        type: 'Boutique',
-        gerantName: 'Ouattara Siaka Dramane',
-        phone: '+225 07 22 33 44 55',
-        address: 'Avenue de la République',
-        quartier: 'Centre-ville',
-        ville: 'Bouaké',
-        zone: 'Bouaké - Centre',
-        status: 'En attente',
-        isActive: false,
-        createdAt: DateTime.now().subtract(const Duration(days: 2)),
-      ),
-    ];
   }
 
   int get _activeCount => _clients.where((c) => c.isActive).length;

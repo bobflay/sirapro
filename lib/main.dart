@@ -2,8 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:sirapro/screens/login_screen.dart';
 import 'package:sirapro/screens/home_page.dart';
 import 'package:sirapro/services/auth_service.dart';
+import 'package:intl/date_symbol_data_local.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await initializeDateFormatting('fr_FR', null);
   runApp(const MyApp());
 }
 

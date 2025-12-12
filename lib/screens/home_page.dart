@@ -5,6 +5,8 @@ import 'package:sirapro/screens/notifications_page.dart';
 import 'package:sirapro/screens/user_profile_page.dart';
 import 'package:sirapro/screens/sync_page.dart';
 import 'package:sirapro/screens/alertes_page.dart';
+import 'package:sirapro/screens/visits_page.dart';
+import 'package:sirapro/screens/orders_page.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -503,7 +505,12 @@ class HomePage extends StatelessWidget {
                       label: 'Visites',
                       color: Colors.orange,
                       onTap: () {
-                        // TODO: Navigate to Visites page
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const VisitsPage(),
+                          ),
+                        );
                       },
                     ),
                     _buildActionButton(
@@ -526,7 +533,12 @@ class HomePage extends StatelessWidget {
                       label: 'Commandes',
                       color: Colors.purple,
                       onTap: () {
-                        // TODO: Navigate to Commandes page
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const OrdersPage(),
+                          ),
+                        );
                       },
                     ),
                     _buildActionButton(

@@ -53,5 +53,18 @@
 	<string>Cette application nécessite l'accès à votre position pour suivre vos visites clients.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>Cette application nécessite l'accès à votre position pour afficher votre localisation et suivre vos visites clients.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Cette application nécessite l'accès à la caméra pour prendre des photos lors des visites clients (façade, rayons, etc.).</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Cette application nécessite l'accès à vos photos pour sélectionner des images à joindre aux rapports de visite.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Cette application souhaite sauvegarder des photos dans votre galerie.</string>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>comgooglemaps</string>
+		<string>googlechromes</string>
+		<string>https</string>
+		<string>http</string>
+	</array>
 </dict>
 </plist>
