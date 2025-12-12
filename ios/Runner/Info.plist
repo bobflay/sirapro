@@ -47,5 +47,11 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Cette application nécessite l'accès à votre position pour afficher votre localisation sur la carte et enregistrer la position GPS des clients.</string>
+	<key>NSLocationAlwaysUsageDescription</key>
+	<string>Cette application nécessite l'accès à votre position pour suivre vos visites clients.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Cette application nécessite l'accès à votre position pour afficher votre localisation et suivre vos visites clients.</string>
 </dict>
 </plist>
