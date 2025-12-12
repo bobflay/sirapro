@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../models/visit_report.dart';
 
 /// Page d'affichage détaillé d'un rapport de visite existant
@@ -536,16 +537,57 @@ class VisitReportDetailPage extends StatelessWidget {
     }
   }
 
-  void _openMap(BuildContext context) {
-    // TODO: Implement map opening with coordinates
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Ouverture carte: ${report.validationLatitude}, ${report.validationLongitude}',
-        ),
-        backgroundColor: Colors.blue,
-      ),
-    );
+  Future<void> _openMap(BuildContext context) async {
+    if (report.validationLatitude == null || report.validationLongitude == null) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Coordonnées GPS non disponibles'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+
+    final lat = report.validationLatitude!;
+    final lng = report.validationLongitude!;
+
+    // Try to open Google Maps first (preferred)
+    final googleMapsUrl = Uri.parse('https://www.google.com/maps/search/?api=1&query=$lat,$lng');
+
+    try {
+      if (await canLaunchUrl(googleMapsUrl)) {
+        await launchUrl(
+          googleMapsUrl,
+          mode: LaunchMode.externalApplication,
+        );
+      } else {
+        // Fallback to generic geo: URL
+        final geoUrl = Uri.parse('geo:$lat,$lng?q=$lat,$lng');
+        if (await canLaunchUrl(geoUrl)) {
+          await launchUrl(geoUrl);
+        } else {
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Impossible d\'ouvrir l\'application de cartes'),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
+        }
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur lors de l\'ouverture de la carte: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   void _shareReport(BuildContext context) {
