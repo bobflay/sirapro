@@ -10,6 +10,7 @@ import '../models/visit_report.dart';
 import '../models/order.dart';
 import '../data/mock_visit_reports.dart';
 import 'visit_report_page.dart';
+import 'visit_report_detail_page.dart';
 import 'order_creation_page.dart';
 
 class ClientDetailPage extends StatefulWidget {
@@ -1386,11 +1387,10 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
 
   void _viewVisitReportDetails(VisitReport report) {
     Navigator.pop(context); // Close the bottom sheet
-    // TODO: Navigate to a detailed view of the report
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Détails du rapport du ${_formatReportDate(report.startTime)}'),
-        backgroundColor: Colors.blue,
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => VisitReportDetailPage(report: report),
       ),
     );
   }
