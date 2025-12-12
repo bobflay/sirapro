@@ -230,7 +230,6 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
         action: SnackBarAction(
           label: 'Copier lien',
           onPressed: () {
-            // In a real app, we would use Clipboard.setData
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(content: Text('Lien: $mapsUrl')),
             );
@@ -524,7 +523,6 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
                     _buildInfoRow(Icons.gps_fixed, 'GPS', _client.gpsLocation!),
                 ]),
                 const SizedBox(height: 12),
-                // Google Maps Button
                 SizedBox(
                   width: double.infinity,
                   child: OutlinedButton.icon(
