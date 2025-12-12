@@ -12,11 +12,54 @@ class ClientsPage extends StatefulWidget {
 
 class _ClientsPageState extends State<ClientsPage> {
   late List<Client> _clients;
+  late List<Client> _filteredClients;
+  final TextEditingController _searchController = TextEditingController();
+  String _selectedStatusFilter = 'Tous';
+  String _selectedTypeFilter = 'Tous';
+  String _selectedPotentielFilter = 'Tous';
 
   @override
   void initState() {
     super.initState();
     _clients = _getInitialClients();
+    _filteredClients = _clients;
+    _searchController.addListener(_filterClients);
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _filterClients() {
+    setState(() {
+      _filteredClients = _clients.where((client) {
+        // Search filter
+        final searchLower = _searchController.text.toLowerCase();
+        final matchesSearch = searchLower.isEmpty ||
+            client.boutiqueName.toLowerCase().contains(searchLower) ||
+            client.gerantName.toLowerCase().contains(searchLower) ||
+            client.phone.toLowerCase().contains(searchLower) ||
+            client.quartier.toLowerCase().contains(searchLower) ||
+            client.ville.toLowerCase().contains(searchLower);
+
+        // Status filter
+        final matchesStatus = _selectedStatusFilter == 'Tous' ||
+            (_selectedStatusFilter == 'Actif' && client.isActive) ||
+            (_selectedStatusFilter == 'En attente' && !client.isActive);
+
+        // Type filter
+        final matchesType = _selectedTypeFilter == 'Tous' ||
+            client.type == _selectedTypeFilter;
+
+        // Potentiel filter
+        final matchesPotentiel = _selectedPotentielFilter == 'Tous' ||
+            client.potentiel == _selectedPotentielFilter;
+
+        return matchesSearch && matchesStatus && matchesType && matchesPotentiel;
+      }).toList();
+    });
   }
 
   List<Client> _getInitialClients() {
@@ -166,6 +209,7 @@ class _ClientsPageState extends State<ClientsPage> {
     if (newClient != null && mounted) {
       setState(() {
         _clients.insert(0, newClient);
+        _filterClients();
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -275,24 +319,176 @@ class _ClientsPageState extends State<ClientsPage> {
               ),
               const SizedBox(height: 24),
 
-              // Clients List
-              const Text(
-                'Liste des Clients',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
+              // Search Bar
+              TextField(
+                controller: _searchController,
+                decoration: InputDecoration(
+                  hintText: 'Rechercher un client...',
+                  prefixIcon: const Icon(Icons.search),
+                  suffixIcon: _searchController.text.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.clear),
+                          onPressed: () {
+                            _searchController.clear();
+                          },
+                        )
+                      : null,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  filled: true,
+                  fillColor: Colors.white,
                 ),
+              ),
+              const SizedBox(height: 16),
+
+              // Filter Chips
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    FilterChip(
+                      label: Text('Tous (${_filteredClients.length})'),
+                      selected: _selectedStatusFilter == 'Tous' &&
+                          _selectedTypeFilter == 'Tous' &&
+                          _selectedPotentielFilter == 'Tous',
+                      onSelected: (selected) {
+                        setState(() {
+                          _selectedStatusFilter = 'Tous';
+                          _selectedTypeFilter = 'Tous';
+                          _selectedPotentielFilter = 'Tous';
+                          _filterClients();
+                        });
+                      },
+                    ),
+                    const SizedBox(width: 8),
+                    FilterChip(
+                      label: const Text('Actif'),
+                      selected: _selectedStatusFilter == 'Actif',
+                      onSelected: (selected) {
+                        setState(() {
+                          _selectedStatusFilter = selected ? 'Actif' : 'Tous';
+                          _filterClients();
+                        });
+                      },
+                    ),
+                    const SizedBox(width: 8),
+                    FilterChip(
+                      label: const Text('En attente'),
+                      selected: _selectedStatusFilter == 'En attente',
+                      onSelected: (selected) {
+                        setState(() {
+                          _selectedStatusFilter = selected ? 'En attente' : 'Tous';
+                          _filterClients();
+                        });
+                      },
+                    ),
+                    const SizedBox(width: 8),
+                    PopupMenuButton<String>(
+                      child: Chip(
+                        label: Text(_selectedTypeFilter == 'Tous' ? 'Type' : _selectedTypeFilter),
+                        avatar: const Icon(Icons.arrow_drop_down, size: 18),
+                      ),
+                      onSelected: (value) {
+                        setState(() {
+                          _selectedTypeFilter = value;
+                          _filterClients();
+                        });
+                      },
+                      itemBuilder: (context) => [
+                        const PopupMenuItem(value: 'Tous', child: Text('Tous')),
+                        const PopupMenuItem(value: 'Boutique', child: Text('Boutique')),
+                        const PopupMenuItem(value: 'Supermarché', child: Text('Supermarché')),
+                        const PopupMenuItem(value: 'Demi-grossiste', child: Text('Demi-grossiste')),
+                        const PopupMenuItem(value: 'Grossiste', child: Text('Grossiste')),
+                        const PopupMenuItem(value: 'Distributeur', child: Text('Distributeur')),
+                      ],
+                    ),
+                    const SizedBox(width: 8),
+                    PopupMenuButton<String>(
+                      child: Chip(
+                        label: Text(_selectedPotentielFilter == 'Tous' ? 'Potentiel' : 'Pot. ${_selectedPotentielFilter}'),
+                        avatar: const Icon(Icons.arrow_drop_down, size: 18),
+                      ),
+                      onSelected: (value) {
+                        setState(() {
+                          _selectedPotentielFilter = value;
+                          _filterClients();
+                        });
+                      },
+                      itemBuilder: (context) => [
+                        const PopupMenuItem(value: 'Tous', child: Text('Tous')),
+                        const PopupMenuItem(value: 'A', child: Text('A')),
+                        const PopupMenuItem(value: 'B', child: Text('B')),
+                        const PopupMenuItem(value: 'C', child: Text('C')),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Clients List Header
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Liste des Clients',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  Text(
+                    '${_filteredClients.length} résultat(s)',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 12),
               Expanded(
-                child: ListView.builder(
-                  itemCount: _clients.length,
-                  itemBuilder: (context, index) {
-                    final client = _clients[index];
-                    return _buildClientCard(context, client, index);
-                  },
-                ),
+                child: _filteredClients.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.search_off,
+                              size: 64,
+                              color: Colors.grey[400],
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'Aucun client trouvé',
+                              style: TextStyle(
+                                fontSize: 18,
+                                color: Colors.grey[600],
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Essayez de modifier vos filtres',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey[500],
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    : ListView.builder(
+                        itemCount: _filteredClients.length,
+                        itemBuilder: (context, index) {
+                          final client = _filteredClients[index];
+                          final originalIndex = _clients.indexOf(client);
+                          return _buildClientCard(context, client, originalIndex);
+                        },
+                      ),
               ),
             ],
           ),
