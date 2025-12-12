@@ -5,49 +5,9 @@ import 'package:sirapro/screens/notifications_page.dart';
 import 'package:sirapro/screens/user_profile_page.dart';
 import 'package:sirapro/screens/sync_page.dart';
 import 'package:sirapro/screens/alertes_page.dart';
-import 'package:sirapro/screens/login_screen.dart';
-import 'package:sirapro/services/auth_service.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
-
-  Future<void> _handleLogout(BuildContext context) async {
-    final authService = AuthService();
-
-    // Show confirmation dialog
-    final shouldLogout = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Déconnexion'),
-        content: const Text('Voulez-vous vraiment vous déconnecter?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Annuler'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Déconnexion'),
-          ),
-        ],
-      ),
-    );
-
-    if (shouldLogout == true && context.mounted) {
-      // Clear login state
-      await authService.logout();
-
-      // Navigate to login screen
-      if (context.mounted) {
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(
-            builder: (context) => const LoginScreen(),
-          ),
-          (route) => false,
-        );
-      }
-    }
-  }
 
   String _getGreeting() {
     final hour = DateTime.now().hour;
@@ -228,28 +188,6 @@ class HomePage extends StatelessWidget {
             },
             tooltip: 'Notifications',
           ),
-          // Logout Menu
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert),
-            tooltip: 'Menu',
-            onSelected: (value) {
-              if (value == 'logout') {
-                _handleLogout(context);
-              }
-            },
-            itemBuilder: (context) => [
-              const PopupMenuItem(
-                value: 'logout',
-                child: Row(
-                  children: [
-                    Icon(Icons.logout, color: Colors.red),
-                    SizedBox(width: 8),
-                    Text('Déconnexion'),
-                  ],
-                ),
-              ),
-            ],
-          ),
           const SizedBox(width: 8),
         ],
       ),
@@ -332,10 +270,21 @@ class HomePage extends StatelessWidget {
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Icon(
-                                Icons.route,
-                                size: 40,
-                                color: Theme.of(context).primaryColor,
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const SizedBox(width: 24),
+                                  Icon(
+                                    Icons.route,
+                                    size: 40,
+                                    color: Theme.of(context).primaryColor,
+                                  ),
+                                  Icon(
+                                    Icons.chevron_right,
+                                    size: 24,
+                                    color: Colors.grey[400],
+                                  ),
+                                ],
                               ),
                               const SizedBox(height: 12),
                               const Text(
@@ -425,10 +374,21 @@ class HomePage extends StatelessWidget {
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Icon(
-                                Icons.shopping_bag,
-                                size: 40,
-                                color: Theme.of(context).primaryColor,
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const SizedBox(width: 24),
+                                  Icon(
+                                    Icons.shopping_bag,
+                                    size: 40,
+                                    color: Theme.of(context).primaryColor,
+                                  ),
+                                  Icon(
+                                    Icons.chevron_right,
+                                    size: 24,
+                                    color: Colors.grey[400],
+                                  ),
+                                ],
                               ),
                               const SizedBox(height: 12),
                               const Text(
