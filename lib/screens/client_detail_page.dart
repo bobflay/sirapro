@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:intl/intl.dart';
 import 'package:sirapro/models/client.dart';
 import 'package:sirapro/models/alert.dart';
 import 'package:sirapro/services/alert_service.dart';
@@ -7,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../models/visit.dart';
 import '../models/visit_report.dart';
 import '../models/order.dart';
+import '../data/mock_visit_reports.dart';
 import 'visit_report_page.dart';
 import 'order_creation_page.dart';
 
@@ -1049,7 +1051,351 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
     );
   }
 
-  Future<void> _createVisitReport() async {
+  void _createVisitReport() {
+    // Get previous reports for this client
+    final previousReports = getVisitReportsByClient(_client.id);
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.7,
+        minChildSize: 0.5,
+        maxChildSize: 0.95,
+        expand: false,
+        builder: (context, scrollController) => Column(
+          children: [
+            // Handle
+            Container(
+              margin: const EdgeInsets.symmetric(vertical: 12),
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            // Header
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Rapports de visite',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(),
+
+            // New Report Button
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+              child: SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    _navigateToNewVisitReport();
+                  },
+                  icon: const Icon(Icons.add),
+                  label: const Text('Nouveau Rapport de Visite'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
+            const Divider(),
+
+            // Previous Reports List
+            Expanded(
+              child: previousReports.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.assignment_outlined,
+                            size: 64,
+                            color: Colors.grey[400],
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            'Aucun rapport précédent',
+                            style: TextStyle(
+                              fontSize: 16,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Créez votre premier rapport',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.grey[500],
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  : ListView.builder(
+                      controller: scrollController,
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      itemCount: previousReports.length,
+                      itemBuilder: (context, index) {
+                        final report = previousReports[index];
+                        return _buildVisitReportCard(report);
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildVisitReportCard(VisitReport report) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: InkWell(
+        onTap: () => _viewVisitReportDetails(report),
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header with date and status
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _formatReportDate(report.startTime),
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Durée: ${_calculateDuration(report.startTime, report.endTime)}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  _buildReportStatusBadge(report.status),
+                ],
+              ),
+              const SizedBox(height: 12),
+
+              // Quick info
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey[50],
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Column(
+                  children: [
+                    _buildReportInfoRow(
+                      Icons.person,
+                      'Gérant présent',
+                      report.gerantPresent == true ? 'Oui' : report.gerantPresent == false ? 'Non' : 'Non renseigné',
+                      report.gerantPresent == true ? Colors.green : Colors.orange,
+                    ),
+                    const SizedBox(height: 8),
+                    _buildReportInfoRow(
+                      Icons.shopping_cart,
+                      'Commande',
+                      report.orderPlaced == true
+                          ? 'Oui${report.orderAmount != null ? ' (${report.orderAmount!.toStringAsFixed(0)} FCFA)' : ''}'
+                          : report.orderPlaced == false ? 'Non' : 'Non renseigné',
+                      report.orderPlaced == true ? Colors.green : Colors.grey,
+                    ),
+                    if (report.facadePhoto != null || report.shelfPhoto != null) ...[
+                      const SizedBox(height: 8),
+                      _buildReportInfoRow(
+                        Icons.photo_camera,
+                        'Photos',
+                        '${[report.facadePhoto, report.shelfPhoto, ...report.additionalPhotos].where((p) => p != null).length} photo(s)',
+                        Colors.blue,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+
+              // Comments preview
+              if (report.comments != null) ...[
+                const SizedBox(height: 12),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.comment, size: 16, color: Colors.grey[600]),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        report.comments!,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.grey[700],
+                          fontStyle: FontStyle.italic,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildReportStatusBadge(VisitReportStatus status) {
+    Color color;
+    IconData icon;
+    String label;
+
+    switch (status) {
+      case VisitReportStatus.incomplete:
+        color = Colors.orange;
+        icon = Icons.pending;
+        label = 'Incomplet';
+        break;
+      case VisitReportStatus.validated:
+        color = Colors.green;
+        icon = Icons.check_circle;
+        label = 'Validé';
+        break;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color, width: 1),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReportInfoRow(IconData icon, String label, String value, Color color) {
+    return Row(
+      children: [
+        Icon(icon, size: 16, color: color),
+        const SizedBox(width: 8),
+        Text(
+          '$label: ',
+          style: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: TextStyle(
+              fontSize: 13,
+              color: Colors.grey[700],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _formatReportDate(DateTime date) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
+    final reportDate = DateTime(date.year, date.month, date.day);
+
+    if (reportDate == today) {
+      return 'Aujourd\'hui ${DateFormat('HH:mm').format(date)}';
+    } else if (reportDate == yesterday) {
+      return 'Hier ${DateFormat('HH:mm').format(date)}';
+    } else if (now.difference(date).inDays < 7) {
+      return DateFormat('EEEE HH:mm', 'fr_FR').format(date);
+    } else {
+      return DateFormat('dd/MM/yyyy HH:mm').format(date);
+    }
+  }
+
+  String _calculateDuration(DateTime start, DateTime? end) {
+    if (end == null) return 'En cours';
+    final duration = end.difference(start);
+    final hours = duration.inHours;
+    final minutes = duration.inMinutes % 60;
+
+    if (hours > 0) {
+      return '${hours}h ${minutes}min';
+    } else {
+      return '${minutes}min';
+    }
+  }
+
+  void _viewVisitReportDetails(VisitReport report) {
+    Navigator.pop(context); // Close the bottom sheet
+    // TODO: Navigate to a detailed view of the report
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Détails du rapport du ${_formatReportDate(report.startTime)}'),
+        backgroundColor: Colors.blue,
+      ),
+    );
+  }
+
+  Future<void> _navigateToNewVisitReport() async {
     // Create a visit for this specific client
     final visit = Visit(
       id: 'visit-${DateTime.now().millisecondsSinceEpoch}',
