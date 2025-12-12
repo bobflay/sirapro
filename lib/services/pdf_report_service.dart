@@ -132,9 +132,9 @@ class PdfReportService {
           pw.SizedBox(height: 4),
           pw.Text(
             _formatDate(report.startTime),
-            style: pw.TextStyle(
+            style: const pw.TextStyle(
               fontSize: 14,
-              color: PdfColors.white70,
+              color: PdfColors.white,
             ),
           ),
           pw.SizedBox(height: 8),
