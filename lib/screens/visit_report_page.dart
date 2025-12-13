@@ -6,6 +6,7 @@ import '../models/order.dart';
 import '../models/client.dart';
 import '../services/photo_capture_service.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'order_creation_page.dart';
 
 /// Page de rapport de visite obligatoire
@@ -37,9 +38,33 @@ class _VisitReportPageState extends State<VisitReportPage> {
   bool? _orderPlaced;
   final TextEditingController _orderAmountController = TextEditingController();
   final TextEditingController _orderReferenceController = TextEditingController();
-  final TextEditingController _stockShortagesController = TextEditingController();
-  final TextEditingController _competitorActivityController = TextEditingController();
   final TextEditingController _commentsController = TextEditingController();
+
+  // Ruptures observées
+  final List<String> _stockShortageOptions = [
+    'Coca-Cola',
+    'Fanta',
+    'Sprite',
+    'Eau minérale',
+    'Jus de fruits',
+    'Biscuits',
+    'Bonbons',
+    'Autre',
+  ];
+  List<String> _selectedStockShortages = [];
+  final TextEditingController _stockShortagesOtherController = TextEditingController();
+
+  // Activité concurrente
+  final List<String> _competitorActivityOptions = [
+    'Promotion Pepsi',
+    'Nouveau distributeur',
+    'Prix réduits',
+    'Publicité visible',
+    'Stock important',
+    'Autre',
+  ];
+  List<String> _selectedCompetitorActivities = [];
+  final TextEditingController _competitorActivityOtherController = TextEditingController();
 
   bool _isSubmitting = false;
 
@@ -53,8 +78,8 @@ class _VisitReportPageState extends State<VisitReportPage> {
   void dispose() {
     _orderAmountController.dispose();
     _orderReferenceController.dispose();
-    _stockShortagesController.dispose();
-    _competitorActivityController.dispose();
+    _stockShortagesOtherController.dispose();
+    _competitorActivityOtherController.dispose();
     _commentsController.dispose();
     super.dispose();
   }
@@ -70,8 +95,17 @@ class _VisitReportPageState extends State<VisitReportPage> {
         _orderPlaced = report.orderPlaced;
         _orderAmountController.text = report.orderAmount?.toString() ?? '';
         _orderReferenceController.text = report.orderReference ?? '';
-        _stockShortagesController.text = report.stockShortages ?? '';
-        _competitorActivityController.text = report.competitorActivity ?? '';
+
+        // Parse stockShortages from string to list
+        if (report.stockShortages != null && report.stockShortages!.isNotEmpty) {
+          _selectedStockShortages = report.stockShortages!.split(', ');
+        }
+
+        // Parse competitorActivity from string to list
+        if (report.competitorActivity != null && report.competitorActivity!.isNotEmpty) {
+          _selectedCompetitorActivities = report.competitorActivity!.split(', ');
+        }
+
         _commentsController.text = report.comments ?? '';
       });
     }
@@ -79,6 +113,33 @@ class _VisitReportPageState extends State<VisitReportPage> {
 
   Future<void> _capturePhoto(PhotoType type) async {
     try {
+      // Vérifier d'abord les permissions
+      final permissionResult = await _photoService.checkAndRequestPermissions();
+
+      if (!permissionResult.isGranted) {
+        if (mounted) {
+          // Si les permissions sont refusées de manière permanente, montrer le dialogue
+          if (permissionResult.isPermanentlyDenied) {
+            _showPermissionDeniedDialog(permissionResult);
+          } else {
+            // Sinon, afficher simplement le message d'erreur
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(permissionResult.message),
+                backgroundColor: Colors.orange,
+                duration: const Duration(seconds: 4),
+                action: SnackBarAction(
+                  label: 'Réessayer',
+                  textColor: Colors.white,
+                  onPressed: () => _capturePhoto(type),
+                ),
+              ),
+            );
+          }
+        }
+        return;
+      }
+
       final photo = await _photoService.takePhoto(
         description: type == PhotoType.facade
             ? 'Photo façade'
@@ -114,14 +175,75 @@ class _VisitReportPageState extends State<VisitReportPage> {
       }
     } catch (e) {
       if (mounted) {
+        String errorMessage = e.toString();
+        // Extraire le message d'erreur si c'est une Exception
+        if (errorMessage.startsWith('Exception: ')) {
+          errorMessage = errorMessage.substring('Exception: '.length);
+        }
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Erreur: ${e.toString()}'),
+            content: Text(errorMessage),
             backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
           ),
         );
       }
     }
+  }
+
+  /// Affiche un dialogue pour expliquer comment activer les permissions
+  void _showPermissionDeniedDialog(PermissionResult permissionResult) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.warning, color: Colors.orange[700]),
+            const SizedBox(width: 8),
+            const Text('Permissions requises'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              permissionResult.message,
+              style: const TextStyle(fontSize: 15),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Pour activer les permissions sur iOS :',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            const Text('1. Allez dans Réglages > Confidentialité et sécurité'),
+            const Text('2. Choisissez "Appareil photo" ou "Services de localisation"'),
+            const Text('3. Activez la permission pour SIRA PRO'),
+            const Text('4. Revenez à l\'application'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Annuler'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () async {
+              Navigator.of(context).pop();
+              await openAppSettings();
+            },
+            icon: const Icon(Icons.settings),
+            label: const Text('Ouvrir les paramètres'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue,
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _removePhoto(PhotoType type, {int? index}) async {
@@ -197,6 +319,28 @@ class _VisitReportPageState extends State<VisitReportPage> {
         throw Exception('Impossible d\'obtenir la position GPS. Vérifiez que la localisation est activée.');
       }
 
+      // Build stock shortages string
+      String? stockShortagesText;
+      if (_selectedStockShortages.isNotEmpty) {
+        List<String> shortages = List.from(_selectedStockShortages);
+        if (_selectedStockShortages.contains('Autre') && _stockShortagesOtherController.text.trim().isNotEmpty) {
+          shortages.remove('Autre');
+          shortages.add(_stockShortagesOtherController.text.trim());
+        }
+        stockShortagesText = shortages.join(', ');
+      }
+
+      // Build competitor activity string
+      String? competitorActivityText;
+      if (_selectedCompetitorActivities.isNotEmpty) {
+        List<String> activities = List.from(_selectedCompetitorActivities);
+        if (_selectedCompetitorActivities.contains('Autre') && _competitorActivityOtherController.text.trim().isNotEmpty) {
+          activities.remove('Autre');
+          activities.add(_competitorActivityOtherController.text.trim());
+        }
+        competitorActivityText = activities.join(', ');
+      }
+
       // Créer le rapport de visite
       final report = VisitReport(
         id: widget.existingReport?.id ?? DateTime.now().millisecondsSinceEpoch.toString(),
@@ -219,12 +363,8 @@ class _VisitReportPageState extends State<VisitReportPage> {
         orderReference: _orderReferenceController.text.trim().isNotEmpty
             ? _orderReferenceController.text.trim()
             : null,
-        stockShortages: _stockShortagesController.text.trim().isNotEmpty
-            ? _stockShortagesController.text.trim()
-            : null,
-        competitorActivity: _competitorActivityController.text.trim().isNotEmpty
-            ? _competitorActivityController.text.trim()
-            : null,
+        stockShortages: stockShortagesText,
+        competitorActivity: competitorActivityText,
         comments: _commentsController.text.trim().isNotEmpty
             ? _commentsController.text.trim()
             : null,
@@ -748,38 +888,105 @@ class _VisitReportPageState extends State<VisitReportPage> {
             ],
 
             // Ruptures observées
-            TextFormField(
-              controller: _stockShortagesController,
-              decoration: const InputDecoration(
-                labelText: 'Ruptures observées (optionnel)',
-                hintText: 'Produits en rupture de stock...',
-                border: OutlineInputBorder(),
-              ),
-              maxLines: 2,
+            const Text(
+              'Ruptures observées (optionnel)',
+              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
             ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: _stockShortageOptions.map((option) {
+                final isSelected = _selectedStockShortages.contains(option);
+                return FilterChip(
+                  label: Text(option),
+                  selected: isSelected,
+                  onSelected: (selected) {
+                    setState(() {
+                      if (selected) {
+                        _selectedStockShortages.add(option);
+                      } else {
+                        _selectedStockShortages.remove(option);
+                      }
+                    });
+                  },
+                  selectedColor: Colors.blue.withValues(alpha: 0.3),
+                  checkmarkColor: Colors.blue,
+                );
+              }).toList(),
+            ),
+            // Text area for "Autre" option
+            if (_selectedStockShortages.contains('Autre')) ...[
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _stockShortagesOtherController,
+                decoration: const InputDecoration(
+                  labelText: 'Précisez les autres ruptures',
+                  hintText: 'Détaillez les produits en rupture...',
+                  border: OutlineInputBorder(),
+                ),
+                maxLines: 3,
+              ),
+            ],
             const SizedBox(height: 16),
 
             // Activité concurrente
-            TextFormField(
-              controller: _competitorActivityController,
-              decoration: const InputDecoration(
-                labelText: 'Activité concurrente (optionnel)',
-                hintText: 'Observations sur la concurrence...',
-                border: OutlineInputBorder(),
-              ),
-              maxLines: 2,
+            const Text(
+              'Activité concurrente (optionnel)',
+              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
             ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: _competitorActivityOptions.map((option) {
+                final isSelected = _selectedCompetitorActivities.contains(option);
+                return FilterChip(
+                  label: Text(option),
+                  selected: isSelected,
+                  onSelected: (selected) {
+                    setState(() {
+                      if (selected) {
+                        _selectedCompetitorActivities.add(option);
+                      } else {
+                        _selectedCompetitorActivities.remove(option);
+                      }
+                    });
+                  },
+                  selectedColor: Colors.orange.withValues(alpha: 0.3),
+                  checkmarkColor: Colors.orange,
+                );
+              }).toList(),
+            ),
+            // Text area for "Autre" option
+            if (_selectedCompetitorActivities.contains('Autre')) ...[
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _competitorActivityOtherController,
+                decoration: const InputDecoration(
+                  labelText: 'Précisez l\'activité concurrente',
+                  hintText: 'Détaillez l\'activité observée...',
+                  border: OutlineInputBorder(),
+                ),
+                maxLines: 3,
+              ),
+            ],
             const SizedBox(height: 16),
 
             // Commentaires libres
+            const Text(
+              'Commentaires libres (optionnel)',
+              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+            ),
+            const SizedBox(height: 8),
             TextFormField(
               controller: _commentsController,
               decoration: const InputDecoration(
-                labelText: 'Commentaires libres (optionnel)',
-                hintText: 'Observations générales...',
+                hintText: 'Observations générales, remarques, suggestions...',
                 border: OutlineInputBorder(),
               ),
-              maxLines: 3,
+              maxLines: 5,
+              minLines: 3,
             ),
           ],
         ),
@@ -788,31 +995,138 @@ class _VisitReportPageState extends State<VisitReportPage> {
   }
 
   Widget _buildSubmitButton() {
-    return SizedBox(
-      width: double.infinity,
-      height: 50,
-      child: ElevatedButton.icon(
-        onPressed: _isSubmitting ? null : _submitReport,
-        icon: _isSubmitting
-            ? const SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                ),
-              )
-            : const Icon(Icons.check_circle),
-        label: Text(
-          _isSubmitting ? 'Validation en cours...' : 'Valider la visite',
-          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+    return Row(
+      children: [
+        // Draft button
+        Expanded(
+          flex: 2,
+          child: SizedBox(
+            height: 50,
+            child: OutlinedButton.icon(
+              onPressed: _isSubmitting ? null : _saveDraft,
+              icon: const Icon(Icons.save_outlined),
+              label: const Text(
+                'Brouillon',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+              ),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.grey[700],
+                side: BorderSide(color: Colors.grey[400]!, width: 1.5),
+              ),
+            ),
+          ),
         ),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.green,
-          foregroundColor: Colors.white,
+        const SizedBox(width: 12),
+        // Validate button
+        Expanded(
+          flex: 3,
+          child: SizedBox(
+            height: 50,
+            child: ElevatedButton.icon(
+              onPressed: _isSubmitting ? null : _submitReport,
+              icon: _isSubmitting
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    )
+                  : const Icon(Icons.check_circle),
+              label: Text(
+                _isSubmitting ? 'En cours...' : 'Valider la visite',
+                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green,
+                foregroundColor: Colors.white,
+              ),
+            ),
+          ),
         ),
-      ),
+      ],
     );
+  }
+
+  Future<void> _saveDraft() async {
+    try {
+      // Build stock shortages string
+      String? stockShortagesText;
+      if (_selectedStockShortages.isNotEmpty) {
+        List<String> shortages = List.from(_selectedStockShortages);
+        if (_selectedStockShortages.contains('Autre') && _stockShortagesOtherController.text.trim().isNotEmpty) {
+          shortages.remove('Autre');
+          shortages.add(_stockShortagesOtherController.text.trim());
+        }
+        stockShortagesText = shortages.join(', ');
+      }
+
+      // Build competitor activity string
+      String? competitorActivityText;
+      if (_selectedCompetitorActivities.isNotEmpty) {
+        List<String> activities = List.from(_selectedCompetitorActivities);
+        if (_selectedCompetitorActivities.contains('Autre') && _competitorActivityOtherController.text.trim().isNotEmpty) {
+          activities.remove('Autre');
+          activities.add(_competitorActivityOtherController.text.trim());
+        }
+        competitorActivityText = activities.join(', ');
+      }
+
+      // Créer le rapport en brouillon
+      final report = VisitReport(
+        id: widget.existingReport?.id ?? DateTime.now().millisecondsSinceEpoch.toString(),
+        visitId: widget.visit.id,
+        clientId: widget.visit.clientId,
+        clientName: widget.visit.clientName,
+        startTime: widget.visit.actualStartTime ?? DateTime.now(),
+        endTime: DateTime.now(),
+        validationLatitude: null,
+        validationLongitude: null,
+        validationTime: null,
+        facadePhoto: _facadePhoto,
+        shelfPhoto: _shelfPhoto,
+        additionalPhotos: _additionalPhotos,
+        gerantPresent: _gerantPresent,
+        orderPlaced: _orderPlaced,
+        orderAmount: _orderPlaced == true && _orderAmountController.text.trim().isNotEmpty
+            ? double.tryParse(_orderAmountController.text.trim())
+            : null,
+        orderReference: _orderReferenceController.text.trim().isNotEmpty
+            ? _orderReferenceController.text.trim()
+            : null,
+        stockShortages: stockShortagesText,
+        competitorActivity: competitorActivityText,
+        comments: _commentsController.text.trim().isNotEmpty
+            ? _commentsController.text.trim()
+            : null,
+        status: VisitReportStatus.incomplete,
+        createdAt: widget.existingReport?.createdAt ?? DateTime.now(),
+        updatedAt: DateTime.now(),
+      );
+
+      // Retourner le brouillon
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Brouillon enregistré'),
+            backgroundColor: Colors.blue,
+            duration: Duration(seconds: 2),
+          ),
+        );
+        Navigator.of(context).pop(report);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur lors de l\'enregistrement: ${e.toString()}'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    }
   }
 
   String _formatTime(DateTime time) {

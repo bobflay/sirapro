@@ -7,6 +7,7 @@ import 'package:sirapro/screens/sync_page.dart';
 import 'package:sirapro/screens/alertes_page.dart';
 import 'package:sirapro/screens/visits_page.dart';
 import 'package:sirapro/screens/orders_page.dart';
+import 'package:sirapro/utils/app_colors.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -128,7 +129,7 @@ class HomePage extends StatelessWidget {
                     width: 10,
                     height: 10,
                     decoration: BoxDecoration(
-                      color: Colors.green,
+                      color: AppColors.success,
                       shape: BoxShape.circle,
                       border: Border.all(
                         color: Colors.white,
@@ -160,7 +161,7 @@ class HomePage extends StatelessWidget {
                   child: Container(
                     padding: const EdgeInsets.all(2),
                     decoration: BoxDecoration(
-                      color: Colors.red,
+                      color: AppColors.primary,
                       shape: BoxShape.circle,
                     ),
                     constraints: const BoxConstraints(
@@ -475,7 +476,7 @@ class HomePage extends StatelessWidget {
                       context,
                       icon: Icons.route,
                       label: 'Ma Tournée',
-                      color: Colors.blue,
+                      color: AppColors.primary,
                       onTap: () {
                         Navigator.push(
                           context,
@@ -489,7 +490,7 @@ class HomePage extends StatelessWidget {
                       context,
                       icon: Icons.people,
                       label: 'Clients',
-                      color: Colors.green,
+                      color: AppColors.success,
                       onTap: () {
                         Navigator.push(
                           context,
@@ -503,7 +504,7 @@ class HomePage extends StatelessWidget {
                       context,
                       icon: Icons.location_on,
                       label: 'Visites',
-                      color: Colors.orange,
+                      color: AppColors.secondary,
                       onTap: () {
                         Navigator.push(
                           context,
@@ -517,7 +518,7 @@ class HomePage extends StatelessWidget {
                       context,
                       icon: Icons.warning_amber,
                       label: 'Alertes',
-                      color: Colors.red,
+                      color: AppColors.primaryDark,
                       onTap: () {
                         Navigator.push(
                           context,
@@ -531,7 +532,7 @@ class HomePage extends StatelessWidget {
                       context,
                       icon: Icons.shopping_cart,
                       label: 'Commandes',
-                      color: Colors.purple,
+                      color: AppColors.secondaryDark,
                       onTap: () {
                         Navigator.push(
                           context,
@@ -545,7 +546,7 @@ class HomePage extends StatelessWidget {
                       context,
                       icon: Icons.map,
                       label: 'Carte',
-                      color: Colors.teal,
+                      color: AppColors.accent,
                       onTap: () {
                         // TODO: Navigate to Carte page
                       },

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'dart:io';
 import 'package:sirapro/models/client.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 class CreateClientPage extends StatefulWidget {
   const CreateClientPage({super.key});
@@ -86,6 +88,157 @@ class _CreateClientPageState extends State<CreateClientPage> {
     _villeController.dispose();
     _itineraireController.dispose();
     super.dispose();
+  }
+
+  Future<void> _captureGPSLocation() async {
+    try {
+      // Vérifier la permission de localisation
+      PermissionStatus locationStatus = await Permission.location.status;
+      if (!locationStatus.isGranted) {
+        locationStatus = await Permission.location.request();
+      }
+
+      if (!locationStatus.isGranted) {
+        if (mounted) {
+          // Vérifier si refusé de manière permanente
+          if (locationStatus.isPermanentlyDenied) {
+            _showLocationPermissionDialog();
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('La permission de localisation est requise pour enregistrer la position GPS.'),
+                backgroundColor: Colors.orange,
+                duration: Duration(seconds: 4),
+              ),
+            );
+          }
+        }
+        return;
+      }
+
+      // Vérifier si le service de localisation est activé
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Veuillez activer le service de localisation dans les paramètres de votre appareil.'),
+              backgroundColor: Colors.orange,
+              duration: Duration(seconds: 4),
+            ),
+          );
+        }
+        return;
+      }
+
+      // Afficher un indicateur de chargement
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  ),
+                ),
+                SizedBox(width: 16),
+                Text('Obtention de la position GPS...'),
+              ],
+            ),
+            duration: Duration(seconds: 10),
+          ),
+        );
+      }
+
+      // Obtenir la position GPS
+      Position position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 10),
+      );
+
+      setState(() {
+        _gpsLocation = '${position.latitude.toStringAsFixed(6)}, ${position.longitude.toStringAsFixed(6)}';
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).clearSnackBars();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Position GPS enregistrée avec succès'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).clearSnackBars();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur lors de l\'obtention de la position GPS: ${e.toString()}'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    }
+  }
+
+  void _showLocationPermissionDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.warning, color: Colors.orange[700]),
+            const SizedBox(width: 8),
+            const Text('Permission requise'),
+          ],
+        ),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'La permission de localisation a été refusée de manière permanente.',
+              style: TextStyle(fontSize: 15),
+            ),
+            SizedBox(height: 16),
+            Text(
+              'Pour activer la permission sur iOS :',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            SizedBox(height: 8),
+            Text('1. Allez dans Réglages > Confidentialité et sécurité'),
+            Text('2. Choisissez "Services de localisation"'),
+            Text('3. Activez la permission pour SIRA PRO'),
+            Text('4. Revenez à l\'application'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Annuler'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () async {
+              Navigator.of(context).pop();
+              await openAppSettings();
+            },
+            icon: const Icon(Icons.settings),
+            label: const Text('Ouvrir les paramètres'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue,
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _saveClient() async {
@@ -413,18 +566,7 @@ class _CreateClientPageState extends State<CreateClientPage> {
         ),
         const SizedBox(height: 16),
         ElevatedButton.icon(
-          onPressed: () {
-            // TODO: Get GPS location
-            setState(() {
-              _gpsLocation = '5.3600° N, 4.0083° W'; // Abidjan coordinates
-            });
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Position GPS enregistrée'),
-                backgroundColor: Colors.green,
-              ),
-            );
-          },
+          onPressed: _captureGPSLocation,
           icon: const Icon(Icons.my_location),
           label: const Text('Enregistrer la position GPS'),
           style: ElevatedButton.styleFrom(

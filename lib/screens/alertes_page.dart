@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:sirapro/models/alert.dart';
 import 'package:sirapro/services/alert_service.dart';
-import 'package:sirapro/services/photo_capture_service.dart';
+import 'package:sirapro/utils/app_colors.dart';
 import 'package:intl/intl.dart';
+import 'alert_creation_page.dart';
+import 'alert_detail_page.dart';
 
 class AlertesPage extends StatefulWidget {
   const AlertesPage({super.key});
@@ -12,181 +13,161 @@ class AlertesPage extends StatefulWidget {
   State<AlertesPage> createState() => _AlertesPageState();
 }
 
-class _AlertesPageState extends State<AlertesPage> {
+class _AlertesPageState extends State<AlertesPage> with SingleTickerProviderStateMixin {
   final AlertService _alertService = AlertService();
+  late TabController _tabController;
   List<Alert> _alerts = [];
   bool _isLoading = true;
+  AlertPriority? _selectedPriority;
 
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 3, vsync: this);
     _loadAlerts();
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadAlerts() async {
     setState(() => _isLoading = true);
-    final alerts = await _alertService.getPendingAlertsSorted();
+    final alerts = await _alertService.getAlerts();
     setState(() {
       _alerts = alerts;
       _isLoading = false;
     });
   }
 
+  List<Alert> get _activeAlerts {
+    return _alerts.where((alert) =>
+      alert.status == AlertStatus.pending ||
+      alert.status == AlertStatus.inProgress
+    ).toList();
+  }
+
+  List<Alert> get _resolvedAlerts {
+    return _alerts.where((alert) => alert.status == AlertStatus.resolved).toList();
+  }
+
+  List<Alert> _applyFilters(List<Alert> alerts) {
+    if (_selectedPriority != null) {
+      return alerts.where((alert) => alert.priority == _selectedPriority).toList();
+    }
+    return alerts;
+  }
+
   @override
   Widget build(BuildContext context) {
-    // Count alerts by priority
-    final urgentPriority =
-        _alerts.where((a) => a.priority == AlertPriority.urgent).length;
-    final highPriority =
-        _alerts.where((a) => a.priority == AlertPriority.high).length;
-    final mediumPriority =
-        _alerts.where((a) => a.priority == AlertPriority.medium).length;
-
     return Scaffold(
       backgroundColor: Colors.grey[100],
       appBar: AppBar(
         title: const Text('Alertes'),
-        backgroundColor: Theme.of(context).primaryColor,
-        foregroundColor: Colors.white,
+        backgroundColor: AppColors.primary,
+        foregroundColor: AppColors.white,
         elevation: 0,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.add),
-            onPressed: () => _showCreateAlertDialog(context),
-            tooltip: 'Créer une alerte',
-          ),
-        ],
+        bottom: TabBar(
+          controller: _tabController,
+          indicatorColor: Colors.white,
+          labelColor: Colors.white,
+          unselectedLabelColor: Colors.white70,
+          tabs: [
+            Tab(
+              text: 'Toutes',
+              icon: Badge(
+                label: Text('${_alerts.length}'),
+                child: const Icon(Icons.list_alt),
+              ),
+            ),
+            Tab(
+              text: 'Actives',
+              icon: Badge(
+                label: Text('${_activeAlerts.length}'),
+                child: const Icon(Icons.warning_amber),
+              ),
+            ),
+            Tab(
+              text: 'Résolues',
+              icon: Badge(
+                label: Text('${_resolvedAlerts.length}'),
+                child: const Icon(Icons.check_circle),
+              ),
+            ),
+          ],
+        ),
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : SafeArea(
-              child: Column(
-                children: [
-                  // Priority Summary
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(16),
-                    color: Colors.white,
-                    child: Row(
-                      children: [
-                        _buildPriorityBadge(
-                          count: urgentPriority + highPriority,
-                          label: 'Urgentes',
-                          color: Colors.red,
-                        ),
-                        const SizedBox(width: 12),
-                        _buildPriorityBadge(
-                          count: mediumPriority,
-                          label: 'Moyennes',
-                          color: Colors.orange,
-                        ),
-                        const Spacer(),
-                        Text(
-                          '${_alerts.length} alertes',
-                          style: TextStyle(
-                            color: Colors.grey[600],
-                            fontSize: 14,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 8),
+          : Column(
+              children: [
+                // Filters
+                _buildFiltersSection(),
 
-                  // Alerts List
-                  Expanded(
-                    child: _alerts.isEmpty
-                        ? Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  Icons.check_circle_outline,
-                                  size: 64,
-                                  color: Colors.grey[400],
-                                ),
-                                const SizedBox(height: 16),
-                                Text(
-                                  'Aucune alerte en attente',
-                                  style: TextStyle(
-                                    color: Colors.grey[600],
-                                    fontSize: 16,
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                TextButton.icon(
-                                  onPressed: () =>
-                                      _showCreateAlertDialog(context),
-                                  icon: const Icon(Icons.add),
-                                  label: const Text('Créer une alerte'),
-                                ),
-                              ],
-                            ),
-                          )
-                        : RefreshIndicator(
-                            onRefresh: _loadAlerts,
-                            child: ListView.builder(
-                              padding:
-                                  const EdgeInsets.symmetric(horizontal: 16),
-                              itemCount: _alerts.length,
-                              itemBuilder: (context, index) {
-                                final alert = _alerts[index];
-                                return _buildAlertCard(context, alert);
-                              },
-                            ),
-                          ),
+                // Tabs content
+                Expanded(
+                  child: TabBarView(
+                    controller: _tabController,
+                    children: [
+                      _buildAlertsList(_applyFilters(_alerts)),
+                      _buildAlertsList(_applyFilters(_activeAlerts)),
+                      _buildAlertsList(_applyFilters(_resolvedAlerts)),
+                    ],
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => _showCreateAlertDialog(context),
-        backgroundColor: Colors.orange,
-        child: const Icon(Icons.add, color: Colors.white),
-      ),
     );
   }
 
-  Widget _buildPriorityBadge({
-    required int count,
-    required String label,
-    required Color color,
-  }) {
+  Widget _buildFiltersSection() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withValues(alpha: 0.3)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+      color: AppColors.white,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 20,
-            height: 20,
-            decoration: BoxDecoration(
-              color: color,
-              shape: BoxShape.circle,
-            ),
-            child: Center(
-              child: Text(
-                count.toString(),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
+          const Text(
+            'Filtrer par priorité',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: Colors.grey,
             ),
           ),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: TextStyle(
-              color: color,
-              fontWeight: FontWeight.w600,
-              fontSize: 12,
+          const SizedBox(height: 8),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                _buildFilterChip(
+                  label: 'Toutes',
+                  isSelected: _selectedPriority == null,
+                  onTap: () {
+                    setState(() {
+                      _selectedPriority = null;
+                    });
+                  },
+                ),
+                const SizedBox(width: 8),
+                ...AlertPriority.values.map((priority) {
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: _buildFilterChip(
+                      label: _getAlertPriorityLabel(priority),
+                      isSelected: _selectedPriority == priority,
+                      onTap: () {
+                        setState(() {
+                          _selectedPriority = _selectedPriority == priority ? null : priority;
+                        });
+                      },
+                      color: _getPriorityColor(priority),
+                    ),
+                  );
+                }),
+              ],
             ),
           ),
         ],
@@ -194,252 +175,311 @@ class _AlertesPageState extends State<AlertesPage> {
     );
   }
 
-  Widget _buildAlertCard(BuildContext context, Alert alert) {
+  Widget _buildFilterChip({
+    required String label,
+    required bool isSelected,
+    required VoidCallback onTap,
+    Color? color,
+  }) {
+    final chipColor = color ?? AppColors.primary;
+    return FilterChip(
+      selected: isSelected,
+      label: Text(label),
+      onSelected: (_) => onTap(),
+      selectedColor: chipColor,
+      labelStyle: TextStyle(
+        color: isSelected ? AppColors.white : AppColors.black,
+        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+        fontSize: 12,
+      ),
+    );
+  }
+
+  Widget _buildAlertsList(List<Alert> alerts) {
+    if (alerts.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.check_circle_outline,
+              size: 64,
+              color: Colors.grey[400],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Aucune alerte',
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.grey[600],
+              ),
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              onPressed: _navigateToCreateAlert,
+              icon: const Icon(Icons.add),
+              label: const Text('Créer une alerte'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: AppColors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _loadAlerts,
+      child: ListView.builder(
+        padding: const EdgeInsets.all(16),
+        itemCount: alerts.length + 1, // +1 for the create button
+        itemBuilder: (context, index) {
+          // Show create button at the end
+          if (index == alerts.length) {
+            return Padding(
+              padding: const EdgeInsets.only(top: 8, bottom: 24),
+              child: SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: ElevatedButton.icon(
+                  onPressed: _navigateToCreateAlert,
+                  icon: const Icon(Icons.add),
+                  label: const Text(
+                    'Créer une alerte',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: AppColors.white,
+                  ),
+                ),
+              ),
+            );
+          }
+
+          final alert = alerts[index];
+          return _buildAlertCard(alert);
+        },
+      ),
+    );
+  }
+
+  Widget _buildAlertCard(Alert alert) {
     IconData icon;
     Color iconColor;
 
     switch (alert.type) {
       case AlertType.ruptureGrave:
         icon = Icons.inventory_2;
-        iconColor = Colors.purple;
+        iconColor = AppColors.primary;
         break;
       case AlertType.litigeProbleme:
         icon = Icons.payment;
-        iconColor = Colors.red;
+        iconColor = AppColors.primaryDark;
         break;
       case AlertType.problemeRayon:
         icon = Icons.shelves;
-        iconColor = Colors.orange;
+        iconColor = AppColors.secondary;
         break;
       case AlertType.risquePerte:
         icon = Icons.warning;
-        iconColor = Colors.red;
+        iconColor = AppColors.primary;
         break;
       case AlertType.demandeSpeciale:
         icon = Icons.star;
-        iconColor = Colors.blue;
+        iconColor = AppColors.secondaryDark;
         break;
       case AlertType.opportunite:
         icon = Icons.lightbulb;
-        iconColor = Colors.amber;
+        iconColor = AppColors.secondary;
         break;
       case AlertType.other:
         icon = Icons.info;
-        iconColor = Colors.teal;
+        iconColor = AppColors.accent;
         break;
     }
 
-    Color priorityColor;
-    switch (alert.priority) {
-      case AlertPriority.urgent:
-        priorityColor = Colors.red[900]!;
+    Color priorityColor = _getPriorityColor(alert.priority);
+
+    Color statusColor;
+    IconData statusIcon;
+
+    switch (alert.status) {
+      case AlertStatus.pending:
+        statusColor = AppColors.secondary;
+        statusIcon = Icons.pending;
         break;
-      case AlertPriority.high:
-        priorityColor = Colors.red;
+      case AlertStatus.inProgress:
+        statusColor = AppColors.primary;
+        statusIcon = Icons.autorenew;
         break;
-      case AlertPriority.medium:
-        priorityColor = Colors.orange;
-        break;
-      case AlertPriority.low:
-        priorityColor = Colors.grey;
+      case AlertStatus.resolved:
+        statusColor = AppColors.success;
+        statusIcon = Icons.check_circle;
         break;
     }
 
-    return Container(
+    return Card(
       margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
+      elevation: 2,
+      shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withValues(alpha: 0.1),
-            spreadRadius: 1,
-            blurRadius: 5,
-            offset: const Offset(0, 2),
-          ),
-        ],
-        border: (alert.priority == AlertPriority.urgent ||
-                alert.priority == AlertPriority.high)
-            ? Border.all(color: Colors.red.withValues(alpha: 0.3), width: 1)
-            : null,
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Header with icon and priority
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: iconColor.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        onTap: () => _showAlertDetails(alert),
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: iconColor.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(
+                      icon,
+                      color: iconColor,
+                      size: 24,
+                    ),
                   ),
-                  child: Icon(
-                    icon,
-                    color: iconColor,
-                    size: 24,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              alert.title,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
-                              ),
-                            ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: priorityColor.withValues(alpha: 0.1),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Text(
-                              alert.priorityLabel,
-                              style: TextStyle(
-                                color: priorityColor,
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        alert.typeLabel,
-                        style: TextStyle(
-                          color: Colors.grey[600],
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        alert.description,
-                        style: TextStyle(
-                          color: Colors.grey[700],
-                          fontSize: 14,
-                        ),
-                      ),
-                      if (alert.clientName != null) ...[
-                        const SizedBox(height: 8),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
                         Row(
                           children: [
-                            Icon(
-                              Icons.store,
-                              size: 14,
-                              color: Colors.grey[500],
-                            ),
-                            const SizedBox(width: 4),
                             Expanded(
                               child: Text(
-                                alert.clientName!,
-                                style: TextStyle(
-                                  color: Colors.grey[500],
-                                  fontSize: 12,
+                                alert.title,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
                                 ),
-                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: priorityColor.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text(
+                                alert.priorityLabel,
+                                style: TextStyle(
+                                  color: priorityColor,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
                               ),
                             ),
                           ],
                         ),
-                      ],
-                      if (alert.photoUrls.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            Text(
+                              alert.typeLabel,
+                              style: TextStyle(
+                                color: Colors.grey[600],
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Icon(statusIcon, size: 12, color: statusColor),
+                            const SizedBox(width: 4),
+                            Text(
+                              _getStatusLabel(alert.status),
+                              style: TextStyle(
+                                color: statusColor,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          alert.description,
+                          style: TextStyle(
+                            color: Colors.grey[700],
+                            fontSize: 14,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        if (alert.clientName != null) ...[
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.store,
+                                size: 14,
+                                color: Colors.grey[500],
+                              ),
+                              const SizedBox(width: 4),
+                              Expanded(
+                                child: Text(
+                                  alert.clientName!,
+                                  style: TextStyle(
+                                    color: Colors.grey[500],
+                                    fontSize: 12,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                         const SizedBox(height: 8),
                         Row(
                           children: [
-                            Icon(
-                              Icons.photo,
-                              size: 14,
-                              color: Colors.grey[500],
-                            ),
-                            const SizedBox(width: 4),
                             Text(
-                              '${alert.photoUrls.length} photo(s)',
+                              _formatDate(alert.createdAt),
                               style: TextStyle(
-                                color: Colors.grey[500],
-                                fontSize: 12,
+                                color: Colors.grey[400],
+                                fontSize: 11,
                               ),
                             ),
+                            if (alert.photoUrls.isNotEmpty) ...[
+                              const SizedBox(width: 12),
+                              Icon(Icons.photo, size: 12, color: Colors.grey[400]),
+                              const SizedBox(width: 4),
+                              Text(
+                                '${alert.photoUrls.length}',
+                                style: TextStyle(
+                                  color: Colors.grey[400],
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ],
+                            if (alert.location != null) ...[
+                              const SizedBox(width: 12),
+                              Icon(Icons.location_on, size: 12, color: Colors.grey[400]),
+                            ],
                           ],
                         ),
                       ],
-                      if (alert.location != null) ...[
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.location_on,
-                              size: 14,
-                              color: Colors.grey[500],
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              'GPS: ${alert.location!.latitude.toStringAsFixed(4)}, ${alert.location!.longitude.toStringAsFixed(4)}',
-                              style: TextStyle(
-                                color: Colors.grey[500],
-                                fontSize: 12,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                      const SizedBox(height: 8),
-                      Text(
-                        _formatDate(alert.createdAt),
-                        style: TextStyle(
-                          color: Colors.grey[400],
-                          fontSize: 11,
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
-                ),
-              ],
-            ),
-          ),
-          // Action buttons
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(
-              color: Colors.grey[50],
-              borderRadius: const BorderRadius.only(
-                bottomLeft: Radius.circular(12),
-                bottomRight: Radius.circular(12),
+                ],
               ),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                TextButton(
-                  onPressed: () => _resolveAlert(alert),
-                  child: const Text('Résoudre'),
-                ),
-                const SizedBox(width: 8),
-                TextButton(
-                  onPressed: () => _showAlertDetails(alert),
-                  child: const Text('Détails'),
-                ),
-              ],
-            ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -461,493 +501,36 @@ class _AlertesPageState extends State<AlertesPage> {
     }
   }
 
-  Future<void> _resolveAlert(Alert alert) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Résoudre l\'alerte'),
-        content: const Text('Voulez-vous marquer cette alerte comme résolue ?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Annuler'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.green,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Résoudre'),
-          ),
-        ],
+  void _showAlertDetails(Alert alert) async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => AlertDetailPage(alert: alert),
       ),
     );
 
-    if (confirm == true) {
-      final success = await _alertService.resolveAlert(alert.id);
-      if (success && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Alerte marquée comme résolue'),
-            backgroundColor: Colors.green,
-          ),
-        );
-        _loadAlerts();
-      }
+    // Reload if alert was resolved
+    if (result == true && mounted) {
+      _loadAlerts();
     }
   }
 
-  void _showAlertDetails(Alert alert) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(alert.title),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildDetailRow('Type', alert.typeLabel),
-              _buildDetailRow('Priorité', alert.priorityLabel),
-              _buildDetailRow('Description', alert.description),
-              if (alert.clientName != null)
-                _buildDetailRow('Client', alert.clientName!),
-              _buildDetailRow(
-                  'Créée le', DateFormat('dd/MM/yyyy HH:mm').format(alert.createdAt)),
-              if (alert.photoUrls.isNotEmpty)
-                _buildDetailRow('Photos', '${alert.photoUrls.length} photo(s)'),
-              if (alert.location != null)
-                _buildDetailRow(
-                  'Localisation',
-                  '${alert.location!.latitude.toStringAsFixed(6)}, ${alert.location!.longitude.toStringAsFixed(6)}',
-                ),
-            ],
-          ),
+  void _navigateToCreateAlert() async {
+    final Alert? alert = await Navigator.push<Alert>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const AlertCreationPage(),
+      ),
+    );
+
+    if (alert != null && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Alerte "${alert.title}" créée avec succès'),
+          backgroundColor: Colors.green,
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Fermer'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDetailRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: const TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 12,
-              color: Colors.grey,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            value,
-            style: const TextStyle(fontSize: 14),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _showCreateAlertDialog(BuildContext context) async {
-    final TextEditingController titleController = TextEditingController();
-    final TextEditingController descriptionController = TextEditingController();
-    final TextEditingController clientNameController = TextEditingController();
-    AlertType selectedType = AlertType.other;
-    AlertPriority selectedPriority = AlertPriority.medium;
-    List<String> photoUrls = [];
-    GpsLocation? gpsLocation;
-    bool captureGps = false;
-
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
-          title: const Row(
-            children: [
-              Icon(Icons.warning_amber, color: Colors.orange),
-              SizedBox(width: 8),
-              Text('Créer une alerte'),
-            ],
-          ),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Type dropdown
-                const Text(
-                  'Type d\'alerte',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                DropdownButtonFormField<AlertType>(
-                  initialValue: selectedType,
-                  decoration: const InputDecoration(
-                    border: OutlineInputBorder(),
-                    contentPadding:
-                        EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  ),
-                  isExpanded: true,
-                  items: AlertType.values
-                      .map((type) => DropdownMenuItem(
-                            value: type,
-                            child: Text(
-                              _getAlertTypeLabel(type),
-                              style: const TextStyle(fontSize: 13),
-                            ),
-                          ))
-                      .toList(),
-                  onChanged: (value) {
-                    if (value != null) {
-                      setState(() {
-                        selectedType = value;
-                      });
-                    }
-                  },
-                ),
-                const SizedBox(height: 16),
-
-                // Priority dropdown
-                const Text(
-                  'Priorité',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                DropdownButtonFormField<AlertPriority>(
-                  initialValue: selectedPriority,
-                  decoration: const InputDecoration(
-                    border: OutlineInputBorder(),
-                    contentPadding:
-                        EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  ),
-                  items: AlertPriority.values
-                      .map((priority) => DropdownMenuItem(
-                            value: priority,
-                            child: Text(_getAlertPriorityLabel(priority)),
-                          ))
-                      .toList(),
-                  onChanged: (value) {
-                    if (value != null) {
-                      setState(() {
-                        selectedPriority = value;
-                      });
-                    }
-                  },
-                ),
-                const SizedBox(height: 16),
-
-                // Title field
-                const Text(
-                  'Titre',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: titleController,
-                  decoration: const InputDecoration(
-                    hintText: 'Titre de l\'alerte',
-                    border: OutlineInputBorder(),
-                    contentPadding: EdgeInsets.all(12),
-                  ),
-                ),
-                const SizedBox(height: 16),
-
-                // Description field
-                const Text(
-                  'Description',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: descriptionController,
-                  maxLines: 3,
-                  decoration: const InputDecoration(
-                    hintText: 'Décrivez l\'alerte...',
-                    border: OutlineInputBorder(),
-                    contentPadding: EdgeInsets.all(12),
-                  ),
-                ),
-                const SizedBox(height: 16),
-
-                // Client name (optional)
-                const Text(
-                  'Nom du client (optionnel)',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: clientNameController,
-                  decoration: const InputDecoration(
-                    hintText: 'Nom du client',
-                    border: OutlineInputBorder(),
-                    contentPadding: EdgeInsets.all(12),
-                  ),
-                ),
-                const SizedBox(height: 16),
-
-                // Photo capture
-                Row(
-                  children: [
-                    const Text(
-                      'Photos',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const Spacer(),
-                    Text(
-                      '${photoUrls.length} photo(s)',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey[600],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () async {
-                          final photo = await PhotoCaptureService()
-                              .takePhoto();
-                          if (photo != null) {
-                            setState(() {
-                              photoUrls.add(photo.path);
-                            });
-                          }
-                        },
-                        icon: const Icon(Icons.camera_alt, size: 20),
-                        label: const Text('Appareil photo'),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () async {
-                          final photo = await PhotoCaptureService()
-                              .pickFromGallery();
-                          if (photo != null) {
-                            setState(() {
-                              photoUrls.add(photo.path);
-                            });
-                          }
-                        },
-                        icon: const Icon(Icons.photo_library, size: 20),
-                        label: const Text('Galerie'),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-
-                // GPS location
-                Row(
-                  children: [
-                    const Text(
-                      'Capturer la localisation GPS',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const Spacer(),
-                    Switch(
-                      value: captureGps,
-                      onChanged: (value) async {
-                        if (value) {
-                          try {
-                            final position = await Geolocator.getCurrentPosition(
-                              desiredAccuracy: LocationAccuracy.high,
-                            );
-                            setState(() {
-                              captureGps = true;
-                              gpsLocation = GpsLocation(
-                                latitude: position.latitude,
-                                longitude: position.longitude,
-                                timestamp: DateTime.now(),
-                              );
-                            });
-                          } catch (e) {
-                            if (context.mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text(
-                                      'Impossible de capturer la localisation'),
-                                  backgroundColor: Colors.red,
-                                ),
-                              );
-                            }
-                            setState(() {
-                              captureGps = false;
-                            });
-                          }
-                        } else {
-                          setState(() {
-                            captureGps = false;
-                            gpsLocation = null;
-                          });
-                        }
-                      },
-                    ),
-                  ],
-                ),
-                if (gpsLocation != null) ...[
-                  const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.green[50],
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.green[200]!),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.check_circle,
-                            color: Colors.green, size: 16),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'GPS: ${gpsLocation!.latitude.toStringAsFixed(4)}, ${gpsLocation!.longitude.toStringAsFixed(4)}',
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                titleController.dispose();
-                descriptionController.dispose();
-                clientNameController.dispose();
-                Navigator.pop(context, false);
-              },
-              child: const Text('Annuler'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                if (titleController.text.trim().isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Veuillez saisir un titre'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                  return;
-                }
-                if (descriptionController.text.trim().isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Veuillez saisir une description'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                  return;
-                }
-
-                Navigator.pop(context, true);
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.orange,
-                foregroundColor: Colors.white,
-              ),
-              child: const Text('Créer alerte'),
-            ),
-          ],
-        ),
-      ),
-    );
-
-    if (result == true) {
-      // Create the alert
-      final alert = Alert(
-        id: _alertService.generateAlertId(),
-        title: titleController.text.trim(),
-        description: descriptionController.text.trim(),
-        type: selectedType,
-        priority: selectedPriority,
-        clientName: clientNameController.text.trim().isEmpty
-            ? null
-            : clientNameController.text.trim(),
-        createdAt: DateTime.now(),
-        photoUrls: photoUrls,
-        location: gpsLocation,
       );
-
-      final success = await _alertService.createAlert(alert);
-
-      if (success && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Alerte "${alert.title}" créée avec succès'),
-            backgroundColor: Colors.green,
-          ),
-        );
-        _loadAlerts();
-      } else if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Erreur lors de la création de l\'alerte'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-
-    titleController.dispose();
-    descriptionController.dispose();
-    clientNameController.dispose();
-  }
-
-  String _getAlertTypeLabel(AlertType type) {
-    switch (type) {
-      case AlertType.ruptureGrave:
-        return 'Rupture grave';
-      case AlertType.litigeProbleme:
-        return 'Litige / problème de paiement';
-      case AlertType.problemeRayon:
-        return 'Problème important au rayon';
-      case AlertType.risquePerte:
-        return 'Risque de perte du client';
-      case AlertType.demandeSpeciale:
-        return 'Demande spéciale du client';
-      case AlertType.opportunite:
-        return 'Nouvelle opportunité importante';
-      case AlertType.other:
-        return 'Autre';
+      _loadAlerts();
     }
   }
 
@@ -961,6 +544,30 @@ class _AlertesPageState extends State<AlertesPage> {
         return 'Moyenne';
       case AlertPriority.low:
         return 'Faible';
+    }
+  }
+
+  String _getStatusLabel(AlertStatus status) {
+    switch (status) {
+      case AlertStatus.pending:
+        return 'En attente';
+      case AlertStatus.inProgress:
+        return 'En cours';
+      case AlertStatus.resolved:
+        return 'Résolue';
+    }
+  }
+
+  Color _getPriorityColor(AlertPriority priority) {
+    switch (priority) {
+      case AlertPriority.urgent:
+        return AppColors.urgent;
+      case AlertPriority.high:
+        return AppColors.high;
+      case AlertPriority.medium:
+        return AppColors.medium;
+      case AlertPriority.low:
+        return AppColors.low;
     }
   }
 }

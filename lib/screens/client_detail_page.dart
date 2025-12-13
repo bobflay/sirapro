@@ -1,17 +1,20 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:intl/intl.dart';
 import 'package:sirapro/models/client.dart';
 import 'package:sirapro/models/alert.dart';
-import 'package:sirapro/services/alert_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/visit.dart';
 import '../models/visit_report.dart';
 import '../models/order.dart';
 import '../data/mock_visit_reports.dart';
+import '../data/mock_orders.dart';
 import 'visit_report_page.dart';
 import 'visit_report_detail_page.dart';
 import 'order_creation_page.dart';
+import 'order_detail_page.dart';
+import 'alert_creation_page.dart';
 
 class ClientDetailPage extends StatefulWidget {
   final Client client;
@@ -25,6 +28,12 @@ class ClientDetailPage extends StatefulWidget {
 class _ClientDetailPageState extends State<ClientDetailPage> {
   late Client _client;
   bool _isEditing = false;
+
+  // Visit tracking
+  bool _isVisitActive = false;
+  DateTime? _visitStartTime;
+  Duration _visitDuration = Duration.zero;
+  Timer? _visitTimer;
 
   // Form controllers
   late TextEditingController _boutiqueNameController;
@@ -104,6 +113,7 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
 
   @override
   void dispose() {
+    _visitTimer?.cancel();
     _boutiqueNameController.dispose();
     _gerantNameController.dispose();
     _phoneController.dispose();
@@ -113,6 +123,64 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
     _quartierController.dispose();
     _villeController.dispose();
     super.dispose();
+  }
+
+  void _startVisit() {
+    setState(() {
+      _isVisitActive = true;
+      _visitStartTime = DateTime.now();
+      _visitDuration = Duration.zero;
+    });
+
+    // Update the timer every second
+    _visitTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (_visitStartTime != null) {
+        setState(() {
+          _visitDuration = DateTime.now().difference(_visitStartTime!);
+        });
+      }
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Visite démarrée - compteur activé'),
+        backgroundColor: Colors.green,
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
+  void _stopVisit() {
+    _visitTimer?.cancel();
+
+    final duration = _visitDuration;
+    final hours = duration.inHours;
+    final minutes = duration.inMinutes % 60;
+    final seconds = duration.inSeconds % 60;
+
+    String durationText;
+    if (hours > 0) {
+      durationText = '${hours}h ${minutes}min ${seconds}s';
+    } else if (minutes > 0) {
+      durationText = '${minutes}min ${seconds}s';
+    } else {
+      durationText = '${seconds}s';
+    }
+
+    setState(() {
+      _isVisitActive = false;
+      _visitTimer = null;
+    });
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Visite terminée - Durée: $durationText'),
+          backgroundColor: Colors.blue,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
   }
 
   void _toggleEdit() {
@@ -599,6 +667,14 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
 
           const SizedBox(height: 20),
 
+          // Visit Timer Slider
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: _buildVisitTimerSlider(),
+          ),
+
+          const SizedBox(height: 20),
+
           // Quick Actions
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -983,26 +1059,30 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
           ),
         ],
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
+      child: Column(
         children: [
-          _buildQuickActionButton(
-            icon: Icons.assignment,
-            label: 'Rapport\nde visite',
-            color: Colors.blue,
-            onTap: _createVisitReport,
-          ),
-          _buildQuickActionButton(
-            icon: Icons.shopping_cart,
-            label: 'Passer\ncommande',
-            color: Colors.green,
-            onTap: _createOrder,
-          ),
-          _buildQuickActionButton(
-            icon: Icons.warning_amber,
-            label: 'Créer\nalerte',
-            color: Colors.orange,
-            onTap: _createAlert,
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _buildQuickActionButton(
+                icon: Icons.assignment,
+                label: 'Rapport\nde visite',
+                color: Colors.blue,
+                onTap: _createVisitReport, // Always enabled to view reports
+              ),
+              _buildQuickActionButton(
+                icon: Icons.shopping_cart,
+                label: 'Commandes',
+                color: Colors.green,
+                onTap: _viewOrders, // Always enabled to view and create orders
+              ),
+              _buildQuickActionButton(
+                icon: Icons.warning_amber,
+                label: 'Créer\nalerte',
+                color: Colors.orange,
+                onTap: _isVisitActive ? _createAlert : null,
+              ),
+            ],
           ),
         ],
       ),
@@ -1013,40 +1093,56 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
     required IconData icon,
     required String label,
     required Color color,
-    required VoidCallback onTap,
+    VoidCallback? onTap,
   }) {
+    final isEnabled = onTap != null;
+
     return InkWell(
-      onTap: onTap,
+      onTap: isEnabled
+          ? onTap
+          : () {
+              // Show message when trying to tap disabled button
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Veuillez démarrer la visite pour accéder à cette action'),
+                  backgroundColor: Colors.orange,
+                  duration: Duration(seconds: 2),
+                ),
+              );
+            },
       borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.1),
-                shape: BoxShape.circle,
+      child: Opacity(
+        opacity: isEnabled ? 1.0 : 0.4,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  icon,
+                  color: color,
+                  size: 28,
+                ),
               ),
-              child: Icon(
-                icon,
-                color: color,
-                size: 28,
+              const SizedBox(height: 8),
+              Text(
+                label,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey[800],
+                  height: 1.2,
+                ),
               ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              label,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: Colors.grey[800],
-                height: 1.2,
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -1107,14 +1203,16 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
               child: SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
-                  onPressed: () {
-                    Navigator.pop(context);
-                    _navigateToNewVisitReport();
-                  },
+                  onPressed: _isVisitActive
+                      ? () {
+                          Navigator.pop(context);
+                          _navigateToNewVisitReport();
+                        }
+                      : null,
                   icon: const Icon(Icons.add),
                   label: const Text('Nouveau Rapport de Visite'),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green,
+                    backgroundColor: _isVisitActive ? Colors.green : Colors.grey,
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(
@@ -1124,6 +1222,35 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
                 ),
               ),
             ),
+
+            // Warning message if visit not active
+            if (!_isVisitActive)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.info_outline, color: Colors.orange[700], size: 20),
+                      const SizedBox(width: 8),
+                      const Expanded(
+                        child: Text(
+                          'Démarrez la visite pour créer un nouveau rapport',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.black87,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
 
             const Divider(),
 
@@ -1495,243 +1622,378 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
     }
   }
 
-  Future<void> _createAlert() async {
-    final TextEditingController titleController = TextEditingController();
-    final TextEditingController descriptionController = TextEditingController();
-    AlertType selectedType = AlertType.other;
-    AlertPriority selectedPriority = AlertPriority.medium;
+  void _viewOrders() {
+    // Get orders for this client
+    final clientOrders = getOrdersByClient(_client.id);
 
-    final result = await showDialog<bool>(
+    showModalBottomSheet(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
-          title: const Row(
-            children: [
-              Icon(Icons.warning_amber, color: Colors.orange),
-              SizedBox(width: 8),
-              Text('Créer une alerte'),
-            ],
-          ),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Client : ${_client.boutiqueName}',
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'Type d\'alerte',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                DropdownButtonFormField<AlertType>(
-                  initialValue: selectedType,
-                  decoration: const InputDecoration(
-                    border: OutlineInputBorder(),
-                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  ),
-                  isExpanded: true,
-                  items: AlertType.values
-                      .map((type) => DropdownMenuItem(
-                            value: type,
-                            child: Text(
-                              _getAlertTypeLabel(type),
-                              style: const TextStyle(fontSize: 13),
-                            ),
-                          ))
-                      .toList(),
-                  onChanged: (value) {
-                    if (value != null) {
-                      setState(() {
-                        selectedType = value;
-                      });
-                    }
-                  },
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'Priorité',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                DropdownButtonFormField<AlertPriority>(
-                  initialValue: selectedPriority,
-                  decoration: const InputDecoration(
-                    border: OutlineInputBorder(),
-                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  ),
-                  items: AlertPriority.values
-                      .map((priority) => DropdownMenuItem(
-                            value: priority,
-                            child: Text(_getAlertPriorityLabel(priority)),
-                          ))
-                      .toList(),
-                  onChanged: (value) {
-                    if (value != null) {
-                      setState(() {
-                        selectedPriority = value;
-                      });
-                    }
-                  },
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'Titre',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: titleController,
-                  decoration: const InputDecoration(
-                    hintText: 'Titre de l\'alerte',
-                    border: OutlineInputBorder(),
-                    contentPadding: EdgeInsets.all(12),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'Description',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: descriptionController,
-                  maxLines: 3,
-                  decoration: const InputDecoration(
-                    hintText: 'Décrivez l\'alerte...',
-                    border: OutlineInputBorder(),
-                    contentPadding: EdgeInsets.all(12),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                titleController.dispose();
-                descriptionController.dispose();
-                Navigator.pop(context, false);
-              },
-              child: const Text('Annuler'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                if (titleController.text.trim().isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Veuillez saisir un titre'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                  return;
-                }
-                if (descriptionController.text.trim().isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Veuillez saisir une description'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                  return;
-                }
-
-                Navigator.pop(context, true);
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.orange,
-                foregroundColor: Colors.white,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.7,
+        minChildSize: 0.5,
+        maxChildSize: 0.95,
+        expand: false,
+        builder: (context, scrollController) => Column(
+          children: [
+            // Handle
+            Container(
+              margin: const EdgeInsets.symmetric(vertical: 12),
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2),
               ),
-              child: const Text('Créer alerte'),
+            ),
+            // Header
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Commandes',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(),
+
+            // New Order Button
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+              child: SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _isVisitActive
+                      ? () {
+                          Navigator.pop(context);
+                          _createOrder();
+                        }
+                      : null,
+                  icon: const Icon(Icons.add),
+                  label: const Text('Nouvelle Commande'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _isVisitActive ? Colors.green : Colors.grey,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
+            // Warning message if visit not active
+            if (!_isVisitActive)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.info_outline, color: Colors.orange[700], size: 20),
+                      const SizedBox(width: 8),
+                      const Expanded(
+                        child: Text(
+                          'Démarrez la visite pour créer une nouvelle commande',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.black87,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+            const Divider(),
+
+            // Previous Orders List
+            Expanded(
+              child: clientOrders.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.shopping_cart_outlined,
+                            size: 64,
+                            color: Colors.grey[400],
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            'Aucune commande précédente',
+                            style: TextStyle(
+                              fontSize: 16,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Créez votre première commande',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.grey[500],
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  : ListView.builder(
+                      controller: scrollController,
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      itemCount: clientOrders.length,
+                      itemBuilder: (context, index) {
+                        final order = clientOrders[index];
+                        return _buildOrderCard(order);
+                      },
+                    ),
             ),
           ],
         ),
       ),
     );
+  }
 
-    if (result == true) {
-      // Create the alert
-      final alert = Alert(
-        id: AlertService().generateAlertId(),
-        title: titleController.text.trim(),
-        description: descriptionController.text.trim(),
-        type: selectedType,
-        priority: selectedPriority,
-        clientId: _client.id,
-        clientName: _client.boutiqueName,
-        createdAt: DateTime.now(),
+  Widget _buildOrderCard(Order order) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: InkWell(
+        onTap: () {
+          Navigator.pop(context); // Close the bottom sheet
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => OrderDetailPage(order: order),
+            ),
+          );
+        },
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Commande #${order.id.substring(order.id.length - 6)}',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _formatOrderDate(order.createdAt),
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  _buildOrderStatusBadge(order.status),
+                ],
+              ),
+              const SizedBox(height: 12),
+
+              // Summary
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey[50],
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.shopping_basket, size: 16, color: Colors.grey[700]),
+                        const SizedBox(width: 8),
+                        Text(
+                          '${order.totalItemsCount} article${order.totalItemsCount > 1 ? 's' : ''}',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.grey[700],
+                          ),
+                        ),
+                      ],
+                    ),
+                    Text(
+                      order.formattedTotal,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.green,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              // Notes preview
+              if (order.notes != null) ...[
+                const SizedBox(height: 8),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.note, size: 14, color: Colors.grey[600]),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        order.notes!,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey[600],
+                          fontStyle: FontStyle.italic,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOrderStatusBadge(OrderStatus status) {
+    Color color;
+    IconData icon;
+    String label;
+
+    switch (status) {
+      case OrderStatus.draft:
+        color = Colors.grey;
+        icon = Icons.edit;
+        label = 'Brouillon';
+        break;
+      case OrderStatus.pending:
+        color = Colors.orange;
+        icon = Icons.pending;
+        label = 'En attente';
+        break;
+      case OrderStatus.sent:
+        color = Colors.blue;
+        icon = Icons.send;
+        label = 'Envoyée';
+        break;
+      case OrderStatus.confirmed:
+        color = Colors.teal;
+        icon = Icons.check_circle_outline;
+        label = 'Confirmée';
+        break;
+      case OrderStatus.processing:
+        color = Colors.purple;
+        icon = Icons.autorenew;
+        label = 'En traitement';
+        break;
+      case OrderStatus.delivered:
+        color = Colors.green;
+        icon = Icons.check_circle;
+        label = 'Livrée';
+        break;
+      case OrderStatus.cancelled:
+        color = Colors.red;
+        icon = Icons.cancel;
+        label = 'Annulée';
+        break;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color, width: 1),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatOrderDate(DateTime date) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
+    final orderDate = DateTime(date.year, date.month, date.day);
+
+    if (orderDate == today) {
+      return 'Aujourd\'hui ${DateFormat('HH:mm').format(date)}';
+    } else if (orderDate == yesterday) {
+      return 'Hier ${DateFormat('HH:mm').format(date)}';
+    } else if (now.difference(date).inDays < 7) {
+      return DateFormat('EEEE HH:mm', 'fr_FR').format(date);
+    } else {
+      return DateFormat('dd/MM/yyyy HH:mm').format(date);
+    }
+  }
+
+  Future<void> _createAlert() async {
+    final Alert? alert = await Navigator.push<Alert>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => AlertCreationPage(client: _client),
+      ),
+    );
+
+    if (alert != null && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Alerte "${alert.title}" créée avec succès'),
+          backgroundColor: Colors.green,
+        ),
       );
-
-      final success = await AlertService().createAlert(alert);
-
-      if (success && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Alerte "${alert.title}" créée avec succès'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      } else if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Erreur lors de la création de l\'alerte'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-
-    titleController.dispose();
-    descriptionController.dispose();
-  }
-
-  String _getAlertTypeLabel(AlertType type) {
-    switch (type) {
-      case AlertType.ruptureGrave:
-        return 'Rupture grave';
-      case AlertType.litigeProbleme:
-        return 'Litige / problème de paiement';
-      case AlertType.problemeRayon:
-        return 'Problème important au rayon';
-      case AlertType.risquePerte:
-        return 'Risque de perte du client';
-      case AlertType.demandeSpeciale:
-        return 'Demande spéciale du client';
-      case AlertType.opportunite:
-        return 'Nouvelle opportunité importante';
-      case AlertType.other:
-        return 'Autre';
-    }
-  }
-
-  String _getAlertPriorityLabel(AlertPriority priority) {
-    switch (priority) {
-      case AlertPriority.urgent:
-        return 'Urgente';
-      case AlertPriority.high:
-        return 'Haute';
-      case AlertPriority.medium:
-        return 'Moyenne';
-      case AlertPriority.low:
-        return 'Faible';
     }
   }
 
@@ -1904,5 +2166,219 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
       default:
         return Colors.grey;
     }
+  }
+
+  Widget _buildVisitTimerSlider() {
+    if (_isVisitActive) {
+      // Active visit - show timer and stop slider
+      final hours = _visitDuration.inHours;
+      final minutes = _visitDuration.inMinutes % 60;
+      final seconds = _visitDuration.inSeconds % 60;
+
+      return Column(
+        children: [
+          // Timer display
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            decoration: BoxDecoration(
+              color: Colors.green.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.green, width: 2),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.timer, color: Colors.green, size: 24),
+                const SizedBox(width: 12),
+                Text(
+                  hours > 0
+                      ? '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}'
+                      : '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}',
+                  style: const TextStyle(
+                    fontSize: 32,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.green,
+                    fontFeatures: [FontFeature.tabularFigures()],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          // Stop slider
+          _buildSlideToAction(
+            label: 'Glissez pour terminer',
+            icon: Icons.stop,
+            color: Colors.red,
+            onSlideComplete: _stopVisit,
+          ),
+        ],
+      );
+    } else {
+      // No active visit - show start slider
+      return _buildSlideToAction(
+        label: 'Glissez pour démarrer la visite',
+        icon: Icons.play_arrow,
+        color: Colors.green,
+        onSlideComplete: _startVisit,
+      );
+    }
+  }
+
+  Widget _buildSlideToAction({
+    required String label,
+    required IconData icon,
+    required Color color,
+    required VoidCallback onSlideComplete,
+  }) {
+    return SlideToActionWidget(
+      label: label,
+      icon: icon,
+      color: color,
+      onSlideComplete: onSlideComplete,
+    );
+  }
+}
+
+// Custom slide-to-action widget (like slide to unlock)
+class SlideToActionWidget extends StatefulWidget {
+  final String label;
+  final IconData icon;
+  final Color color;
+  final VoidCallback onSlideComplete;
+
+  const SlideToActionWidget({
+    super.key,
+    required this.label,
+    required this.icon,
+    required this.color,
+    required this.onSlideComplete,
+  });
+
+  @override
+  State<SlideToActionWidget> createState() => _SlideToActionWidgetState();
+}
+
+class _SlideToActionWidgetState extends State<SlideToActionWidget> {
+  double _dragPosition = 0;
+  bool _isCompleted = false;
+
+  static const double _sliderHeight = 60;
+  static const double _thumbSize = 50;
+
+  void _onHorizontalDragUpdate(DragUpdateDetails details, double maxWidth) {
+    setState(() {
+      _dragPosition = (_dragPosition + details.delta.dx)
+          .clamp(0.0, maxWidth - _thumbSize);
+    });
+  }
+
+  void _onHorizontalDragEnd(DragEndDetails details, double maxWidth) {
+    // If dragged more than 80% of the way, complete the action
+    if (_dragPosition > (maxWidth - _thumbSize) * 0.8) {
+      setState(() {
+        _dragPosition = maxWidth - _thumbSize;
+        _isCompleted = true;
+      });
+      widget.onSlideComplete();
+
+      // Reset after a short delay
+      Future.delayed(const Duration(milliseconds: 300), () {
+        if (mounted) {
+          setState(() {
+            _dragPosition = 0;
+            _isCompleted = false;
+          });
+        }
+      });
+    } else {
+      // Animate back to start
+      setState(() {
+        _dragPosition = 0;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxWidth = constraints.maxWidth;
+
+        return Container(
+          height: _sliderHeight,
+          decoration: BoxDecoration(
+            color: widget.color.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(_sliderHeight / 2),
+            border: Border.all(
+              color: widget.color.withValues(alpha: 0.3),
+              width: 2,
+            ),
+          ),
+          child: Stack(
+            children: [
+              // Progress background
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                height: _sliderHeight,
+                width: _dragPosition + _thumbSize,
+                decoration: BoxDecoration(
+                  color: widget.color.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(_sliderHeight / 2),
+                ),
+              ),
+
+              // Label
+              Center(
+                child: Text(
+                  widget.label,
+                  style: TextStyle(
+                    color: widget.color,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
+                ),
+              ),
+
+              // Draggable thumb
+              AnimatedPositioned(
+                duration: _isCompleted
+                    ? const Duration(milliseconds: 300)
+                    : Duration.zero,
+                curve: Curves.easeOut,
+                left: _dragPosition,
+                top: (_sliderHeight - _thumbSize) / 2,
+                child: GestureDetector(
+                  onHorizontalDragUpdate: (details) =>
+                      _onHorizontalDragUpdate(details, maxWidth),
+                  onHorizontalDragEnd: (details) =>
+                      _onHorizontalDragEnd(details, maxWidth),
+                  child: Container(
+                    width: _thumbSize,
+                    height: _thumbSize,
+                    decoration: BoxDecoration(
+                      color: widget.color,
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.2),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Icon(
+                      widget.icon,
+                      color: Colors.white,
+                      size: 28,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 }

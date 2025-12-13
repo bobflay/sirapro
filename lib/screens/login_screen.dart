@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:sirapro/screens/home_page.dart';
 import 'package:sirapro/services/auth_service.dart';
+import 'package:sirapro/main.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -43,12 +43,10 @@ class _LoginScreenState extends State<LoginScreen> {
         // Save login state
         await _authService.saveLoginState(email);
 
-        // Navigate to home page
+        // Navigate to AuthChecker to trigger permission check
         if (!mounted) return;
         Navigator.of(context).pushReplacement(
-          MaterialPageRoute(
-            builder: (context) => const HomePage(),
-          ),
+          MaterialPageRoute(builder: (context) => const AuthChecker()),
         );
       } else {
         setState(() {

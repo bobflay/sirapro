@@ -6,25 +6,77 @@ import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as path;
 import '../models/visit_report.dart';
 
+/// Résultat de la vérification des permissions
+class PermissionResult {
+  final bool isGranted;
+  final bool isPermanentlyDenied;
+  final String message;
+  final List<String> deniedPermissions;
+
+  PermissionResult({
+    required this.isGranted,
+    this.isPermanentlyDenied = false,
+    required this.message,
+    this.deniedPermissions = const [],
+  });
+}
+
 /// Service pour la capture de photos géolocalisées et horodatées
 class PhotoCaptureService {
   final ImagePicker _picker = ImagePicker();
 
   /// Vérifie et demande les permissions nécessaires
-  Future<bool> checkAndRequestPermissions() async {
-    // Permission caméra
+  /// Retourne un PermissionResult avec le statut et les détails
+  Future<PermissionResult> checkAndRequestPermissions() async {
+    print('🔍 Vérification des permissions pour la caméra et la localisation...');
+
+    // Vérifier d'abord l'état actuel avec permission_handler
     PermissionStatus cameraStatus = await Permission.camera.status;
-    if (!cameraStatus.isGranted) {
-      cameraStatus = await Permission.camera.request();
+    PermissionStatus locationStatus = await Permission.locationWhenInUse.status;
+
+    print('📸 État caméra: $cameraStatus');
+    print('📍 État localisation: $locationStatus');
+
+    // Si les permissions sont déjà refusées de manière permanente
+    bool cameraPermanentlyDenied = cameraStatus.isPermanentlyDenied;
+    bool locationPermanentlyDenied = locationStatus.isPermanentlyDenied;
+
+    if (cameraPermanentlyDenied || locationPermanentlyDenied) {
+      List<String> deniedPermissions = [];
+      if (cameraPermanentlyDenied) deniedPermissions.add('Caméra');
+      if (locationPermanentlyDenied) deniedPermissions.add('Localisation');
+
+      print('❌ Permissions refusées définitivement: ${deniedPermissions.join(", ")}');
+
+      return PermissionResult(
+        isGranted: false,
+        isPermanentlyDenied: true,
+        message: 'Les permissions ${deniedPermissions.join(" et ")} ont été refusées de manière permanente. Veuillez les activer dans les paramètres de l\'application.',
+        deniedPermissions: deniedPermissions,
+      );
     }
 
-    // Permission localisation
-    PermissionStatus locationStatus = await Permission.location.status;
-    if (!locationStatus.isGranted) {
-      locationStatus = await Permission.location.request();
+    // Si les permissions sont déjà accordées
+    if (cameraStatus.isGranted && locationStatus.isGranted) {
+      print('✅ Toutes les permissions sont déjà accordées');
+      return PermissionResult(
+        isGranted: true,
+        message: 'Permissions accordées',
+      );
     }
 
-    return cameraStatus.isGranted && locationStatus.isGranted;
+    // Pour iOS, on ne demande PAS les permissions ici avec permission_handler
+    // car cela cause un bug où elles sont marquées comme permanentlyDenied
+    // Les permissions seront demandées automatiquement par ImagePicker et Geolocator
+    // quand on les utilise pour la première fois
+
+    // Si les permissions ne sont pas encore accordées, on laisse passer
+    // et on laisse ImagePicker/Geolocator les demander nativement
+    print('⚠️ Permissions pas encore accordées - seront demandées par les plugins natifs');
+    return PermissionResult(
+      isGranted: true, // On dit que c'est OK, les plugins natifs vont demander
+      message: 'Permissions seront demandées',
+    );
   }
 
   /// Vérifie si les services de localisation sont activés
@@ -74,9 +126,9 @@ class PhotoCaptureService {
   }) async {
     try {
       // Vérifier les permissions
-      bool hasPermissions = await checkAndRequestPermissions();
-      if (!hasPermissions) {
-        throw Exception('Permissions caméra ou localisation refusées');
+      PermissionResult permissionResult = await checkAndRequestPermissions();
+      if (!permissionResult.isGranted) {
+        throw Exception(permissionResult.message);
       }
 
       // Capture de la photo

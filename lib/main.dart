@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:sirapro/screens/login_screen.dart';
 import 'package:sirapro/screens/home_page.dart';
 import 'package:sirapro/services/auth_service.dart';
+import 'package:sirapro/utils/app_colors.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
 void main() async {
@@ -17,26 +18,8 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'SIRA PRO',
-      theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-        useMaterial3: true,
-      ),
+      title: 'SIRA PRO - Carré d\'Or',
+      theme: AppTheme.lightTheme,
       home: const AuthChecker(),
     );
   }
@@ -57,11 +40,13 @@ class _AuthCheckerState extends State<AuthChecker> {
   @override
   void initState() {
     super.initState();
-    _checkLoginStatus();
+    _initialize();
   }
 
-  Future<void> _checkLoginStatus() async {
+  Future<void> _initialize() async {
+    // Vérifier l'état de connexion
     final isLoggedIn = await _authService.isLoggedIn();
+
     setState(() {
       _isLoggedIn = isLoggedIn;
       _isLoading = false;
@@ -78,6 +63,8 @@ class _AuthCheckerState extends State<AuthChecker> {
       );
     }
 
+    // Ne plus afficher automatiquement la page de permissions
+    // Les permissions seront demandées quand l'utilisateur en a besoin
     return _isLoggedIn ? const HomePage() : const LoginScreen();
   }
 }
