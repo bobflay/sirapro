@@ -10,6 +10,7 @@ import '../models/visit_report.dart';
 import '../models/order.dart';
 import '../data/mock_visit_reports.dart';
 import '../data/mock_orders.dart';
+import '../services/visit_service.dart';
 import 'visit_report_page.dart';
 import 'visit_report_detail_page.dart';
 import 'order_creation_page.dart';
@@ -1523,6 +1524,49 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
   }
 
   Future<void> _navigateToNewVisitReport() async {
+    final visitService = VisitService();
+
+    // Vérifier s'il y a déjà une visite active
+    if (visitService.hasActiveVisit) {
+      if (!mounted) return;
+
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.warning, color: Colors.orange),
+              SizedBox(width: 8),
+              Text('Visite déjà en cours'),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Vous avez déjà une visite active en cours.',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 12),
+              Text('Client: ${visitService.activeClientName}'),
+              const SizedBox(height: 8),
+              const Text(
+                'Veuillez terminer la visite en cours avant d\'en commencer une nouvelle.',
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
     // Create a visit for this specific client
     final visit = Visit(
       id: 'visit-${DateTime.now().millisecondsSinceEpoch}',
@@ -1538,6 +1582,19 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
       createdAt: DateTime.now(),
     );
 
+    // Enregistrer la visite comme active
+    if (!visitService.startVisit(visit)) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Impossible de démarrer la visite'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     if (!mounted) return;
 
     // Navigate to visit report page
@@ -1550,6 +1607,9 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
         ),
       ),
     );
+
+    // Terminer la visite active quand on revient
+    visitService.endVisit();
 
     if (report != null && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(

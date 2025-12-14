@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/route.dart' as models;
 import '../models/visit.dart';
 import '../models/visit_report.dart';
+import '../services/visit_service.dart';
 import 'visit_report_page.dart';
 
 /// Page de détail d'une tournée avec gestion complète des visites et rapports
@@ -112,21 +113,73 @@ class _TourneeDetailPageNewState extends State<TourneeDetailPageNew> {
   }
 
   Future<void> _startVisit(Visit visit) async {
-    if (visit.status == VisitStatus.planned) {
-      final updatedVisit = visit.copyWith(
-        status: VisitStatus.inProgress,
-        actualStartTime: DateTime.now(),
-      );
+    if (visit.status != VisitStatus.planned) return;
 
-      _updateVisit(updatedVisit);
+    final visitService = VisitService();
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Visite "${visit.clientName}" démarrée'),
-          backgroundColor: Colors.blue,
+    // Vérifier s'il y a déjà une visite active
+    if (visitService.hasActiveVisit) {
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.warning, color: Colors.orange),
+              SizedBox(width: 8),
+              Text('Visite déjà en cours'),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Vous avez déjà une visite active en cours.',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 12),
+              Text('Client: ${visitService.activeClientName}'),
+              const SizedBox(height: 8),
+              const Text(
+                'Veuillez terminer la visite en cours avant d\'en commencer une nouvelle.',
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('OK'),
+            ),
+          ],
         ),
       );
+      return;
     }
+
+    final updatedVisit = visit.copyWith(
+      status: VisitStatus.inProgress,
+      actualStartTime: DateTime.now(),
+    );
+
+    // Enregistrer la visite comme active
+    if (!visitService.startVisit(updatedVisit)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Impossible de démarrer la visite'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    _updateVisit(updatedVisit);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Visite "${visit.clientName}" démarrée'),
+        backgroundColor: Colors.blue,
+      ),
+    );
   }
 
   Future<void> _openVisitReport(Visit visit) async {
@@ -170,6 +223,12 @@ class _TourneeDetailPageNewState extends State<TourneeDetailPageNew> {
   }
 
   void _updateVisit(Visit updatedVisit) {
+    // Si la visite n'est plus en cours, la terminer dans le service
+    if (updatedVisit.status != VisitStatus.inProgress) {
+      final visitService = VisitService();
+      visitService.endVisit();
+    }
+
     setState(() {
       final visits = _currentRoute.visits.map((v) {
         return v.id == updatedVisit.id ? updatedVisit : v;
