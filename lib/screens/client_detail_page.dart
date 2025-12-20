@@ -372,7 +372,123 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
     );
   }
 
-  void _startVisit() {
+  Future<void> _startVisit() async {
+    // Check if client has location
+    if (!_client.hasLocation) {
+      _startVisitTimer();
+      return;
+    }
+
+    // Show loading indicator
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const AlertDialog(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 16),
+            Text('Vérification de votre position...'),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      // Check if location services are enabled
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        if (mounted) Navigator.pop(context);
+        _showLocationError(
+          'Services de localisation désactivés',
+          'Veuillez activer les services de localisation pour démarrer la visite.',
+        );
+        return;
+      }
+
+      // Check location permission
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          if (mounted) Navigator.pop(context);
+          _showLocationError(
+            'Permission refusée',
+            'La permission de localisation est nécessaire pour démarrer la visite.',
+          );
+          return;
+        }
+      }
+
+      if (permission == LocationPermission.deniedForever) {
+        if (mounted) Navigator.pop(context);
+        _showLocationError(
+          'Permission refusée définitivement',
+          'Veuillez activer la permission de localisation dans les paramètres de l\'application.',
+        );
+        return;
+      }
+
+      // Get current position
+      Position position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 15),
+      );
+
+      // Calculate distance to client
+      double distanceInMeters = Geolocator.distanceBetween(
+        position.latitude,
+        position.longitude,
+        _client.latitude!,
+        _client.longitude!,
+      );
+
+      if (mounted) Navigator.pop(context);
+
+      // Check if within 15 meters
+      if (distanceInMeters > 15) {
+        _showLocationError(
+          'Position trop éloignée',
+          'Vous devez être à l\'emplacement du client pour démarrer la visite.\n\nDistance actuelle: ${distanceInMeters.toStringAsFixed(0)} mètres\nDistance maximale autorisée: 15 mètres',
+        );
+        return;
+      }
+
+      // User is within range, start the visit
+      _startVisitTimer();
+    } catch (e) {
+      if (mounted) Navigator.pop(context);
+      _showLocationError(
+        'Erreur de localisation',
+        'Impossible d\'obtenir votre position. Veuillez réessayer.',
+      );
+    }
+  }
+
+  void _showLocationError(String title, String message) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            const Icon(Icons.location_off, color: Colors.red),
+            const SizedBox(width: 8),
+            Expanded(child: Text(title, style: const TextStyle(fontSize: 18))),
+          ],
+        ),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _startVisitTimer() {
     setState(() {
       _isVisitActive = true;
       _visitStartTime = DateTime.now();
@@ -666,41 +782,24 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
   }
 
   Future<void> _openGoogleMaps() async {
-    // Build the Google Maps URL
-    String mapsUrl;
-    if (_client.gpsLocation != null) {
-      // Parse GPS coordinates (format: "5.3600° N, 4.0083° W")
-      final coords = _client.gpsLocation!
-          .replaceAll('°', '')
-          .replaceAll(' N', '')
-          .replaceAll(' S', '')
-          .replaceAll(' E', '')
-          .replaceAll(' W', '')
-          .split(',');
-      if (coords.length == 2) {
-        final lat = coords[0].trim();
-        final lng = coords[1].trim();
-        // Try native Google Maps app first, fallback to web
-        mapsUrl = 'google.navigation:q=$lat,$lng';
-        final Uri mapsUri = Uri.parse(mapsUrl);
-
-        // Try launching with Google Maps app
-        if (await canLaunchUrl(mapsUri)) {
-          await launchUrl(mapsUri);
-        } else {
-          // Fallback to web URL
-          final webUrl = Uri.parse('https://www.google.com/maps/search/?api=1&query=$lat,$lng');
-          await launchUrl(webUrl, mode: LaunchMode.externalApplication);
-        }
-        return;
+    // Check if client has GPS coordinates
+    if (!_client.hasLocation) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Aucune coordonnée GPS disponible pour ce client'),
+            backgroundColor: Colors.orange,
+          ),
+        );
       }
+      return;
     }
 
-    // Fallback to address-based search
-    final address = Uri.encodeComponent(
-      '${_client.address}, ${_client.quartier}, ${_client.ville}, Côte d\'Ivoire',
-    );
-    final webUrl = Uri.parse('https://www.google.com/maps/search/?api=1&query=$address');
+    final lat = _client.latitude!;
+    final lng = _client.longitude!;
+
+    // Open Google Maps with just the GPS coordinates
+    final webUrl = Uri.parse('https://www.google.com/maps/search/?api=1&query=$lat,$lng');
 
     if (await canLaunchUrl(webUrl)) {
       await launchUrl(webUrl, mode: LaunchMode.externalApplication);

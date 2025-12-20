@@ -178,7 +178,7 @@ class Client {
       // Legacy fields from API
       email: json['email'] as String?,
       whatsapp: json['whatsapp'] as String?,
-      quartier: json['quartier'] as String?,
+      quartier: json['district'] as String?,
       zone: json['zone'] as String?,
       gpsLocation: json['gps_location'] as String?,
     );
