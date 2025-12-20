@@ -1,15 +1,22 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:sirapro/models/client.dart';
+import 'package:sirapro/models/client_photo.dart';
 import 'package:sirapro/models/alert.dart';
+import 'package:sirapro/models/update_client_request.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/visit.dart';
 import '../models/visit_report.dart';
 import '../models/order.dart';
 import '../data/mock_visit_reports.dart';
 import '../data/mock_orders.dart';
+import '../services/api_service.dart';
+import '../services/client_service.dart';
 import '../services/visit_service.dart';
 import 'visit_report_page.dart';
 import 'visit_report_detail_page.dart';
@@ -27,8 +34,23 @@ class ClientDetailPage extends StatefulWidget {
 }
 
 class _ClientDetailPageState extends State<ClientDetailPage> {
+  static const String _baseUrl = 'https://sira.xpertbot.online';
+
   late Client _client;
   bool _isEditing = false;
+  bool _isSaving = false;
+
+  // Services
+  final ClientService _clientService = ClientService();
+
+  // Client photos - local files (newly added)
+  final List<File> _localPhotos = [];
+  final PageController _photoPageController = PageController();
+  int _currentPhotoIndex = 0;
+  final ImagePicker _imagePicker = ImagePicker();
+
+  // Total photos count (API photos + local photos)
+  int get _totalPhotosCount => _client.photos.length + _localPhotos.length;
 
   // Visit tracking
   bool _isVisitActive = false;
@@ -115,6 +137,7 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
   @override
   void dispose() {
     _visitTimer?.cancel();
+    _photoPageController.dispose();
     _boutiqueNameController.dispose();
     _gerantNameController.dispose();
     _phoneController.dispose();
@@ -124,6 +147,229 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
     _quartierController.dispose();
     _villeController.dispose();
     super.dispose();
+  }
+
+  Future<void> _addPhoto() async {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Ajouter une photo',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 20),
+              ListTile(
+                leading: const CircleAvatar(
+                  backgroundColor: Colors.blue,
+                  child: Icon(Icons.camera_alt, color: Colors.white),
+                ),
+                title: const Text('Prendre une photo'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _pickImage(ImageSource.camera);
+                },
+              ),
+              ListTile(
+                leading: const CircleAvatar(
+                  backgroundColor: Colors.green,
+                  child: Icon(Icons.photo_library, color: Colors.white),
+                ),
+                title: const Text('Choisir depuis la galerie'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _pickImage(ImageSource.gallery);
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    try {
+      final XFile? pickedFile = await _imagePicker.pickImage(
+        source: source,
+        maxWidth: 1920,
+        maxHeight: 1080,
+        imageQuality: 85,
+      );
+
+      if (pickedFile != null) {
+        final file = File(pickedFile.path);
+
+        // Show loading indicator
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Row(
+                children: [
+                  SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  ),
+                  SizedBox(width: 12),
+                  Text('Téléchargement en cours...'),
+                ],
+              ),
+              duration: Duration(seconds: 30),
+            ),
+          );
+        }
+
+        // Get current location for the photo
+        Position? position;
+        try {
+          position = await Geolocator.getCurrentPosition(
+            desiredAccuracy: LocationAccuracy.high,
+          );
+        } catch (e) {
+          // Location not available, continue without it
+        }
+
+        // Upload to API
+        final apiService = ApiService();
+
+        // Generate a proper filename with timestamp
+        final timestamp = DateTime.now().millisecondsSinceEpoch;
+        final extension = pickedFile.name.contains('.')
+            ? pickedFile.name.split('.').last
+            : 'jpg';
+        final fileName = 'client_${_client.id}_$timestamp.$extension';
+
+        final fields = <String, String>{
+          'type': 'facade',
+          'file_name': fileName,
+        };
+
+        if (position != null) {
+          fields['latitude'] = position.latitude.toString();
+          fields['longitude'] = position.longitude.toString();
+        }
+
+        await apiService.uploadFiles(
+          '/api/clients/${_client.id}/photos',
+          files: [file],
+          fields: fields,
+          fileName: fileName,
+        );
+
+        // Hide loading snackbar
+        if (mounted) {
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        }
+
+        // Add to local list
+        setState(() {
+          _localPhotos.add(file);
+          _currentPhotoIndex = _localPhotos.length - 1;
+        });
+
+        // Animate to the new photo
+        if (_localPhotos.length > 1) {
+          _photoPageController.animateToPage(
+            _currentPhotoIndex,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeInOut,
+          );
+        }
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Photo téléchargée avec succès'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur lors du téléchargement: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  void _deletePhoto(int index) {
+    final apiPhotosCount = _client.photos.length;
+    final isApiPhoto = index < apiPhotosCount;
+
+    // For now, only allow deleting local photos
+    // API photos would need a DELETE API call
+    if (isApiPhoto) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('La suppression des photos synchronisées n\'est pas encore disponible'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Supprimer la photo'),
+        content: const Text('Voulez-vous vraiment supprimer cette photo ?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Annuler'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              final localIndex = index - apiPhotosCount;
+              setState(() {
+                _localPhotos.removeAt(localIndex);
+                if (_currentPhotoIndex >= _totalPhotosCount && _totalPhotosCount > 0) {
+                  _currentPhotoIndex = _totalPhotosCount - 1;
+                }
+              });
+            },
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Supprimer'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _viewPhotoFullScreen(int index) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => _FullScreenPhotoViewer(
+          apiPhotos: _client.photos,
+          localPhotos: _localPhotos,
+          initialIndex: index,
+          onDelete: _deletePhoto,
+          baseUrl: _baseUrl,
+        ),
+      ),
+    );
   }
 
   void _startVisit() {
@@ -195,28 +441,39 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
   }
 
   Future<void> _saveChanges() async {
-    if (_formKey.currentState!.validate()) {
-      // Show loading
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => const Center(
-          child: CircularProgressIndicator(),
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
+    // Prevent double submission
+    if (_isSaving) return;
+
+    setState(() {
+      _isSaving = true;
+    });
+
+    // Show loading dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(),
+            const SizedBox(height: 16),
+            const Text('Mise à jour en cours...'),
+          ],
         ),
-      );
+      ),
+    );
 
-      // Simulate save
-      await Future.delayed(const Duration(seconds: 1));
-
-      if (!mounted) return;
-
-      Navigator.of(context).pop(); // Close loading
-
-      // Create updated client
-      final updatedClient = _client.copyWith(
-        boutiqueName: _boutiqueNameController.text.trim(),
+    try {
+      // Build the update request with only changed fields
+      final request = UpdateClientRequest(
+        name: _boutiqueNameController.text.trim(),
         type: _selectedType,
-        gerantName: _gerantNameController.text.trim(),
+        managerName: _gerantNameController.text.trim(),
         phone: _phoneController.text.trim(),
         whatsapp: _whatsappController.text.trim().isNotEmpty
             ? _whatsappController.text.trim()
@@ -224,62 +481,188 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
         email: _emailController.text.trim().isNotEmpty
             ? _emailController.text.trim()
             : null,
-        address: _addressController.text.trim(),
-        quartier: _quartierController.text.trim(),
-        ville: _villeController.text.trim(),
-        zone: _selectedZone,
-        potentiel: _selectedPotentiel,
-        frequenceVisite: _selectedFrequence,
+        addressDescription: _addressController.text.trim(),
+        district: _quartierController.text.trim().isNotEmpty
+            ? _quartierController.text.trim()
+            : null,
+        city: _villeController.text.trim(),
+        potential: _selectedPotentiel,
+        visitFrequency: _selectedFrequence != null
+            ? UpdateClientRequest.frequencyToApiValue(_selectedFrequence!)
+            : null,
       );
 
+      // Call the API to update the client
+      final updatedClient = await _clientService.updateClient(_client.id, request);
+
+      if (!mounted) return;
+
+      Navigator.of(context).pop(); // Close loading dialog
+
+      // Update local state with the response from API
       setState(() {
         _client = updatedClient;
         _isEditing = false;
+        _isSaving = false;
       });
+
+      // Reinitialize controllers with updated data
+      _initControllers();
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Client mis à jour avec succès'),
+          content: Row(
+            children: [
+              Icon(Icons.check_circle, color: Colors.white),
+              SizedBox(width: 12),
+              Text('Client mis à jour avec succès'),
+            ],
+          ),
           backgroundColor: Colors.green,
+          duration: Duration(seconds: 3),
         ),
       );
+    } on ApiException catch (e) {
+      if (!mounted) return;
+
+      Navigator.of(context).pop(); // Close loading dialog
+
+      setState(() {
+        _isSaving = false;
+      });
+
+      // Handle specific error codes
+      if (e.statusCode == 403) {
+        _showErrorDialog(
+          'Accès refusé',
+          'Vous n\'avez pas la permission de modifier ce client.',
+        );
+      } else if (e.statusCode == 404) {
+        _showErrorDialog(
+          'Client introuvable',
+          'Ce client n\'existe plus dans le système.',
+        );
+      } else if (e.statusCode == 422) {
+        _showErrorDialog(
+          'Erreur de validation',
+          e.message,
+        );
+      } else {
+        _showErrorSnackbar(e.message);
+      }
+    } catch (e) {
+      if (!mounted) return;
+
+      Navigator.of(context).pop(); // Close loading dialog
+
+      setState(() {
+        _isSaving = false;
+      });
+
+      _showErrorSnackbar('Une erreur inattendue s\'est produite: $e');
     }
   }
 
-  void _makePhoneCall(String phoneNumber) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Appel vers $phoneNumber'),
-        action: SnackBarAction(
-          label: 'OK',
-          onPressed: () {},
+  void _showErrorDialog(String title, String message) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.error_outline, color: Colors.red[700]),
+            const SizedBox(width: 8),
+            Text(title),
+          ],
         ),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('OK'),
+          ),
+        ],
       ),
     );
   }
 
-  void _openWhatsApp(String phoneNumber) {
+  void _showErrorSnackbar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Ouvrir WhatsApp: $phoneNumber'),
-        action: SnackBarAction(
-          label: 'OK',
-          onPressed: () {},
+        content: Row(
+          children: [
+            const Icon(Icons.error_outline, color: Colors.white),
+            const SizedBox(width: 12),
+            Expanded(child: Text(message)),
+          ],
         ),
+        backgroundColor: Colors.red,
+        duration: const Duration(seconds: 4),
       ),
     );
   }
 
-  void _sendEmail(String email) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Email vers $email'),
-        action: SnackBarAction(
-          label: 'OK',
-          onPressed: () {},
-        ),
-      ),
-    );
+  Future<void> _makePhoneCall(String phoneNumber) async {
+    // Clean the phone number (remove spaces, dashes, etc.)
+    final cleanNumber = phoneNumber.replaceAll(RegExp(r'[^\d+]'), '');
+    final Uri phoneUri = Uri.parse('tel:$cleanNumber');
+
+    try {
+      await launchUrl(phoneUri);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Impossible de lancer l\'appel'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _openWhatsApp(String phoneNumber) async {
+    // Clean the phone number and ensure it has country code
+    String cleanNumber = phoneNumber.replaceAll(RegExp(r'[^\d+]'), '');
+    // Remove leading + if present for WhatsApp URL
+    if (cleanNumber.startsWith('+')) {
+      cleanNumber = cleanNumber.substring(1);
+    }
+    // Add Ivory Coast country code if not present (225)
+    if (!cleanNumber.startsWith('225') && cleanNumber.length <= 10) {
+      cleanNumber = '225$cleanNumber';
+    }
+
+    final Uri whatsappUri = Uri.parse('https://wa.me/$cleanNumber');
+
+    try {
+      await launchUrl(whatsappUri, mode: LaunchMode.externalApplication);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Impossible d\'ouvrir WhatsApp'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _sendEmail(String email) async {
+    final Uri emailUri = Uri.parse('mailto:$email');
+
+    try {
+      await launchUrl(emailUri);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Impossible d\'ouvrir l\'application email'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _openGoogleMaps() async {
@@ -403,7 +786,7 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
               ),
               markers: {
                 Marker(
-                  markerId: MarkerId(_client.id),
+                  markerId: MarkerId(_client.id.toString()),
                   position: location,
                   infoWindow: InfoWindow(
                     title: _client.boutiqueName,
@@ -465,44 +848,6 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
     );
   }
 
-  Future<void> _activateClient() async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Activer le client'),
-        content: Text(
-          'Voulez-vous activer "${_client.boutiqueName}" ?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Annuler'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.green,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Activer'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm == true) {
-      setState(() {
-        _client = _client.copyWith(status: 'Actif', isActive: true);
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Client activé'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    }
-  }
-
   String _formatDate(DateTime date) {
     final months = [
       'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
@@ -559,10 +904,9 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
     return SingleChildScrollView(
       child: Column(
         children: [
-          // Header Section
+          // Header Section with Photo Slider
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
               color: Theme.of(context).primaryColor,
               borderRadius: const BorderRadius.only(
@@ -572,95 +916,105 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
             ),
             child: Column(
               children: [
-                // Icon
-                Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.2),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    _getIconForType(_client.type),
-                    size: 50,
-                    color: Colors.white,
-                  ),
+                // Photo Slider or Default Icon
+                SizedBox(
+                  height: 200,
+                  child: _totalPhotosCount == 0
+                      ? _buildDefaultHeader()
+                      : _buildPhotoSlider(),
                 ),
-                const SizedBox(height: 16),
-                // Name
-                Text(
-                  _client.boutiqueName,
-                  style: const TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 8),
-                // Type
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    _client.type,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      color: Colors.white,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                // Status and Potentiel
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: _client.isActive ? Colors.green : Colors.orange,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        _client.status,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ),
-                    if (_client.potentiel != null) ...[
-                      const SizedBox(width: 12),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: _getPotentielColor(_client.potentiel!),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Text(
-                          'Potentiel ${_client.potentiel}',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12,
+                // Client Info - Compact 2 lines
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                  child: Column(
+                    children: [
+                      // Line 1: Name + Type
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Flexible(
+                            child: Text(
+                              _client.boutiqueName,
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                              textAlign: TextAlign.center,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
-                        ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.2),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              _client.type,
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: Colors.white,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      // Line 2: Status + Potentiel
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: (_client.isActive ?? false) ? Colors.green : Colors.orange,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              _client.status ?? 'Inconnu',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ),
+                          if (_client.potentiel != null) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: _getPotentielColor(_client.potentiel!),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                'Potentiel ${_client.potentiel}',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                     ],
-                  ],
+                  ),
                 ),
               ],
             ),
@@ -686,7 +1040,9 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
                     icon: Icons.phone,
                     label: 'Appeler',
                     color: Colors.green,
-                    onTap: () => _makePhoneCall(_client.phone),
+                    onTap: _client.phone.isNotEmpty
+                        ? () => _makePhoneCall(_client.phone)
+                        : null,
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -695,8 +1051,8 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
                     icon: Icons.chat,
                     label: 'WhatsApp',
                     color: const Color(0xFF25D366),
-                    onTap: _client.whatsapp != null
-                        ? () => _openWhatsApp(_client.whatsapp!)
+                    onTap: (_client.whatsapp?.isNotEmpty ?? false) || _client.phone.isNotEmpty
+                        ? () => _openWhatsApp(_client.whatsapp?.isNotEmpty == true ? _client.whatsapp! : _client.phone)
                         : null,
                   ),
                 ),
@@ -706,7 +1062,7 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
                     icon: Icons.email,
                     label: 'Email',
                     color: Colors.blue,
-                    onTap: _client.email != null
+                    onTap: (_client.email?.isNotEmpty ?? false)
                         ? () => _sendEmail(_client.email!)
                         : null,
                   ),
@@ -757,7 +1113,7 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
                 const SizedBox(height: 12),
                 _buildInfoCard([
                   _buildInfoRow(Icons.location_on, 'Adresse', _client.address),
-                  _buildInfoRow(Icons.map, 'Quartier', _client.quartier),
+                  _buildInfoRow(Icons.map, 'Quartier', _client.quartier ?? ''),
                   _buildInfoRow(Icons.location_city, 'Ville', _client.ville),
                   if (_client.zone != null)
                     _buildInfoRow(Icons.grid_view, 'Zone', _client.zone!),
@@ -809,27 +1165,6 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
                 ]),
 
                 const SizedBox(height: 20),
-
-                // Activate button if client is pending
-                if (!_client.isActive) ...[
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: _activateClient,
-                      icon: const Icon(Icons.check_circle),
-                      label: const Text('Activer ce client'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                ],
               ],
             ),
           ),
@@ -1151,7 +1486,7 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
 
   void _createVisitReport() {
     // Get previous reports for this client
-    final previousReports = getVisitReportsByClient(_client.id);
+    final previousReports = getVisitReportsByClient(_client.id.toString());
 
     showModalBottomSheet(
       context: context,
@@ -1571,7 +1906,7 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
     final visit = Visit(
       id: 'visit-${DateTime.now().millisecondsSinceEpoch}',
       routeId: 'ad-hoc-visit',
-      clientId: _client.id,
+      clientId: _client.id.toString(),
       clientName: _client.boutiqueName,
       clientAddress: _client.fullAddress,
       order: 1,
@@ -1684,7 +2019,7 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
 
   void _viewOrders() {
     // Get orders for this client
-    final clientOrders = getOrdersByClient(_client.id);
+    final clientOrders = getOrdersByClient(_client.id.toString());
 
     showModalBottomSheet(
       context: context,
@@ -2215,6 +2550,201 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
     }
   }
 
+  Widget _buildDefaultHeader() {
+    return Stack(
+      children: [
+        // Default icon background
+        Center(
+          child: Container(
+            padding: const EdgeInsets.all(30),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.2),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              _getIconForType(_client.type),
+              size: 60,
+              color: Colors.white,
+            ),
+          ),
+        ),
+        // Add photo button
+        Positioned(
+          top: 16,
+          right: 16,
+          child: Material(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            child: InkWell(
+              onTap: _addPhoto,
+              borderRadius: BorderRadius.circular(20),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.add_a_photo,
+                      size: 18,
+                      color: Theme.of(context).primaryColor,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Ajouter',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: Theme.of(context).primaryColor,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPhotoSlider() {
+    final apiPhotosCount = _client.photos.length;
+
+    return Stack(
+      children: [
+        // Photo PageView
+        PageView.builder(
+          controller: _photoPageController,
+          onPageChanged: (index) {
+            setState(() {
+              _currentPhotoIndex = index;
+            });
+          },
+          itemCount: _totalPhotosCount,
+          itemBuilder: (context, index) {
+            // First show API photos, then local photos
+            final isApiPhoto = index < apiPhotosCount;
+            final ImageProvider imageProvider;
+
+            if (isApiPhoto) {
+              final photo = _client.photos[index];
+              final photoUrl = photo.getFullUrl(_baseUrl);
+              imageProvider = NetworkImage(photoUrl);
+            } else {
+              final localIndex = index - apiPhotosCount;
+              imageProvider = FileImage(_localPhotos[localIndex]);
+            }
+
+            return GestureDetector(
+              onTap: () => _viewPhotoFullScreen(index),
+              child: Container(
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  image: DecorationImage(
+                    image: imageProvider,
+                    fit: BoxFit.cover,
+                    onError: (exception, stackTrace) {},
+                  ),
+                ),
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.black.withValues(alpha: 0.3),
+                        Colors.transparent,
+                        Colors.transparent,
+                        Theme.of(context).primaryColor.withValues(alpha: 0.8),
+                      ],
+                      stops: const [0.0, 0.3, 0.6, 1.0],
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+        // Add photo button
+        Positioned(
+          top: 16,
+          right: 16,
+          child: Material(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            child: InkWell(
+              onTap: _addPhoto,
+              borderRadius: BorderRadius.circular(20),
+              child: const Padding(
+                padding: EdgeInsets.all(8),
+                child: Icon(
+                  Icons.add_a_photo,
+                  size: 20,
+                  color: Colors.black87,
+                ),
+              ),
+            ),
+          ),
+        ),
+        // Photo counter and dots
+        if (_totalPhotosCount > 1)
+          Positioned(
+            bottom: 16,
+            left: 0,
+            right: 0,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: List.generate(
+                _totalPhotosCount > 10 ? 10 : _totalPhotosCount, // Limit dots to 10
+                (index) => Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 4),
+                  width: _currentPhotoIndex == index ? 24 : 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: _currentPhotoIndex == index
+                        ? Colors.white
+                        : Colors.white.withValues(alpha: 0.5),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        // Photo count badge
+        Positioned(
+          top: 16,
+          left: 16,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.6),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.photo_library,
+                  size: 14,
+                  color: Colors.white,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  '${_currentPhotoIndex + 1}/$_totalPhotosCount',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   Color _getPotentielColor(String potentiel) {
     switch (potentiel) {
       case 'A':
@@ -2439,6 +2969,171 @@ class _SlideToActionWidgetState extends State<SlideToActionWidget> {
           ),
         );
       },
+    );
+  }
+}
+
+// Full screen photo viewer with swipe and delete functionality
+class _FullScreenPhotoViewer extends StatefulWidget {
+  final List<ClientPhoto> apiPhotos;
+  final List<File> localPhotos;
+  final int initialIndex;
+  final Function(int) onDelete;
+  final String baseUrl;
+
+  const _FullScreenPhotoViewer({
+    required this.apiPhotos,
+    required this.localPhotos,
+    required this.initialIndex,
+    required this.onDelete,
+    required this.baseUrl,
+  });
+
+  @override
+  State<_FullScreenPhotoViewer> createState() => _FullScreenPhotoViewerState();
+}
+
+class _FullScreenPhotoViewerState extends State<_FullScreenPhotoViewer> {
+  late PageController _pageController;
+  late int _currentIndex;
+
+  int get _totalPhotosCount => widget.apiPhotos.length + widget.localPhotos.length;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentIndex = widget.initialIndex;
+    _pageController = PageController(initialPage: widget.initialIndex);
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  bool _isApiPhoto(int index) {
+    return index < widget.apiPhotos.length;
+  }
+
+  void _deleteCurrentPhoto() {
+    // Only allow deleting local photos, not API photos
+    if (_isApiPhoto(_currentIndex)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Les photos du serveur ne peuvent pas être supprimées ici'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Supprimer la photo'),
+        content: const Text('Voulez-vous vraiment supprimer cette photo ?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Annuler'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context); // Close dialog
+              // Calculate local photo index
+              final localIndex = _currentIndex - widget.apiPhotos.length;
+              widget.onDelete(localIndex);
+              if (_totalPhotosCount <= 1) {
+                Navigator.pop(context); // Close viewer if no photos left
+              } else {
+                setState(() {
+                  if (_currentIndex >= _totalPhotosCount - 1) {
+                    _currentIndex = _totalPhotosCount - 2;
+                  }
+                });
+              }
+            },
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Supprimer'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPhotoWidget(int index) {
+    if (_isApiPhoto(index)) {
+      // API photo - use NetworkImage
+      final apiPhoto = widget.apiPhotos[index];
+      final photoUrl = apiPhoto.getFullUrl(widget.baseUrl);
+      return Image.network(
+        photoUrl,
+        fit: BoxFit.contain,
+        loadingBuilder: (context, child, loadingProgress) {
+          if (loadingProgress == null) return child;
+          return Center(
+            child: CircularProgressIndicator(
+              value: loadingProgress.expectedTotalBytes != null
+                  ? loadingProgress.cumulativeBytesLoaded /
+                      loadingProgress.expectedTotalBytes!
+                  : null,
+              color: Colors.white,
+            ),
+          );
+        },
+        errorBuilder: (context, error, stackTrace) {
+          return const Center(
+            child: Icon(Icons.broken_image, color: Colors.white54, size: 64),
+          );
+        },
+      );
+    } else {
+      // Local photo - use FileImage
+      final localIndex = index - widget.apiPhotos.length;
+      return Image.file(
+        widget.localPhotos[localIndex],
+        fit: BoxFit.contain,
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        title: Text('${_currentIndex + 1} / $_totalPhotosCount'),
+        actions: [
+          // Only show delete button for local photos
+          if (!_isApiPhoto(_currentIndex))
+            IconButton(
+              icon: const Icon(Icons.delete_outline),
+              onPressed: _deleteCurrentPhoto,
+              tooltip: 'Supprimer',
+            ),
+        ],
+      ),
+      body: PageView.builder(
+        controller: _pageController,
+        onPageChanged: (index) {
+          setState(() {
+            _currentIndex = index;
+          });
+        },
+        itemCount: _totalPhotosCount,
+        itemBuilder: (context, index) {
+          return InteractiveViewer(
+            minScale: 0.5,
+            maxScale: 4.0,
+            child: Center(
+              child: _buildPhotoWidget(index),
+            ),
+          );
+        },
+      ),
     );
   }
 }

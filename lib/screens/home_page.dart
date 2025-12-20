@@ -7,10 +7,47 @@ import 'package:sirapro/screens/sync_page.dart';
 import 'package:sirapro/screens/alertes_page.dart';
 import 'package:sirapro/screens/visits_page.dart';
 import 'package:sirapro/screens/orders_page.dart';
+import 'package:sirapro/screens/stock_commercial_page.dart';
 import 'package:sirapro/utils/app_colors.dart';
+import 'package:sirapro/services/auth_service.dart';
 
-class HomePage extends StatelessWidget {
+class HomePage extends StatefulWidget {
   const HomePage({super.key});
+
+  @override
+  State<HomePage> createState() => _HomePageState();
+}
+
+class _HomePageState extends State<HomePage> {
+  final AuthService _authService = AuthService();
+  String? _userName;
+  String? _userPhoto;
+  double _userBalance = 0.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserData();
+  }
+
+  Future<void> _loadUserData() async {
+    final user = await _authService.getCurrentUser();
+    if (mounted && user != null) {
+      setState(() {
+        _userName = user.name;
+        _userPhoto = user.photoUrl;
+        _userBalance = user.balance;
+      });
+    }
+  }
+
+  String _formatBalance(double balance) {
+    final formatted = balance.toStringAsFixed(0).replaceAllMapped(
+          RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+          (Match m) => '${m[1]} ',
+        );
+    return '$formatted FCFA';
+  }
 
   String _getGreeting() {
     final hour = DateTime.now().hour;
@@ -104,19 +141,6 @@ class HomePage extends StatelessWidget {
         foregroundColor: Colors.white,
         elevation: 0,
         actions: [
-          // User Information Icon
-          IconButton(
-            icon: const Icon(Icons.person),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const UserProfilePage(),
-                ),
-              );
-            },
-            tooltip: 'Informations utilisateur',
-          ),
           // Cloud Sync Icon with Status
           IconButton(
             icon: Stack(
@@ -195,50 +219,201 @@ class HomePage extends StatelessWidget {
         ],
       ),
       body: SafeArea(
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(16.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Greeting Section
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.grey.withValues(alpha: 0.1),
-                      spreadRadius: 1,
-                      blurRadius: 5,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      _getGreeting(),
-                      style: const TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black87,
+              // Greeting & Balance Row
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Greeting Card (2/3 width)
+                  Expanded(
+                    flex: 2,
+                    child: GestureDetector(
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const UserProfilePage(),
+                          ),
+                        );
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.grey.withValues(alpha: 0.1),
+                              spreadRadius: 1,
+                              blurRadius: 5,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                // User Photo
+                                Container(
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: Theme.of(context).primaryColor,
+                                      width: 2,
+                                    ),
+                                  ),
+                                  child: _userPhoto != null && _userPhoto!.isNotEmpty
+                                      ? ClipOval(
+                                          child: Image.network(
+                                            _userPhoto!,
+                                            width: 44,
+                                            height: 44,
+                                            fit: BoxFit.cover,
+                                            loadingBuilder: (context, child, loadingProgress) {
+                                              if (loadingProgress == null) return child;
+                                              return Container(
+                                                width: 44,
+                                                height: 44,
+                                                color: Colors.grey[300],
+                                                child: const Center(
+                                                  child: SizedBox(
+                                                    width: 16,
+                                                    height: 16,
+                                                    child: CircularProgressIndicator(
+                                                      strokeWidth: 2,
+                                                    ),
+                                                  ),
+                                                ),
+                                              );
+                                            },
+                                            errorBuilder: (context, error, stackTrace) {
+                                              return CircleAvatar(
+                                                radius: 22,
+                                                backgroundColor: Colors.grey[300],
+                                                child: Icon(
+                                                  Icons.person,
+                                                  size: 22,
+                                                  color: Colors.grey[600],
+                                                ),
+                                              );
+                                            },
+                                          ),
+                                        )
+                                      : CircleAvatar(
+                                          radius: 22,
+                                          backgroundColor: Colors.grey[300],
+                                          child: Icon(
+                                            Icons.person,
+                                            size: 22,
+                                            color: Colors.grey[600],
+                                          ),
+                                        ),
+                                ),
+                                const Spacer(),
+                                Icon(
+                                  Icons.chevron_right,
+                                  size: 24,
+                                  color: Colors.grey[400],
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              '${_getGreeting()}${_userName != null ? ', $_userName' : ''}',
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.black87,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              _getFormattedDate(),
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    Text(
-                      _getFormattedDate(),
-                      style: TextStyle(
-                        fontSize: 16,
-                        color: Colors.grey[600],
+                  ),
+                  const SizedBox(width: 12),
+                  // Balance Card (1/3 width)
+                  Expanded(
+                    flex: 1,
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            Theme.of(context).primaryColor,
+                            Theme.of(context).primaryColor.withValues(alpha: 0.8),
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Theme.of(context).primaryColor.withValues(alpha: 0.3),
+                            spreadRadius: 1,
+                            blurRadius: 8,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.2),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Icon(
+                              Icons.account_balance_wallet,
+                              size: 24,
+                              color: Colors.white,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          const Text(
+                            'Solde Actuel',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.white70,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            _formatBalance(_userBalance),
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 16),
 
               // Cards Section
               SizedBox(
@@ -488,14 +663,14 @@ class HomePage extends StatelessWidget {
                     ),
                     _buildActionButton(
                       context,
-                      icon: Icons.people,
-                      label: 'Clients',
+                      icon: Icons.inventory_2,
+                      label: 'Stock\nCommercial',
                       color: AppColors.success,
                       onTap: () {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (context) => const ClientsPage(),
+                            builder: (context) => const StockCommercialPage(),
                           ),
                         );
                       },
