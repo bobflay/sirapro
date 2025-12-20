@@ -44,13 +44,27 @@ class _AuthCheckerState extends State<AuthChecker> {
   }
 
   Future<void> _initialize() async {
-    // Vérifier l'état de connexion
-    final isLoggedIn = await _authService.isLoggedIn();
+    // Check if user has a stored token
+    final hasToken = await _authService.isLoggedIn();
 
-    setState(() {
-      _isLoggedIn = isLoggedIn;
-      _isLoading = false;
-    });
+    if (hasToken) {
+      // Validate token with the server
+      final isValid = await _authService.validateToken();
+
+      if (mounted) {
+        setState(() {
+          _isLoggedIn = isValid;
+          _isLoading = false;
+        });
+      }
+    } else {
+      if (mounted) {
+        setState(() {
+          _isLoggedIn = false;
+          _isLoading = false;
+        });
+      }
+    }
   }
 
   @override

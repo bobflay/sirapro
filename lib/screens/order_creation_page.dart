@@ -640,7 +640,7 @@ class _OrderCreationPageState extends State<OrderCreationPage> {
       // Créer la commande
       final order = Order(
         id: 'order-${DateTime.now().millisecondsSinceEpoch}',
-        clientId: widget.client.id,
+        clientId: widget.client.id.toString(),
         clientName: widget.client.boutiqueName,
         commercialId: 'commercial-001', // TODO: Récupérer l'ID du commercial connecté
         commercialName: 'Commercial Demo', // TODO: Récupérer le nom du commercial connecté

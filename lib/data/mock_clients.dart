@@ -4,7 +4,7 @@ import '../models/client.dart';
 class MockClients {
   static List<Client> getClients() {
     return [
-      Client(
+      Client.legacy(
         id: '1',
         boutiqueName: 'Supermarché Bonheur',
         type: 'Supermarché',
@@ -21,7 +21,7 @@ class MockClients {
         isActive: true,
         createdAt: DateTime.now().subtract(const Duration(days: 120)),
       ),
-      Client(
+      Client.legacy(
         id: '2',
         boutiqueName: 'Alimentation Chez Adjoua',
         type: 'Boutique',
@@ -39,7 +39,7 @@ class MockClients {
         isActive: true,
         createdAt: DateTime.now().subtract(const Duration(days: 90)),
       ),
-      Client(
+      Client.legacy(
         id: '3',
         boutiqueName: 'Demi-Gros Akissi',
         type: 'Demi-grossiste',
@@ -57,7 +57,7 @@ class MockClients {
         isActive: true,
         createdAt: DateTime.now().subtract(const Duration(days: 200)),
       ),
-      Client(
+      Client.legacy(
         id: '4',
         boutiqueName: 'Épicerie du Marché',
         type: 'Boutique',
@@ -74,7 +74,7 @@ class MockClients {
         isActive: true,
         createdAt: DateTime.now().subtract(const Duration(days: 60)),
       ),
-      Client(
+      Client.legacy(
         id: '5',
         boutiqueName: 'Mini Market Traoré',
         type: 'Boutique',
@@ -91,7 +91,7 @@ class MockClients {
         isActive: true,
         createdAt: DateTime.now().subtract(const Duration(days: 45)),
       ),
-      Client(
+      Client.legacy(
         id: '6',
         boutiqueName: 'Cash & Carry Diallo',
         type: 'Grossiste',
@@ -110,7 +110,7 @@ class MockClients {
         isActive: true,
         createdAt: DateTime.now().subtract(const Duration(days: 180)),
       ),
-      Client(
+      Client.legacy(
         id: '7',
         boutiqueName: 'Boutique Bamba',
         type: 'Boutique',
@@ -125,7 +125,7 @@ class MockClients {
         isActive: false,
         createdAt: DateTime.now().subtract(const Duration(days: 5)),
       ),
-      Client(
+      Client.legacy(
         id: '8',
         boutiqueName: 'Magasin Ouattara',
         type: 'Boutique',
@@ -146,7 +146,7 @@ class MockClients {
   /// Get a client by ID
   static Client? getClientById(String id) {
     try {
-      return getClients().firstWhere((client) => client.id == id);
+      return getClients().firstWhere((client) => client.id.toString() == id);
     } catch (e) {
       return null;
     }

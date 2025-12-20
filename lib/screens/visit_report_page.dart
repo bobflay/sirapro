@@ -398,7 +398,7 @@ class _VisitReportPageState extends State<VisitReportPage> {
 
   Future<void> _createOrder() async {
     // Create a temporary client object from visit information
-    final client = Client(
+    final client = Client.legacy(
       id: widget.visit.clientId,
       boutiqueName: widget.visit.clientName,
       type: 'Boutique', // Default type

@@ -349,7 +349,7 @@ class _AlertCreationPageState extends State<AlertCreationPage> {
         description: _descriptionController.text.trim(),
         type: _selectedType,
         priority: _selectedPriority,
-        clientId: widget.client?.id,
+        clientId: widget.client?.id.toString(),
         clientName: _clientNameController.text.trim().isEmpty
             ? null
             : _clientNameController.text.trim(),

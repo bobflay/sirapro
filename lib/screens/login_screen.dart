@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:sirapro/services/auth_service.dart';
-import 'package:sirapro/main.dart';
+import '../services/auth_service.dart';
+import '../main.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -33,29 +33,39 @@ class _LoginScreenState extends State<LoginScreen> {
       final email = _emailController.text.trim();
       final password = _passwordController.text;
 
-      // Simulate network delay
-      await Future.delayed(const Duration(seconds: 2));
+      try {
+        // Call real API for authentication
+        await _authService.login(email, password);
 
-      if (!mounted) return;
-
-      // Check credentials
-      if (email == 'commercial@sira.pro' && password == '123456') {
-        // Save login state
-        await _authService.saveLoginState(email);
+        if (!mounted) return;
 
         // Navigate to AuthChecker to trigger permission check
-        if (!mounted) return;
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(builder: (context) => const AuthChecker()),
         );
-      } else {
+      } on AuthException catch (e) {
+        if (!mounted) return;
+
+        setState(() {
+          _isLoading = false;
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.message),
+            backgroundColor: Colors.red,
+          ),
+        );
+      } catch (e) {
+        if (!mounted) return;
+
         setState(() {
           _isLoading = false;
         });
 
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Invalid email or password'),
+            content: Text('Login failed. Please try again.'),
             backgroundColor: Colors.red,
           ),
         );

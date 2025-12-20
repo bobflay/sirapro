@@ -1,8 +1,15 @@
-import 'package:flutter/material.dart';
 import 'dart:io';
-import 'package:sirapro/models/client.dart';
+import 'package:flutter/material.dart';
+import 'package:sirapro/models/create_client_request.dart';
+import 'package:sirapro/models/user.dart';
+import 'package:sirapro/services/api_service.dart';
+import 'package:sirapro/services/auth_service.dart';
+import 'package:sirapro/services/client_service.dart';
+import 'package:sirapro/utils/app_colors.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:easy_stepper/easy_stepper.dart';
+import 'package:image_picker/image_picker.dart';
 
 class CreateClientPage extends StatefulWidget {
   const CreateClientPage({super.key});
@@ -14,6 +21,24 @@ class CreateClientPage extends StatefulWidget {
 class _CreateClientPageState extends State<CreateClientPage> {
   final _formKey = GlobalKey<FormState>();
   int _currentStep = 0;
+  final PageController _pageController = PageController();
+
+  // Services
+  final ClientService _clientService = ClientService();
+  final AuthService _authService = AuthService();
+
+  // Loading and error states
+  bool _isLoading = false;
+  bool _isUploadingPhotos = false;
+  String? _uploadProgress;
+
+  // User data for base_commerciale_id and zone_id
+  User? _currentUser;
+  List<Zone> _availableZones = [];
+  Zone? _selectedZoneObject;
+
+  // Client code (auto-generated or user input)
+  final _codeController = TextEditingController();
 
   // Administrative Data
   final _boutiqueNameController = TextEditingController();
@@ -34,11 +59,16 @@ class _CreateClientPageState extends State<CreateClientPage> {
   // Visual Data
   File? _facadePhoto;
   File? _rayonsPhoto;
-  List<File> _additionalPhotos = [];
+  final List<File> _additionalPhotos = [];
+  final ImagePicker _imagePicker = ImagePicker();
 
   // Commercial Data
   String? _potentiel;
   String? _frequenceVisite;
+
+  // Validation state
+  bool _showValidationErrors = false;
+  Map<String, String> _fieldErrors = {};
 
   final List<String> _types = [
     'Boutique',
@@ -49,23 +79,7 @@ class _CreateClientPageState extends State<CreateClientPage> {
     'Autre',
   ];
 
-  final List<String> _zones = [
-    'Abidjan - Cocody',
-    'Abidjan - Plateau',
-    'Abidjan - Yopougon',
-    'Abidjan - Abobo',
-    'Abidjan - Adjamé',
-    'Abidjan - Marcory',
-    'Abidjan - Treichville',
-    'Abidjan - Koumassi',
-    'Abidjan - Port-Bouët',
-    'Bouaké - Centre',
-    'Yamoussoukro',
-    'San-Pédro',
-    'Daloa',
-    'Korhogo',
-    'Autre',
-  ];
+  // Zones are now loaded from user data dynamically
 
   final List<String> _potentiels = ['A', 'B', 'C'];
 
@@ -77,7 +91,15 @@ class _CreateClientPageState extends State<CreateClientPage> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    _loadUserData();
+    _generateClientCode();
+  }
+
+  @override
   void dispose() {
+    _codeController.dispose();
     _boutiqueNameController.dispose();
     _gerantNameController.dispose();
     _phoneController.dispose();
@@ -87,12 +109,326 @@ class _CreateClientPageState extends State<CreateClientPage> {
     _quartierController.dispose();
     _villeController.dispose();
     _itineraireController.dispose();
+    _pageController.dispose();
     super.dispose();
+  }
+
+  /// Load the current user data to get base_commerciale_id and zones
+  Future<void> _loadUserData() async {
+    try {
+      final user = await _authService.getCurrentUser();
+      if (user != null && mounted) {
+        setState(() {
+          _currentUser = user;
+          _availableZones = user.zones;
+          // Auto-select first zone if available
+          if (_availableZones.isNotEmpty) {
+            _selectedZoneObject = _availableZones.first;
+            _selectedZone = _selectedZoneObject!.name;
+          }
+        });
+      }
+    } catch (e) {
+      // Silently fail - user can still create client with manual zone selection
+      debugPrint('Failed to load user data: $e');
+    }
+  }
+
+  /// Generate a unique client code based on timestamp
+  void _generateClientCode() {
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    _codeController.text = 'CLT$timestamp';
+  }
+
+  void _goToStep(int step) {
+    // Only allow going back or to same step without validation
+    if (step < _currentStep) {
+      setState(() {
+        _currentStep = step;
+      });
+      _pageController.animateToPage(
+        step,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+      return;
+    }
+
+    // Validate all steps up to the target step
+    for (int i = _currentStep; i < step; i++) {
+      if (!_validateStep(i)) {
+        return;
+      }
+    }
+
+    if (step >= 0 && step <= 3) {
+      setState(() {
+        _currentStep = step;
+      });
+      _pageController.animateToPage(
+        step,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+    }
+  }
+
+  bool _validateStep(int step) {
+    _fieldErrors = {};
+
+    switch (step) {
+      case 0: // Administrative Data
+        if (_boutiqueNameController.text.trim().isEmpty) {
+          _fieldErrors['boutiqueName'] = 'Ce champ est requis';
+        }
+        if (_selectedType == null) {
+          _fieldErrors['type'] = 'Veuillez sélectionner un type';
+        }
+        if (_gerantNameController.text.trim().isEmpty) {
+          _fieldErrors['gerantName'] = 'Ce champ est requis';
+        }
+        if (_phoneController.text.trim().isEmpty) {
+          _fieldErrors['phone'] = 'Ce champ est requis';
+        }
+        // Email validation (only if email is provided)
+        final email = _emailController.text.trim();
+        if (email.isNotEmpty && !_isValidEmail(email)) {
+          _fieldErrors['email'] = 'Format d\'email invalide';
+        }
+        break;
+
+      case 1: // Geographic Data
+        if (_quartierController.text.trim().isEmpty) {
+          _fieldErrors['quartier'] = 'Ce champ est requis';
+        }
+        if (_villeController.text.trim().isEmpty) {
+          _fieldErrors['ville'] = 'Ce champ est requis';
+        }
+        if (_addressController.text.trim().isEmpty) {
+          _fieldErrors['address'] = 'Ce champ est requis';
+        }
+        if (_selectedZoneObject == null) {
+          _fieldErrors['zone'] = 'Veuillez sélectionner une zone';
+        }
+        if (_gpsLocation == null) {
+          _fieldErrors['gps'] = 'La position GPS est requise';
+        }
+        break;
+
+      case 2: // Visual Data
+        if (_facadePhoto == null) {
+          _fieldErrors['facadePhoto'] = 'La photo de façade est requise';
+        }
+        if (_rayonsPhoto == null) {
+          _fieldErrors['rayonsPhoto'] = 'La photo des rayons est requise';
+        }
+        break;
+
+      case 3: // Commercial Data
+        if (_potentiel == null) {
+          _fieldErrors['potentiel'] = 'Veuillez sélectionner un potentiel';
+        }
+        if (_frequenceVisite == null) {
+          _fieldErrors['frequence'] = 'Veuillez sélectionner une fréquence';
+        }
+        break;
+    }
+
+    if (_fieldErrors.isNotEmpty) {
+      setState(() {
+        _showValidationErrors = true;
+      });
+      return false;
+    }
+
+    setState(() {
+      _showValidationErrors = false;
+    });
+    return true;
+  }
+
+  bool _isValidEmail(String email) {
+    final emailRegex = RegExp(
+      r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
+    );
+    return emailRegex.hasMatch(email);
+  }
+
+  String? _getFieldError(String fieldKey) {
+    return _showValidationErrors ? _fieldErrors[fieldKey] : null;
+  }
+
+  Future<void> _showPhotoSourceDialog({
+    required String title,
+    required Function(File) onPhotoSelected,
+  }) async {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              title,
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                _buildPhotoSourceOption(
+                  icon: Icons.camera_alt,
+                  label: 'Appareil photo',
+                  color: AppColors.primary,
+                  onTap: () async {
+                    Navigator.pop(context);
+                    await _capturePhoto(ImageSource.camera, onPhotoSelected);
+                  },
+                ),
+                _buildPhotoSourceOption(
+                  icon: Icons.photo_library,
+                  label: 'Galerie',
+                  color: AppColors.secondary,
+                  onTap: () async {
+                    Navigator.pop(context);
+                    await _capturePhoto(ImageSource.gallery, onPhotoSelected);
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPhotoSourceOption({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        width: 120,
+        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: color.withValues(alpha: 0.3)),
+        ),
+        child: Column(
+          children: [
+            Icon(icon, size: 40, color: color),
+            const SizedBox(height: 8),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: color,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _capturePhoto(ImageSource source, Function(File) onPhotoSelected) async {
+    try {
+      final XFile? pickedFile = await _imagePicker.pickImage(
+        source: source,
+        maxWidth: 1920,
+        maxHeight: 1080,
+        imageQuality: 85,
+      );
+
+      if (pickedFile != null) {
+        final file = File(pickedFile.path);
+        onPhotoSelected(file);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur lors de la capture: ${e.toString()}'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _addAdditionalPhotos() async {
+    try {
+      final List<XFile> pickedFiles = await _imagePicker.pickMultiImage(
+        maxWidth: 1920,
+        maxHeight: 1080,
+        imageQuality: 85,
+      );
+
+      if (pickedFiles.isNotEmpty) {
+        setState(() {
+          for (var pickedFile in pickedFiles) {
+            _additionalPhotos.add(File(pickedFile.path));
+          }
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur lors de la sélection: ${e.toString()}'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
+  }
+
+  void _nextStep() {
+    if (!_validateStep(_currentStep)) {
+      return;
+    }
+
+    if (_currentStep < 3) {
+      _goToStep(_currentStep + 1);
+    } else {
+      _saveClient();
+    }
+  }
+
+  void _previousStep() {
+    if (_currentStep > 0) {
+      _goToStep(_currentStep - 1);
+    }
   }
 
   Future<void> _captureGPSLocation() async {
     try {
-      // Vérifier la permission de localisation
       PermissionStatus locationStatus = await Permission.location.status;
       if (!locationStatus.isGranted) {
         locationStatus = await Permission.location.request();
@@ -100,7 +436,6 @@ class _CreateClientPageState extends State<CreateClientPage> {
 
       if (!locationStatus.isGranted) {
         if (mounted) {
-          // Vérifier si refusé de manière permanente
           if (locationStatus.isPermanentlyDenied) {
             _showLocationPermissionDialog();
           } else {
@@ -116,7 +451,6 @@ class _CreateClientPageState extends State<CreateClientPage> {
         return;
       }
 
-      // Vérifier si le service de localisation est activé
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
         if (mounted) {
@@ -131,7 +465,6 @@ class _CreateClientPageState extends State<CreateClientPage> {
         return;
       }
 
-      // Afficher un indicateur de chargement
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -154,7 +487,6 @@ class _CreateClientPageState extends State<CreateClientPage> {
         );
       }
 
-      // Obtenir la position GPS
       Position position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
         timeLimit: const Duration(seconds: 10),
@@ -242,30 +574,63 @@ class _CreateClientPageState extends State<CreateClientPage> {
   }
 
   Future<void> _saveClient() async {
-    if (_formKey.currentState!.validate()) {
-      // Show loading
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => const Center(
-          child: CircularProgressIndicator(),
-        ),
-      );
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
 
-      // Simulate save operation
-      await Future.delayed(const Duration(seconds: 2));
+    // Check if we have required data
+    if (_currentUser == null) {
+      _showErrorSnackbar('Données utilisateur non disponibles. Veuillez vous reconnecter.');
+      return;
+    }
 
-      if (!mounted) return;
+    // Parse GPS coordinates
+    double? latitude;
+    double? longitude;
+    if (_gpsLocation != null) {
+      final coords = _gpsLocation!.split(',');
+      if (coords.length == 2) {
+        latitude = double.tryParse(coords[0].trim());
+        longitude = double.tryParse(coords[1].trim());
+      }
+    }
 
-      // Close loading dialog
-      Navigator.of(context).pop();
+    if (latitude == null || longitude == null) {
+      _showErrorSnackbar('La position GPS est requise. Veuillez capturer votre position.');
+      return;
+    }
 
-      // Create new Client object from form data
-      final newClient = Client(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
-        boutiqueName: _boutiqueNameController.text.trim(),
+    // Get base_commerciale_id and zone_id
+    final baseCommercialeId = _currentUser!.primaryBase?.id;
+    final zoneId = _selectedZoneObject?.id;
+
+    if (baseCommercialeId == null) {
+      _showErrorSnackbar('Base commerciale non configurée. Contactez votre administrateur.');
+      return;
+    }
+
+    if (zoneId == null) {
+      _showErrorSnackbar('Veuillez sélectionner une zone.');
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    // Show loading dialog
+    _showLoadingDialog('Création du client en cours...');
+
+    try {
+      // Create the client request
+      final request = CreateClientRequest(
+        code: _codeController.text.trim(),
+        name: _boutiqueNameController.text.trim(),
         type: _selectedType ?? 'Boutique',
-        gerantName: _gerantNameController.text.trim(),
+        potential: _potentiel ?? 'C',
+        baseCommercialeId: baseCommercialeId,
+        zoneId: zoneId,
+        managerName: _gerantNameController.text.trim(),
         phone: _phoneController.text.trim(),
         whatsapp: _whatsappController.text.trim().isNotEmpty
             ? _whatsappController.text.trim()
@@ -273,21 +638,267 @@ class _CreateClientPageState extends State<CreateClientPage> {
         email: _emailController.text.trim().isNotEmpty
             ? _emailController.text.trim()
             : null,
-        address: _addressController.text.trim(),
-        quartier: _quartierController.text.trim(),
-        ville: _villeController.text.trim(),
-        zone: _selectedZone,
-        gpsLocation: _gpsLocation,
-        potentiel: _potentiel,
-        frequenceVisite: _frequenceVisite,
-        status: 'En attente',
-        isActive: false,
-        createdAt: DateTime.now(),
+        city: _villeController.text.trim(),
+        district: _quartierController.text.trim().isNotEmpty
+            ? _quartierController.text.trim()
+            : null,
+        addressDescription: _addressController.text.trim().isNotEmpty
+            ? _addressController.text.trim()
+            : null,
+        latitude: latitude,
+        longitude: longitude,
+        visitFrequency: CreateClientRequest.frequencyToApiValue(_frequenceVisite ?? 'Autre'),
+        isActive: true,
       );
 
-      // Return to clients page with the new client
-      Navigator.of(context).pop(newClient);
+      // Create the client via API
+      final createdClient = await _clientService.createClient(request);
+
+      if (!mounted) return;
+
+      // Close loading dialog
+      Navigator.of(context).pop();
+
+      // Upload photos if any
+      await _uploadClientPhotos(createdClient.id);
+
+      if (!mounted) return;
+
+      // Show success message
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.check_circle, color: Colors.white),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text('Client "${createdClient.name}" créé avec succès'),
+              ),
+            ],
+          ),
+          backgroundColor: AppColors.success,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+
+      // Return the created client
+      Navigator.of(context).pop(createdClient);
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      Navigator.of(context).pop(); // Close loading dialog
+
+      // Handle validation errors
+      if (e.statusCode == 422) {
+        _showValidationErrorDialog(e.message);
+      } else if (e.statusCode == 401) {
+        _showErrorSnackbar('Session expirée. Veuillez vous reconnecter.');
+      } else {
+        _showErrorSnackbar(e.message);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.of(context).pop(); // Close loading dialog
+      _showErrorSnackbar('Une erreur inattendue s\'est produite: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
+  }
+
+  /// Upload photos for the created client
+  Future<void> _uploadClientPhotos(int clientId) async {
+    final photosToUpload = <MapEntry<File, String>>[];
+
+    // Collect all photos with their types
+    if (_facadePhoto != null) {
+      photosToUpload.add(MapEntry(_facadePhoto!, 'facade'));
+    }
+    if (_rayonsPhoto != null) {
+      photosToUpload.add(MapEntry(_rayonsPhoto!, 'shelves'));
+    }
+    for (final photo in _additionalPhotos) {
+      photosToUpload.add(MapEntry(photo, 'other'));
+    }
+
+    if (photosToUpload.isEmpty) {
+      return;
+    }
+
+    setState(() {
+      _isUploadingPhotos = true;
+      _uploadProgress = 'Téléchargement des photos: 0/${photosToUpload.length}';
+    });
+
+    _showLoadingDialog('Téléchargement des photos...');
+
+    // Parse GPS coordinates for photos
+    double? latitude;
+    double? longitude;
+    if (_gpsLocation != null) {
+      final coords = _gpsLocation!.split(',');
+      if (coords.length == 2) {
+        latitude = double.tryParse(coords[0].trim());
+        longitude = double.tryParse(coords[1].trim());
+      }
+    }
+
+    int uploadedCount = 0;
+    final List<String> errors = [];
+
+    // Upload photos in batches by type for better organization
+    // First upload facade photo
+    if (_facadePhoto != null) {
+      try {
+        await _clientService.uploadSinglePhoto(
+          clientId,
+          _facadePhoto!,
+          type: 'facade',
+          latitude: latitude,
+          longitude: longitude,
+        );
+        uploadedCount++;
+        if (mounted) {
+          setState(() {
+            _uploadProgress = 'Téléchargement des photos: $uploadedCount/${photosToUpload.length}';
+          });
+        }
+      } catch (e) {
+        errors.add('Photo façade: ${e.toString()}');
+      }
+    }
+
+    // Upload shelves photo
+    if (_rayonsPhoto != null) {
+      try {
+        await _clientService.uploadSinglePhoto(
+          clientId,
+          _rayonsPhoto!,
+          type: 'shelves',
+          latitude: latitude,
+          longitude: longitude,
+        );
+        uploadedCount++;
+        if (mounted) {
+          setState(() {
+            _uploadProgress = 'Téléchargement des photos: $uploadedCount/${photosToUpload.length}';
+          });
+        }
+      } catch (e) {
+        errors.add('Photo rayons: ${e.toString()}');
+      }
+    }
+
+    // Upload additional photos (in batches of up to 10)
+    if (_additionalPhotos.isNotEmpty) {
+      // Split into batches of 10
+      for (int i = 0; i < _additionalPhotos.length; i += 10) {
+        final batch = _additionalPhotos.skip(i).take(10).toList();
+        try {
+          await _clientService.uploadMultiplePhotos(
+            clientId,
+            batch,
+            type: 'other',
+            latitude: latitude,
+            longitude: longitude,
+          );
+          uploadedCount += batch.length;
+          if (mounted) {
+            setState(() {
+              _uploadProgress = 'Téléchargement des photos: $uploadedCount/${photosToUpload.length}';
+            });
+          }
+        } catch (e) {
+          errors.add('Photos additionnelles: ${e.toString()}');
+        }
+      }
+    }
+
+    if (mounted) {
+      Navigator.of(context).pop(); // Close loading dialog
+      setState(() {
+        _isUploadingPhotos = false;
+        _uploadProgress = null;
+      });
+
+      // Show warning if some photos failed to upload
+      if (errors.isNotEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${photosToUpload.length - errors.length}/${photosToUpload.length} photos téléchargées. Certaines photos ont échoué.'),
+            backgroundColor: Colors.orange,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    }
+  }
+
+  void _showLoadingDialog(String message) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(),
+            const SizedBox(height: 16),
+            Text(message),
+            if (_uploadProgress != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                _uploadProgress!,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey[600],
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showErrorSnackbar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.error_outline, color: Colors.white),
+            const SizedBox(width: 12),
+            Expanded(child: Text(message)),
+          ],
+        ),
+        backgroundColor: AppColors.error,
+        duration: const Duration(seconds: 4),
+      ),
+    );
+  }
+
+  void _showValidationErrorDialog(String message) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.warning, color: Colors.orange[700]),
+            const SizedBox(width: 8),
+            const Text('Erreur de validation'),
+          ],
+        ),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -302,48 +913,167 @@ class _CreateClientPageState extends State<CreateClientPage> {
       ),
       body: Form(
         key: _formKey,
-        child: Stepper(
-          currentStep: _currentStep,
-          onStepContinue: () {
-            if (_currentStep < 3) {
-              setState(() {
-                _currentStep += 1;
-              });
-            } else {
-              _saveClient();
-            }
-          },
-          onStepCancel: () {
-            if (_currentStep > 0) {
-              setState(() {
-                _currentStep -= 1;
-              });
-            }
-          },
-          steps: [
-            Step(
-              title: const Text('Données administratives'),
-              isActive: _currentStep >= 0,
-              state: _currentStep > 0 ? StepState.complete : StepState.indexed,
-              content: _buildAdministrativeDataStep(),
+        child: Column(
+          children: [
+            // Horizontal Stepper
+            Container(
+              color: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: EasyStepper(
+                activeStep: _currentStep,
+                lineStyle: LineStyle(
+                  lineLength: 50,
+                  lineType: LineType.normal,
+                  lineThickness: 3,
+                  lineSpace: 4,
+                  activeLineColor: AppColors.primary,
+                  finishedLineColor: AppColors.success,
+                  unreachedLineColor: Colors.grey[300]!,
+                ),
+                stepShape: StepShape.circle,
+                stepBorderRadius: 15,
+                borderThickness: 2,
+                stepRadius: 28,
+                finishedStepBorderColor: AppColors.success,
+                finishedStepTextColor: AppColors.success,
+                finishedStepBackgroundColor: AppColors.success,
+                activeStepIconColor: Colors.white,
+                activeStepBorderColor: AppColors.primary,
+                activeStepBackgroundColor: AppColors.primary,
+                activeStepTextColor: AppColors.primary,
+                unreachedStepBackgroundColor: Colors.white,
+                unreachedStepBorderColor: Colors.grey[300]!,
+                unreachedStepIconColor: Colors.grey[400]!,
+                unreachedStepTextColor: Colors.grey[500]!,
+                showLoadingAnimation: false,
+                enableStepTapping: true,
+                onStepReached: (index) {
+                  _goToStep(index);
+                },
+                steps: [
+                  EasyStep(
+                    customStep: _buildStepIcon(0, Icons.person),
+                    title: 'Admin',
+                  ),
+                  EasyStep(
+                    customStep: _buildStepIcon(1, Icons.location_on),
+                    title: 'Géo',
+                  ),
+                  EasyStep(
+                    customStep: _buildStepIcon(2, Icons.camera_alt),
+                    title: 'Photos',
+                  ),
+                  EasyStep(
+                    customStep: _buildStepIcon(3, Icons.business),
+                    title: 'Commercial',
+                  ),
+                ],
+              ),
             ),
-            Step(
-              title: const Text('Données géographiques'),
-              isActive: _currentStep >= 1,
-              state: _currentStep > 1 ? StepState.complete : StepState.indexed,
-              content: _buildGeographicDataStep(),
+
+            // Step Title
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              color: AppColors.primaryVeryLight,
+              child: Text(
+                _getStepTitle(),
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.primary,
+                ),
+                textAlign: TextAlign.center,
+              ),
             ),
-            Step(
-              title: const Text('Données visuelles'),
-              isActive: _currentStep >= 2,
-              state: _currentStep > 2 ? StepState.complete : StepState.indexed,
-              content: _buildVisualDataStep(),
+
+            // Page Content
+            Expanded(
+              child: PageView(
+                controller: _pageController,
+                physics: const NeverScrollableScrollPhysics(),
+                onPageChanged: (index) {
+                  setState(() {
+                    _currentStep = index;
+                  });
+                },
+                children: [
+                  _buildAdministrativeDataStep(),
+                  _buildGeographicDataStep(),
+                  _buildVisualDataStep(),
+                  _buildCommercialDataStep(),
+                ],
+              ),
             ),
-            Step(
-              title: const Text('Données commerciales'),
-              isActive: _currentStep >= 3,
-              state: _currentStep > 3 ? StepState.complete : StepState.indexed,
-              content: _buildCommercialDataStep(),
+
+            // Navigation Buttons
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.grey.withValues(alpha: 0.2),
+                    spreadRadius: 1,
+                    blurRadius: 5,
+                    offset: const Offset(0, -2),
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  if (_currentStep > 0)
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _previousStep,
+                        icon: const Icon(Icons.arrow_back),
+                        label: const Text('Précédent'),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          side: BorderSide(color: AppColors.primary),
+                          foregroundColor: AppColors.primary,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                      ),
+                    ),
+                  if (_currentStep > 0) const SizedBox(width: 16),
+                  Expanded(
+                    flex: _currentStep == 0 ? 1 : 1,
+                    child: ElevatedButton.icon(
+                      onPressed: _isLoading || _isUploadingPhotos ? null : _nextStep,
+                      icon: _isLoading || _isUploadingPhotos
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                              ),
+                            )
+                          : Icon(_currentStep == 3 ? Icons.check : Icons.arrow_forward),
+                      label: Text(_isLoading
+                          ? 'Création...'
+                          : _isUploadingPhotos
+                              ? 'Téléchargement...'
+                              : _currentStep == 3
+                                  ? 'Créer le client'
+                                  : 'Suivant'),
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        backgroundColor: _currentStep == 3 ? AppColors.success : AppColors.primary,
+                        foregroundColor: Colors.white,
+                        disabledBackgroundColor: Colors.grey[400],
+                        disabledForegroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -351,373 +1081,671 @@ class _CreateClientPageState extends State<CreateClientPage> {
     );
   }
 
+  Widget _buildStepIcon(int stepIndex, IconData icon) {
+    final isActive = _currentStep == stepIndex;
+    final isCompleted = _currentStep > stepIndex;
+
+    return Container(
+      width: 50,
+      height: 50,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: isCompleted
+            ? AppColors.success
+            : isActive
+                ? AppColors.primary
+                : Colors.white,
+        border: Border.all(
+          color: isCompleted
+              ? AppColors.success
+              : isActive
+                  ? AppColors.primary
+                  : Colors.grey[300]!,
+          width: 2,
+        ),
+      ),
+      child: Icon(
+        isCompleted ? Icons.check : icon,
+        color: isCompleted || isActive ? Colors.white : Colors.grey[400],
+        size: 24,
+      ),
+    );
+  }
+
+  String _getStepTitle() {
+    switch (_currentStep) {
+      case 0:
+        return 'Données administratives';
+      case 1:
+        return 'Données géographiques';
+      case 2:
+        return 'Données visuelles';
+      case 3:
+        return 'Données commerciales';
+      default:
+        return '';
+    }
+  }
+
   Widget _buildAdministrativeDataStep() {
-    return Column(
-      children: [
-        TextFormField(
-          controller: _boutiqueNameController,
-          decoration: InputDecoration(
-            labelText: 'Nom de la boutique *',
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            filled: true,
-            fillColor: Colors.white,
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        children: [
+          _buildTextField(
+            controller: _boutiqueNameController,
+            label: 'Nom de la boutique',
+            icon: Icons.store,
+            isRequired: true,
+            errorText: _getFieldError('boutiqueName'),
           ),
-          validator: (value) {
-            if (value == null || value.isEmpty) {
-              return 'Veuillez entrer le nom de la boutique';
-            }
-            return null;
-          },
-        ),
-        const SizedBox(height: 16),
-        DropdownButtonFormField<String>(
-          value: _selectedType,
-          decoration: InputDecoration(
-            labelText: 'Type *',
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            filled: true,
-            fillColor: Colors.white,
+          const SizedBox(height: 16),
+          _buildDropdownField(
+            value: _selectedType,
+            label: 'Type de client',
+            icon: Icons.category,
+            items: _types,
+            isRequired: true,
+            errorText: _getFieldError('type'),
+            onChanged: (value) {
+              setState(() {
+                _selectedType = value;
+              });
+            },
           ),
-          items: _types.map((type) {
-            return DropdownMenuItem(
-              value: type,
-              child: Text(type),
-            );
-          }).toList(),
-          onChanged: (value) {
-            setState(() {
-              _selectedType = value;
-            });
-          },
-          validator: (value) {
-            if (value == null) {
-              return 'Veuillez sélectionner un type';
-            }
-            return null;
-          },
-        ),
-        const SizedBox(height: 16),
-        TextFormField(
-          controller: _gerantNameController,
-          decoration: InputDecoration(
-            labelText: 'Nom du gérant *',
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            filled: true,
-            fillColor: Colors.white,
+          const SizedBox(height: 16),
+          _buildTextField(
+            controller: _gerantNameController,
+            label: 'Nom du gérant',
+            icon: Icons.person,
+            isRequired: true,
+            errorText: _getFieldError('gerantName'),
           ),
-          validator: (value) {
-            if (value == null || value.isEmpty) {
-              return 'Veuillez entrer le nom du gérant';
-            }
-            return null;
-          },
-        ),
-        const SizedBox(height: 16),
-        TextFormField(
-          controller: _phoneController,
-          keyboardType: TextInputType.phone,
-          decoration: InputDecoration(
-            labelText: 'Téléphone *',
-            prefixIcon: const Icon(Icons.phone),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            filled: true,
-            fillColor: Colors.white,
+          const SizedBox(height: 16),
+          _buildTextField(
+            controller: _phoneController,
+            label: 'Téléphone',
+            icon: Icons.phone,
+            isRequired: true,
+            keyboardType: TextInputType.phone,
+            errorText: _getFieldError('phone'),
           ),
-          validator: (value) {
-            if (value == null || value.isEmpty) {
-              return 'Veuillez entrer le numéro de téléphone';
-            }
-            return null;
-          },
-        ),
-        const SizedBox(height: 16),
-        TextFormField(
-          controller: _whatsappController,
-          keyboardType: TextInputType.phone,
-          decoration: InputDecoration(
-            labelText: 'WhatsApp',
-            prefixIcon: const Icon(Icons.chat),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            filled: true,
-            fillColor: Colors.white,
+          const SizedBox(height: 16),
+          _buildTextField(
+            controller: _whatsappController,
+            label: 'WhatsApp',
+            icon: Icons.chat,
+            keyboardType: TextInputType.phone,
           ),
-        ),
-        const SizedBox(height: 16),
-        TextFormField(
-          controller: _emailController,
-          keyboardType: TextInputType.emailAddress,
-          decoration: InputDecoration(
-            labelText: 'Email',
-            prefixIcon: const Icon(Icons.email),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            filled: true,
-            fillColor: Colors.white,
+          const SizedBox(height: 16),
+          _buildTextField(
+            controller: _emailController,
+            label: 'Email',
+            icon: Icons.email,
+            keyboardType: TextInputType.emailAddress,
+            errorText: _getFieldError('email'),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
   Widget _buildGeographicDataStep() {
-    return Column(
-      children: [
-        TextFormField(
-          controller: _quartierController,
-          decoration: InputDecoration(
-            labelText: 'Quartier *',
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            filled: true,
-            fillColor: Colors.white,
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        children: [
+          _buildTextField(
+            controller: _quartierController,
+            label: 'Quartier',
+            icon: Icons.location_city,
+            isRequired: true,
+            errorText: _getFieldError('quartier'),
           ),
-          validator: (value) {
-            if (value == null || value.isEmpty) {
-              return 'Veuillez entrer le quartier';
-            }
-            return null;
-          },
-        ),
-        const SizedBox(height: 16),
-        TextFormField(
-          controller: _villeController,
-          decoration: InputDecoration(
-            labelText: 'Ville *',
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            filled: true,
-            fillColor: Colors.white,
+          const SizedBox(height: 16),
+          _buildTextField(
+            controller: _villeController,
+            label: 'Ville',
+            icon: Icons.location_on,
+            isRequired: true,
+            errorText: _getFieldError('ville'),
           ),
-          validator: (value) {
-            if (value == null || value.isEmpty) {
-              return 'Veuillez entrer la ville';
-            }
-            return null;
-          },
-        ),
-        const SizedBox(height: 16),
-        TextFormField(
-          controller: _addressController,
-          maxLines: 2,
-          decoration: InputDecoration(
-            labelText: 'Adresse complète *',
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            filled: true,
-            fillColor: Colors.white,
+          const SizedBox(height: 16),
+          _buildTextField(
+            controller: _addressController,
+            label: 'Adresse complète',
+            icon: Icons.home,
+            isRequired: true,
+            maxLines: 2,
+            errorText: _getFieldError('address'),
           ),
-          validator: (value) {
-            if (value == null || value.isEmpty) {
-              return 'Veuillez entrer l\'adresse';
-            }
-            return null;
-          },
-        ),
-        const SizedBox(height: 16),
-        TextFormField(
-          controller: _itineraireController,
-          maxLines: 3,
-          decoration: InputDecoration(
-            labelText: 'Description de l\'itinéraire',
+          const SizedBox(height: 16),
+          _buildTextField(
+            controller: _itineraireController,
+            label: 'Description de l\'itinéraire',
+            icon: Icons.directions,
+            maxLines: 3,
             hintText: 'Comment accéder à la boutique...',
-            border: OutlineInputBorder(
+          ),
+          const SizedBox(height: 16),
+          _buildZoneDropdown(),
+          const SizedBox(height: 20),
+          _buildGPSButton(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGPSButton() {
+    final hasError = _getFieldError('gps') != null;
+    final hasLocation = _gpsLocation != null;
+
+    // Determine colors based on state
+    Color getBackgroundColor() {
+      if (hasLocation) return AppColors.success.withValues(alpha: 0.1);
+      if (hasError) return AppColors.error.withValues(alpha: 0.1);
+      return Colors.transparent;
+    }
+
+    Color getBorderColor() {
+      if (hasLocation) return AppColors.success;
+      if (hasError) return AppColors.error;
+      return Colors.transparent;
+    }
+
+    Color getIconColor() {
+      if (hasLocation) return AppColors.success;
+      if (hasError) return AppColors.error;
+      return Colors.white;
+    }
+
+    Color getTextColor() {
+      if (hasLocation) return AppColors.success;
+      if (hasError) return AppColors.error;
+      return Colors.white;
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: double.infinity,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            gradient: hasLocation || hasError
+                ? null
+                : LinearGradient(
+                    colors: [AppColors.primary, AppColors.primaryDark],
+                  ),
+            color: hasLocation || hasError ? getBackgroundColor() : null,
+            border: hasLocation || hasError
+                ? Border.all(color: getBorderColor(), width: 2)
+                : null,
+          ),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: _captureGPSLocation,
               borderRadius: BorderRadius.circular(12),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      hasLocation
+                          ? Icons.check_circle
+                          : hasError
+                              ? Icons.error_outline
+                              : Icons.my_location,
+                      color: getIconColor(),
+                      size: 24,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            hasLocation
+                                ? 'Position GPS enregistrée'
+                                : 'Enregistrer la position GPS *',
+                            style: TextStyle(
+                              color: getTextColor(),
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          if (hasLocation)
+                            Text(
+                              _gpsLocation!,
+                              style: TextStyle(
+                                color: AppColors.success,
+                                fontSize: 12,
+                              ),
+                            ),
+                          if (hasError && !hasLocation)
+                            Text(
+                              'Appuyez pour capturer votre position',
+                              style: TextStyle(
+                                color: AppColors.error,
+                                fontSize: 12,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    if (hasLocation)
+                      IconButton(
+                        onPressed: _captureGPSLocation,
+                        icon: Icon(Icons.refresh, color: AppColors.success),
+                        tooltip: 'Actualiser',
+                      ),
+                  ],
+                ),
+              ),
             ),
-            filled: true,
-            fillColor: Colors.white,
           ),
         ),
-        const SizedBox(height: 16),
-        DropdownButtonFormField<String>(
-          value: _selectedZone,
-          decoration: InputDecoration(
-            labelText: 'Zone / Secteur',
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            filled: true,
-            fillColor: Colors.white,
-          ),
-          items: _zones.map((zone) {
-            return DropdownMenuItem(
-              value: zone,
-              child: Text(zone),
-            );
-          }).toList(),
-          onChanged: (value) {
-            setState(() {
-              _selectedZone = value;
-            });
-          },
-        ),
-        const SizedBox(height: 16),
-        ElevatedButton.icon(
-          onPressed: _captureGPSLocation,
-          icon: const Icon(Icons.my_location),
-          label: const Text('Enregistrer la position GPS'),
-          style: ElevatedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-          ),
-        ),
-        if (_gpsLocation != null) ...[
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.green.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(8),
-            ),
+        if (hasError && !hasLocation)
+          Padding(
+            padding: const EdgeInsets.only(left: 12, top: 6),
             child: Row(
               children: [
-                const Icon(Icons.check_circle, color: Colors.green),
-                const SizedBox(width: 8),
+                Icon(Icons.error_outline, size: 14, color: AppColors.error),
+                const SizedBox(width: 4),
                 Text(
-                  'GPS: $_gpsLocation',
-                  style: const TextStyle(color: Colors.green),
+                  _getFieldError('gps')!,
+                  style: TextStyle(
+                    color: AppColors.error,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
               ],
             ),
           ),
-        ],
+      ],
+    );
+  }
+
+  Widget _buildZoneDropdown() {
+    final hasError = _getFieldError('zone') != null;
+    final zoneNames = _availableZones.map((z) => z.name).toList();
+
+    // If no zones available, show a message
+    if (_availableZones.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.orange.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.orange),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.warning, color: Colors.orange),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Zones non disponibles',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.orange,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Aucune zone n\'est configurée pour votre compte. Contactez votre administrateur.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey[700],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: hasError ? Border.all(color: AppColors.error, width: 2) : null,
+            boxShadow: [
+              BoxShadow(
+                color: hasError
+                    ? AppColors.error.withValues(alpha: 0.2)
+                    : Colors.grey.withValues(alpha: 0.1),
+                spreadRadius: 1,
+                blurRadius: 5,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: DropdownButtonFormField<String>(
+            value: _selectedZone,
+            decoration: InputDecoration(
+              labelText: 'Zone / Secteur *',
+              labelStyle: TextStyle(
+                color: hasError ? AppColors.error : null,
+              ),
+              prefixIcon: Icon(
+                Icons.map,
+                color: hasError ? AppColors.error : AppColors.primary,
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+              filled: true,
+              fillColor: Colors.white,
+            ),
+            items: zoneNames.map((zoneName) {
+              return DropdownMenuItem(
+                value: zoneName,
+                child: Text(zoneName),
+              );
+            }).toList(),
+            onChanged: (value) {
+              setState(() {
+                _selectedZone = value;
+                // Find and store the selected zone object
+                _selectedZoneObject = _availableZones.firstWhere(
+                  (z) => z.name == value,
+                  orElse: () => _availableZones.first,
+                );
+              });
+            },
+          ),
+        ),
+        if (hasError)
+          Padding(
+            padding: const EdgeInsets.only(left: 12, top: 6),
+            child: Row(
+              children: [
+                Icon(Icons.error_outline, size: 14, color: AppColors.error),
+                const SizedBox(width: 4),
+                Text(
+                  _getFieldError('zone')!,
+                  style: TextStyle(
+                    color: AppColors.error,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
       ],
     );
   }
 
   Widget _buildVisualDataStep() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const Text(
-          'Photos obligatoires',
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-            color: Colors.black87,
-          ),
-        ),
-        const SizedBox(height: 16),
-        _buildPhotoButton(
-          label: 'Photo de façade *',
-          icon: Icons.store,
-          photo: _facadePhoto,
-          onTap: () {
-            // TODO: Take/select photo
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Fonctionnalité photo à implémenter'),
-              ),
-            );
-          },
-        ),
-        const SizedBox(height: 12),
-        _buildPhotoButton(
-          label: 'Photo des rayons *',
-          icon: Icons.shelves,
-          photo: _rayonsPhoto,
-          onTap: () {
-            // TODO: Take/select photo
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Fonctionnalité photo à implémenter'),
-              ),
-            );
-          },
-        ),
-        const SizedBox(height: 24),
-        const Text(
-          'Photos complémentaires (optionnel)',
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-            color: Colors.black87,
-          ),
-        ),
-        const SizedBox(height: 16),
-        ElevatedButton.icon(
-          onPressed: () {
-            // TODO: Add additional photos
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Fonctionnalité photo à implémenter'),
-              ),
-            );
-          },
-          icon: const Icon(Icons.add_photo_alternate),
-          label: const Text('Ajouter des photos'),
-          style: ElevatedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-          ),
-        ),
-        if (_additionalPhotos.isNotEmpty) ...[
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildSectionTitle('Photos obligatoires', Icons.camera_alt),
           const SizedBox(height: 16),
-          Text(
-            '${_additionalPhotos.length} photo(s) ajoutée(s)',
-            style: const TextStyle(color: Colors.green),
+          _buildPhotoCard(
+            label: 'Photo de façade',
+            description: 'Prenez une photo de la devanture de la boutique',
+            icon: Icons.store,
+            photo: _facadePhoto,
+            isRequired: true,
+            errorText: _getFieldError('facadePhoto'),
+            onTap: () {
+              _showPhotoSourceDialog(
+                title: 'Photo de façade',
+                onPhotoSelected: (file) {
+                  setState(() {
+                    _facadePhoto = file;
+                    _fieldErrors.remove('facadePhoto');
+                  });
+                },
+              );
+            },
           ),
+          const SizedBox(height: 12),
+          _buildPhotoCard(
+            label: 'Photo des rayons',
+            description: 'Prenez une photo des rayons de produits',
+            icon: Icons.shelves,
+            photo: _rayonsPhoto,
+            isRequired: true,
+            errorText: _getFieldError('rayonsPhoto'),
+            onTap: () {
+              _showPhotoSourceDialog(
+                title: 'Photo des rayons',
+                onPhotoSelected: (file) {
+                  setState(() {
+                    _rayonsPhoto = file;
+                    _fieldErrors.remove('rayonsPhoto');
+                  });
+                },
+              );
+            },
+          ),
+          const SizedBox(height: 24),
+          _buildSectionTitle('Photos complémentaires', Icons.add_photo_alternate),
+          const SizedBox(height: 16),
+          _buildAddPhotosButton(),
+          if (_additionalPhotos.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            _buildAdditionalPhotosGrid(),
+          ],
         ],
+      ),
+    );
+  }
+
+  Widget _buildSectionTitle(String title, IconData icon) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: AppColors.primary.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(icon, color: AppColors.primary, size: 20),
+        ),
+        const SizedBox(width: 12),
+        Text(
+          title,
+          style: const TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: Colors.black87,
+          ),
+        ),
       ],
     );
   }
 
-  Widget _buildPhotoButton({
+  Widget _buildPhotoCard({
     required String label,
+    required String description,
     required IconData icon,
     required File? photo,
     required VoidCallback onTap,
+    bool isRequired = false,
+    String? errorText,
   }) {
+    final hasError = errorText != null;
+    final hasPhoto = photo != null;
+
+    Color getBorderColor() {
+      if (hasPhoto) return AppColors.success;
+      if (hasError) return AppColors.error;
+      return Colors.grey[300]!;
+    }
+
+    Color getIconBgColor() {
+      if (hasPhoto) return AppColors.success.withValues(alpha: 0.1);
+      if (hasError) return AppColors.error.withValues(alpha: 0.1);
+      return Colors.grey[100]!;
+    }
+
+    Color getIconColor() {
+      if (hasPhoto) return AppColors.success;
+      if (hasError) return AppColors.error;
+      return Colors.grey[400]!;
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: getBorderColor(),
+                width: 2,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: hasError
+                      ? AppColors.error.withValues(alpha: 0.2)
+                      : Colors.grey.withValues(alpha: 0.1),
+                  spreadRadius: 1,
+                  blurRadius: 5,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 60,
+                  height: 60,
+                  decoration: BoxDecoration(
+                    color: getIconBgColor(),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    hasPhoto ? Icons.check_circle : (hasError ? Icons.error_outline : icon),
+                    color: getIconColor(),
+                    size: 32,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Text(
+                            label,
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: hasPhoto ? AppColors.success : (hasError ? AppColors.error : Colors.black87),
+                            ),
+                          ),
+                          if (isRequired)
+                            Text(
+                              ' *',
+                              style: TextStyle(
+                                color: AppColors.error,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        description,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: hasError ? AppColors.error : Colors.grey[600],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(
+                  hasPhoto ? Icons.edit : Icons.camera_alt,
+                  color: hasPhoto ? AppColors.success : (hasError ? AppColors.error : AppColors.primary),
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (hasError)
+          Padding(
+            padding: const EdgeInsets.only(left: 12, top: 6),
+            child: Row(
+              children: [
+                Icon(Icons.error_outline, size: 14, color: AppColors.error),
+                const SizedBox(width: 4),
+                Text(
+                  errorText,
+                  style: TextStyle(
+                    color: AppColors.error,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildAddPhotosButton() {
     return InkWell(
-      onTap: onTap,
+      onTap: _addAdditionalPhotos,
+      borderRadius: BorderRadius.circular(12),
       child: Container(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: photo != null ? Colors.green : Colors.grey[300]!,
+            color: Colors.grey[300]!,
             width: 2,
+            style: BorderStyle.solid,
           ),
         ),
         child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              icon,
-              color: photo != null ? Colors.green : Colors.grey,
-              size: 32,
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Text(
-                label,
-                style: TextStyle(
-                  fontSize: 16,
-                  color: photo != null ? Colors.green : Colors.black87,
-                  fontWeight: FontWeight.w500,
-                ),
+            Icon(Icons.add_circle_outline, color: AppColors.primary, size: 28),
+            const SizedBox(width: 12),
+            Text(
+              'Ajouter des photos',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: AppColors.primary,
               ),
-            ),
-            Icon(
-              photo != null ? Icons.check_circle : Icons.camera_alt,
-              color: photo != null ? Colors.green : Colors.grey,
             ),
           ],
         ),
@@ -725,110 +1753,394 @@ class _CreateClientPageState extends State<CreateClientPage> {
     );
   }
 
-  Widget _buildCommercialDataStep() {
+  Widget _buildAdditionalPhotosGrid() {
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Potentiel du client',
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-            color: Colors.black87,
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: AppColors.success.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(8),
           ),
-        ),
-        const SizedBox(height: 16),
-        Row(
-          children: _potentiels.map((potentiel) {
-            return Expanded(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: ChoiceChip(
-                  label: SizedBox(
-                    width: double.infinity,
-                    child: Text(
-                      potentiel,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: _potentiel == potentiel
-                            ? Colors.white
-                            : Colors.black87,
-                      ),
-                    ),
+          child: Row(
+            children: [
+              Icon(Icons.check_circle, color: AppColors.success),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '${_additionalPhotos.length} photo(s) ajoutée(s)',
+                  style: TextStyle(
+                    color: AppColors.success,
+                    fontWeight: FontWeight.w500,
                   ),
-                  selected: _potentiel == potentiel,
-                  onSelected: (selected) {
-                    setState(() {
-                      _potentiel = selected ? potentiel : null;
-                    });
-                  },
-                  selectedColor: Theme.of(context).primaryColor,
                 ),
               ),
-            );
-          }).toList(),
-        ),
-        const SizedBox(height: 24),
-        DropdownButtonFormField<String>(
-          value: _frequenceVisite,
-          decoration: InputDecoration(
-            labelText: 'Fréquence de visite recommandée *',
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            filled: true,
-            fillColor: Colors.white,
-          ),
-          items: _frequences.map((freq) {
-            return DropdownMenuItem(
-              value: freq,
-              child: Text(freq),
-            );
-          }).toList(),
-          onChanged: (value) {
-            setState(() {
-              _frequenceVisite = value;
-            });
-          },
-          validator: (value) {
-            if (value == null) {
-              return 'Veuillez sélectionner une fréquence';
-            }
-            return null;
-          },
-        ),
-        const SizedBox(height: 16),
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.blue.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Icon(Icons.info, color: Colors.blue[700]),
-                  const SizedBox(width: 8),
-                  const Text(
-                    'Informations',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                '• L\'historique des visites sera disponible après la création\n'
-                '• L\'historique des commandes sera disponible après la première commande',
-                style: TextStyle(fontSize: 14),
+              TextButton(
+                onPressed: _addAdditionalPhotos,
+                child: Text(
+                  'Ajouter +',
+                  style: TextStyle(color: AppColors.primary),
+                ),
               ),
             ],
           ),
         ),
+        const SizedBox(height: 12),
+        SizedBox(
+          height: 100,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            itemCount: _additionalPhotos.length,
+            itemBuilder: (context, index) {
+              return Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: Stack(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Image.file(
+                        _additionalPhotos[index],
+                        width: 100,
+                        height: 100,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                    Positioned(
+                      top: 4,
+                      right: 4,
+                      child: GestureDetector(
+                        onTap: () {
+                          setState(() {
+                            _additionalPhotos.removeAt(index);
+                          });
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            color: AppColors.error,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.close,
+                            color: Colors.white,
+                            size: 16,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCommercialDataStep() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildSectionTitle('Potentiel du client', Icons.trending_up),
+          const SizedBox(height: 16),
+          Row(
+            children: _potentiels.map((potentiel) {
+              final isSelected = _potentiel == potentiel;
+              return Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: InkWell(
+                    onTap: () {
+                      setState(() {
+                        _potentiel = isSelected ? null : potentiel;
+                      });
+                    },
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 20),
+                      decoration: BoxDecoration(
+                        color: isSelected ? AppColors.primary : Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: isSelected ? AppColors.primary : Colors.grey[300]!,
+                          width: 2,
+                        ),
+                        boxShadow: isSelected
+                            ? [
+                                BoxShadow(
+                                  color: AppColors.primary.withValues(alpha: 0.3),
+                                  spreadRadius: 1,
+                                  blurRadius: 8,
+                                  offset: const Offset(0, 2),
+                                ),
+                              ]
+                            : null,
+                      ),
+                      child: Column(
+                        children: [
+                          Text(
+                            potentiel,
+                            style: TextStyle(
+                              fontSize: 28,
+                              fontWeight: FontWeight.bold,
+                              color: isSelected ? Colors.white : Colors.black87,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            _getPotentielLabel(potentiel),
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: isSelected ? Colors.white70 : Colors.grey[600],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 24),
+          _buildDropdownField(
+            value: _frequenceVisite,
+            label: 'Fréquence de visite recommandée',
+            icon: Icons.calendar_today,
+            items: _frequences,
+            isRequired: true,
+            errorText: _getFieldError('frequence'),
+            onChanged: (value) {
+              setState(() {
+                _frequenceVisite = value;
+              });
+            },
+          ),
+          const SizedBox(height: 24),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AppColors.secondaryVeryLight,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.secondary.withValues(alpha: 0.3)),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.info_outline, color: AppColors.secondary, size: 24),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Informations',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.secondaryDark,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '• L\'historique des visites sera disponible après la création\n• L\'historique des commandes sera disponible après la première commande',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey[700],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _getPotentielLabel(String potentiel) {
+    switch (potentiel) {
+      case 'A':
+        return 'Élevé';
+      case 'B':
+        return 'Moyen';
+      case 'C':
+        return 'Faible';
+      default:
+        return '';
+    }
+  }
+
+  Widget _buildTextField({
+    required TextEditingController controller,
+    required String label,
+    required IconData icon,
+    bool isRequired = false,
+    TextInputType? keyboardType,
+    int maxLines = 1,
+    String? hintText,
+    String? errorText,
+  }) {
+    final hasError = errorText != null;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: hasError ? Border.all(color: AppColors.error, width: 2) : null,
+            boxShadow: [
+              BoxShadow(
+                color: hasError
+                    ? AppColors.error.withValues(alpha: 0.2)
+                    : Colors.grey.withValues(alpha: 0.1),
+                spreadRadius: 1,
+                blurRadius: 5,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: TextFormField(
+            controller: controller,
+            keyboardType: keyboardType,
+            maxLines: maxLines,
+            decoration: InputDecoration(
+              labelText: isRequired ? '$label *' : label,
+              labelStyle: TextStyle(
+                color: hasError ? AppColors.error : null,
+              ),
+              hintText: hintText,
+              prefixIcon: Icon(
+                icon,
+                color: hasError ? AppColors.error : AppColors.primary,
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+              filled: true,
+              fillColor: Colors.white,
+            ),
+          ),
+        ),
+        if (hasError)
+          Padding(
+            padding: const EdgeInsets.only(left: 12, top: 6),
+            child: Row(
+              children: [
+                Icon(Icons.error_outline, size: 14, color: AppColors.error),
+                const SizedBox(width: 4),
+                Text(
+                  errorText,
+                  style: TextStyle(
+                    color: AppColors.error,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildDropdownField({
+    required String? value,
+    required String label,
+    required IconData icon,
+    required List<String> items,
+    required void Function(String?) onChanged,
+    bool isRequired = false,
+    String? errorText,
+  }) {
+    final hasError = errorText != null;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: hasError ? Border.all(color: AppColors.error, width: 2) : null,
+            boxShadow: [
+              BoxShadow(
+                color: hasError
+                    ? AppColors.error.withValues(alpha: 0.2)
+                    : Colors.grey.withValues(alpha: 0.1),
+                spreadRadius: 1,
+                blurRadius: 5,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: DropdownButtonFormField<String>(
+            value: value,
+            decoration: InputDecoration(
+              labelText: isRequired ? '$label *' : label,
+              labelStyle: TextStyle(
+                color: hasError ? AppColors.error : null,
+              ),
+              prefixIcon: Icon(
+                icon,
+                color: hasError ? AppColors.error : AppColors.primary,
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+              filled: true,
+              fillColor: Colors.white,
+            ),
+            items: items.map((item) {
+              return DropdownMenuItem(
+                value: item,
+                child: Text(item),
+              );
+            }).toList(),
+            onChanged: onChanged,
+          ),
+        ),
+        if (hasError)
+          Padding(
+            padding: const EdgeInsets.only(left: 12, top: 6),
+            child: Row(
+              children: [
+                Icon(Icons.error_outline, size: 14, color: AppColors.error),
+                const SizedBox(width: 4),
+                Text(
+                  errorText,
+                  style: TextStyle(
+                    color: AppColors.error,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
       ],
     );
   }

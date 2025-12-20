@@ -1,10 +1,88 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../models/user.dart';
+import '../services/auth_service.dart';
+import '../main.dart';
+import 'change_password_page.dart';
+import 'notification_settings_page.dart';
 
-class UserProfilePage extends StatelessWidget {
+class UserProfilePage extends StatefulWidget {
   const UserProfilePage({super.key});
 
   @override
+  State<UserProfilePage> createState() => _UserProfilePageState();
+}
+
+class _UserProfilePageState extends State<UserProfilePage> {
+  final AuthService _authService = AuthService();
+  User? _user;
+  bool _isLoading = true;
+  bool _isLoggingOut = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserData();
+  }
+
+  Future<void> _loadUserData() async {
+    final user = await _authService.getCurrentUser();
+    if (mounted) {
+      setState(() {
+        _user = user;
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _handleLogout() async {
+    setState(() {
+      _isLoggingOut = true;
+    });
+
+    try {
+      await _authService.logout();
+
+      if (!mounted) return;
+
+      // Navigate to login screen and clear navigation stack
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (context) => const AuthChecker()),
+        (route) => false,
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        _isLoggingOut = false;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Erreur lors de la déconnexion'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return Scaffold(
+        backgroundColor: Colors.grey[100],
+        appBar: AppBar(
+          title: const Text('Profil'),
+          backgroundColor: Theme.of(context).primaryColor,
+          foregroundColor: Colors.white,
+          elevation: 0,
+        ),
+        body: const Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: Colors.grey[100],
       appBar: AppBar(
@@ -12,15 +90,6 @@ class UserProfilePage extends StatelessWidget {
         backgroundColor: Theme.of(context).primaryColor,
         foregroundColor: Colors.white,
         elevation: 0,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.edit),
-            onPressed: () {
-              // TODO: Navigate to edit profile page
-            },
-            tooltip: 'Modifier le profil',
-          ),
-        ],
       ),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -53,21 +122,63 @@ class UserProfilePage extends StatelessWidget {
                           ),
                         ],
                       ),
-                      child: CircleAvatar(
-                        radius: 50,
-                        backgroundColor: Colors.grey[300],
-                        child: const Icon(
-                          Icons.person,
-                          size: 50,
-                          color: Colors.white,
-                        ),
-                      ),
+                      child: _user?.hasValidPhoto == true
+                          ? ClipOval(
+                              child: Image.network(
+                                _user!.photoUrl!,
+                                width: 100,
+                                height: 100,
+                                fit: BoxFit.cover,
+                                loadingBuilder: (context, child, loadingProgress) {
+                                  if (loadingProgress == null) return child;
+                                  return Container(
+                                    width: 100,
+                                    height: 100,
+                                    color: Colors.grey[300],
+                                    child: Center(
+                                      child: SizedBox(
+                                        width: 24,
+                                        height: 24,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Colors.white,
+                                          value: loadingProgress.expectedTotalBytes != null
+                                              ? loadingProgress.cumulativeBytesLoaded /
+                                                  loadingProgress.expectedTotalBytes!
+                                              : null,
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                },
+                                errorBuilder: (context, error, stackTrace) {
+                                  return CircleAvatar(
+                                    radius: 50,
+                                    backgroundColor: Colors.grey[300],
+                                    child: const Icon(
+                                      Icons.person,
+                                      size: 50,
+                                      color: Colors.white,
+                                    ),
+                                  );
+                                },
+                              ),
+                            )
+                          : CircleAvatar(
+                              radius: 50,
+                              backgroundColor: Colors.grey[300],
+                              child: const Icon(
+                                Icons.person,
+                                size: 50,
+                                color: Colors.white,
+                              ),
+                            ),
                     ),
                     const SizedBox(height: 16),
                     // Name
-                    const Text(
-                      'Ahmed Ben Ali',
-                      style: TextStyle(
+                    Text(
+                      _user?.name ?? 'Utilisateur',
+                      style: const TextStyle(
                         fontSize: 24,
                         fontWeight: FontWeight.bold,
                         color: Colors.white,
@@ -84,9 +195,9 @@ class UserProfilePage extends StatelessWidget {
                         color: Colors.white.withValues(alpha: 0.2),
                         borderRadius: BorderRadius.circular(20),
                       ),
-                      child: const Text(
-                        'Commercial',
-                        style: TextStyle(
+                      child: Text(
+                        _user?.primaryRoleName ?? 'Commercial',
+                        style: const TextStyle(
                           fontSize: 14,
                           color: Colors.white,
                           fontWeight: FontWeight.w500,
@@ -118,28 +229,37 @@ class UserProfilePage extends StatelessWidget {
                       icon: Icons.email,
                       iconColor: Colors.blue,
                       title: 'Email',
-                      value: 'ahmed.benali@sirapro.com',
+                      value: _user?.email ?? '-',
                     ),
                     const SizedBox(height: 12),
                     _buildInfoCard(
                       icon: Icons.phone,
                       iconColor: Colors.green,
                       title: 'Téléphone',
-                      value: '+212 6 12 34 56 78',
+                      value: _user?.phone ?? '-',
                     ),
                     const SizedBox(height: 12),
                     _buildInfoCard(
                       icon: Icons.badge,
                       iconColor: Colors.orange,
-                      title: 'ID Employé',
-                      value: 'EMP-2024-001',
+                      title: 'ID Utilisateur',
+                      value: _user != null ? 'USR-${_user!.id}' : '-',
+                    ),
+                    const SizedBox(height: 12),
+                    _buildInfoCard(
+                      icon: Icons.business,
+                      iconColor: Colors.purple,
+                      title: 'Base Commerciale',
+                      value: _user?.primaryBase?.name ?? '-',
                     ),
                     const SizedBox(height: 12),
                     _buildInfoCard(
                       icon: Icons.location_city,
-                      iconColor: Colors.purple,
-                      title: 'Secteur',
-                      value: 'Casablanca - Centre',
+                      iconColor: Colors.teal,
+                      title: 'Zone',
+                      value: _user?.primaryZone != null
+                          ? '${_user!.primaryZone!.name} - ${_user!.primaryZone!.city ?? ''}'
+                          : '-',
                     ),
                     const SizedBox(height: 24),
 
@@ -160,7 +280,7 @@ class UserProfilePage extends StatelessWidget {
                             icon: Icons.shopping_cart,
                             iconColor: Colors.green,
                             title: 'Commandes',
-                            value: '124',
+                            value: '-', // TODO: Needs API field
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -169,7 +289,7 @@ class UserProfilePage extends StatelessWidget {
                             icon: Icons.people,
                             iconColor: Colors.blue,
                             title: 'Clients',
-                            value: '45',
+                            value: '-', // TODO: Needs API field
                           ),
                         ),
                       ],
@@ -182,7 +302,7 @@ class UserProfilePage extends StatelessWidget {
                             icon: Icons.location_on,
                             iconColor: Colors.orange,
                             title: 'Visites',
-                            value: '289',
+                            value: '-', // TODO: Needs API field
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -191,7 +311,7 @@ class UserProfilePage extends StatelessWidget {
                             icon: Icons.star,
                             iconColor: Colors.amber,
                             title: 'Évaluation',
-                            value: '4.8',
+                            value: '-', // TODO: Needs API field
                           ),
                         ),
                       ],
@@ -214,7 +334,12 @@ class UserProfilePage extends StatelessWidget {
                       iconColor: Colors.orange,
                       title: 'Notifications',
                       onTap: () {
-                        // TODO: Navigate to notifications settings
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const NotificationSettingsPage(),
+                          ),
+                        );
                       },
                     ),
                     const SizedBox(height: 12),
@@ -224,17 +349,12 @@ class UserProfilePage extends StatelessWidget {
                       iconColor: Colors.red,
                       title: 'Changer le mot de passe',
                       onTap: () {
-                        // TODO: Navigate to change password
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                    _buildSettingsItem(
-                      context,
-                      icon: Icons.language,
-                      iconColor: Colors.blue,
-                      title: 'Langue',
-                      onTap: () {
-                        // TODO: Navigate to language settings
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const ChangePasswordPage(),
+                          ),
+                        );
                       },
                     ),
                     const SizedBox(height: 12),
@@ -244,7 +364,7 @@ class UserProfilePage extends StatelessWidget {
                       iconColor: Colors.purple,
                       title: 'Aide et support',
                       onTap: () {
-                        // TODO: Navigate to help
+                        _showSupportDialog(context);
                       },
                     ),
                     const SizedBox(height: 24),
@@ -253,9 +373,11 @@ class UserProfilePage extends StatelessWidget {
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
-                        onPressed: () {
-                          _showLogoutDialog(context);
-                        },
+                        onPressed: _isLoggingOut
+                            ? null
+                            : () {
+                                _showLogoutDialog(context);
+                              },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.red,
                           foregroundColor: Colors.white,
@@ -264,20 +386,30 @@ class UserProfilePage extends StatelessWidget {
                             borderRadius: BorderRadius.circular(12),
                           ),
                         ),
-                        child: const Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.logout),
-                            SizedBox(width: 8),
-                            Text(
-                              'Déconnexion',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
+                        child: _isLoggingOut
+                            ? const SizedBox(
+                                height: 20,
+                                width: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor:
+                                      AlwaysStoppedAnimation<Color>(Colors.white),
+                                ),
+                              )
+                            : const Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.logout),
+                                  SizedBox(width: 8),
+                                  Text(
+                                    'Déconnexion',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ),
-                          ],
-                        ),
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -471,7 +603,7 @@ class UserProfilePage extends StatelessWidget {
   void _showLogoutDialog(BuildContext context) {
     showDialog(
       context: context,
-      builder: (BuildContext context) {
+      builder: (BuildContext dialogContext) {
         return AlertDialog(
           title: const Text('Déconnexion'),
           content: const Text('Êtes-vous sûr de vouloir vous déconnecter ?'),
@@ -481,14 +613,14 @@ class UserProfilePage extends StatelessWidget {
           actions: [
             TextButton(
               onPressed: () {
-                Navigator.of(context).pop();
+                Navigator.of(dialogContext).pop();
               },
               child: const Text('Annuler'),
             ),
             ElevatedButton(
               onPressed: () {
-                Navigator.of(context).pop();
-                // TODO: Implement logout logic
+                Navigator.of(dialogContext).pop();
+                _handleLogout();
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.red,
@@ -498,6 +630,92 @@ class UserProfilePage extends StatelessWidget {
                 ),
               ),
               child: const Text('Déconnexion'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showSupportDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.support_agent, color: Colors.purple),
+              SizedBox(width: 8),
+              Text('Aide et Support'),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Contactez notre équipe de support pour toute assistance.',
+              ),
+              const SizedBox(height: 24),
+              // WhatsApp Button
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () async {
+                    Navigator.of(dialogContext).pop();
+                    final Uri whatsappUri = Uri.parse(
+                      'https://wa.me/2250502227585?text=Bonjour, j\'ai besoin d\'aide avec SIRA PRO',
+                    );
+                    if (await canLaunchUrl(whatsappUri)) {
+                      await launchUrl(whatsappUri, mode: LaunchMode.externalApplication);
+                    }
+                  },
+                  icon: const Icon(Icons.chat),
+                  label: const Text('WhatsApp'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              // Email Button
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () async {
+                    Navigator.of(dialogContext).pop();
+                    final Uri emailUri = Uri.parse(
+                      'mailto:ibrahim@xpertbot.online?subject=Support%20SIRA%20PRO',
+                    );
+                    await launchUrl(emailUri);
+                  },
+                  icon: const Icon(Icons.email),
+                  label: const Text('Email'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+              },
+              child: const Text('Fermer'),
             ),
           ],
         );
