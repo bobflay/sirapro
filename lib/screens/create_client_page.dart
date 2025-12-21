@@ -429,24 +429,29 @@ class _CreateClientPageState extends State<CreateClientPage> {
 
   Future<void> _captureGPSLocation() async {
     try {
-      PermissionStatus locationStatus = await Permission.location.status;
-      if (!locationStatus.isGranted) {
-        locationStatus = await Permission.location.request();
+      // Use Geolocator's permission handling instead of permission_handler
+      // to avoid iOS bug where permissions are incorrectly marked as denied
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
       }
 
-      if (!locationStatus.isGranted) {
+      if (permission == LocationPermission.denied) {
         if (mounted) {
-          if (locationStatus.isPermanentlyDenied) {
-            _showLocationPermissionDialog();
-          } else {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('La permission de localisation est requise pour enregistrer la position GPS.'),
-                backgroundColor: Colors.orange,
-                duration: Duration(seconds: 4),
-              ),
-            );
-          }
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('La permission de localisation est requise pour enregistrer la position GPS.'),
+              backgroundColor: Colors.orange,
+              duration: Duration(seconds: 4),
+            ),
+          );
+        }
+        return;
+      }
+
+      if (permission == LocationPermission.deniedForever) {
+        if (mounted) {
+          _showLocationPermissionDialog();
         }
         return;
       }
