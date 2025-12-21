@@ -10,6 +10,7 @@ import 'package:sirapro/screens/orders_page.dart';
 import 'package:sirapro/screens/stock_commercial_page.dart';
 import 'package:sirapro/utils/app_colors.dart';
 import 'package:sirapro/services/auth_service.dart';
+import 'package:sirapro/widgets/session_aware_app_bar.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -135,11 +136,8 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[100],
-      appBar: AppBar(
-        title: const Text('SIRA PRO'),
-        backgroundColor: Theme.of(context).primaryColor,
-        foregroundColor: Colors.white,
-        elevation: 0,
+      appBar: SessionAwareAppBar(
+        title: 'SIRA PRO',
         actions: [
           // Cloud Sync Icon with Status
           IconButton(
@@ -185,7 +183,7 @@ class _HomePageState extends State<HomePage> {
                   child: Container(
                     padding: const EdgeInsets.all(2),
                     decoration: BoxDecoration(
-                      color: AppColors.primary,
+                      color: AppColors.secondary,
                       shape: BoxShape.circle,
                     ),
                     constraints: const BoxConstraints(
