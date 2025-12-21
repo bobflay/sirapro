@@ -9,6 +9,9 @@ import 'package:sirapro/models/client.dart';
 import 'package:sirapro/models/client_photo.dart';
 import 'package:sirapro/models/alert.dart';
 import 'package:sirapro/models/update_client_request.dart';
+import 'package:sirapro/models/api_visit.dart';
+import 'package:sirapro/models/start_visit_request.dart';
+import 'package:sirapro/models/terminate_visit_request.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/visit.dart';
 import '../models/visit_report.dart';
@@ -18,6 +21,7 @@ import '../data/mock_orders.dart';
 import '../services/api_service.dart';
 import '../services/client_service.dart';
 import '../services/visit_service.dart';
+import '../services/visit_api_service.dart';
 import 'visit_report_page.dart';
 import 'visit_report_detail_page.dart';
 import 'order_creation_page.dart';
@@ -42,6 +46,9 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
 
   // Services
   final ClientService _clientService = ClientService();
+  final VisitService _visitService = VisitService();
+  final VisitApiService _visitApiService = VisitApiService();
+  bool _isLoadingVisit = false;
 
   // Client photos - local files (newly added)
   final List<File> _localPhotos = [];
@@ -116,6 +123,35 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
     super.initState();
     _client = widget.client;
     _initControllers();
+    _loadActiveVisit();
+  }
+
+  /// Load any active visit from storage and sync state
+  Future<void> _loadActiveVisit() async {
+    await _visitService.loadActiveVisit();
+
+    // Check if this client has an active visit
+    if (_visitService.isClientVisitActive(_client.id)) {
+      final activeVisit = _visitService.activeApiVisit;
+      if (activeVisit != null) {
+        setState(() {
+          _isVisitActive = true;
+          _visitStartTime = activeVisit.startedAt;
+          if (_visitStartTime != null) {
+            _visitDuration = DateTime.now().difference(_visitStartTime!);
+          }
+        });
+
+        // Start the timer to update duration
+        _visitTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+          if (_visitStartTime != null) {
+            setState(() {
+              _visitDuration = DateTime.now().difference(_visitStartTime!);
+            });
+          }
+        });
+      }
+    }
   }
 
   void _initControllers() {
@@ -373,11 +409,22 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
   }
 
   Future<void> _startVisit() async {
-    // Check if client has location
-    if (!_client.hasLocation) {
-      _startVisitTimer();
+    // Check if already loading
+    if (_isLoadingVisit) return;
+
+    // Check if there's already an active visit (for any client)
+    if (_visitService.hasActiveVisit) {
+      final activeClientName = _visitService.activeClientName ?? 'un autre client';
+      _showLocationError(
+        'Visite en cours',
+        'Vous avez déjà une visite en cours chez $activeClientName. Veuillez la terminer avant d\'en démarrer une nouvelle.',
+      );
       return;
     }
+
+    setState(() {
+      _isLoadingVisit = true;
+    });
 
     // Show loading indicator
     showDialog(
@@ -400,6 +447,7 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
         if (mounted) Navigator.pop(context);
+        setState(() => _isLoadingVisit = false);
         _showLocationError(
           'Services de localisation désactivés',
           'Veuillez activer les services de localisation pour démarrer la visite.',
@@ -413,6 +461,7 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
         permission = await Geolocator.requestPermission();
         if (permission == LocationPermission.denied) {
           if (mounted) Navigator.pop(context);
+          setState(() => _isLoadingVisit = false);
           _showLocationError(
             'Permission refusée',
             'La permission de localisation est nécessaire pour démarrer la visite.',
@@ -423,6 +472,7 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
 
       if (permission == LocationPermission.deniedForever) {
         if (mounted) Navigator.pop(context);
+        setState(() => _isLoadingVisit = false);
         _showLocationError(
           'Permission refusée définitivement',
           'Veuillez activer la permission de localisation dans les paramètres de l\'application.',
@@ -436,34 +486,166 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
         timeLimit: const Duration(seconds: 15),
       );
 
-      // Calculate distance to client
-      double distanceInMeters = Geolocator.distanceBetween(
-        position.latitude,
-        position.longitude,
-        _client.latitude!,
-        _client.longitude!,
-      );
-
       if (mounted) Navigator.pop(context);
 
-      // Check if within 15 meters
-      if (distanceInMeters > 15) {
-        _showLocationError(
-          'Position trop éloignée',
-          'Vous devez être à l\'emplacement du client pour démarrer la visite.\n\nDistance actuelle: ${distanceInMeters.toStringAsFixed(0)} mètres\nDistance maximale autorisée: 15 mètres',
-        );
-        return;
-      }
-
-      // User is within range, start the visit
-      _startVisitTimer();
+      // Call the API to start the visit
+      await _callStartVisitApi(position);
     } catch (e) {
       if (mounted) Navigator.pop(context);
+      setState(() => _isLoadingVisit = false);
       _showLocationError(
         'Erreur de localisation',
         'Impossible d\'obtenir votre position. Veuillez réessayer.',
       );
     }
+  }
+
+  /// Call the API to start a visit
+  Future<void> _callStartVisitApi(Position position) async {
+    // Show loading dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const AlertDialog(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 16),
+            Text('Démarrage de la visite...'),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      final request = StartVisitRequest(
+        clientId: _client.id,
+        latitude: position.latitude,
+        longitude: position.longitude,
+      );
+
+      final visit = await _visitApiService.startVisit(request);
+
+      // Save to local storage
+      await _visitService.startApiVisit(visit);
+
+      if (mounted) Navigator.pop(context);
+
+      // Start the visit timer
+      _startVisitTimer();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Visite démarrée avec succès'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } on VisitApiException catch (e) {
+      if (mounted) Navigator.pop(context);
+      setState(() => _isLoadingVisit = false);
+
+      if (e.isProximityError) {
+        _showProximityError(e);
+      } else if (e.hasActiveVisit) {
+        _showLocationError(
+          'Visite en cours',
+          e.message,
+        );
+      } else if (e.isInvalidClient) {
+        _showLocationError(
+          'Client invalide',
+          e.message,
+        );
+      } else if (e.isUnauthorized) {
+        _showLocationError(
+          'Non autorisé',
+          'Vous n\'êtes pas autorisé à visiter ce client.',
+        );
+      } else {
+        _showLocationError(
+          'Erreur',
+          e.message,
+        );
+      }
+    } catch (e) {
+      if (mounted) Navigator.pop(context);
+      setState(() => _isLoadingVisit = false);
+      _showLocationError(
+        'Erreur',
+        'Une erreur inattendue s\'est produite: $e',
+      );
+    }
+  }
+
+  /// Show proximity error with distance information
+  void _showProximityError(VisitApiException e) {
+    final distanceInfo = e.proximityDetails ?? '';
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            const Icon(Icons.location_off, color: Colors.red),
+            const SizedBox(width: 8),
+            const Expanded(
+              child: Text('Position trop éloignée', style: TextStyle(fontSize: 18)),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(e.message),
+            if (distanceInfo.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orange),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.straighten, color: Colors.orange),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        distanceInfo,
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            const SizedBox(height: 12),
+            const Text(
+              'Distance maximale autorisée: 15 mètres',
+              style: TextStyle(color: Colors.grey),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _openGoogleMaps();
+            },
+            child: const Text('Voir sur la carte'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showLocationError(String title, String message) {
@@ -491,8 +673,12 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
   void _startVisitTimer() {
     setState(() {
       _isVisitActive = true;
-      _visitStartTime = DateTime.now();
-      _visitDuration = Duration.zero;
+      _isLoadingVisit = false;
+      // Use the visit start time from API if available
+      if (_visitStartTime == null) {
+        _visitStartTime = DateTime.now();
+      }
+      _visitDuration = DateTime.now().difference(_visitStartTime!);
     });
 
     // Update the timer every second
@@ -503,17 +689,230 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
         });
       }
     });
+  }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Visite démarrée - compteur activé'),
-        backgroundColor: Colors.green,
-        duration: Duration(seconds: 2),
+  /// Show dialog to choose between completing or aborting the visit
+  void _stopVisit() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Terminer la visite'),
+        content: const Text('Comment souhaitez-vous terminer cette visite?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Annuler'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _terminateVisit('aborted');
+            },
+            style: TextButton.styleFrom(foregroundColor: Colors.orange),
+            child: const Text('Abandonner'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _terminateVisit('completed');
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+            child: const Text('Compléter'),
+          ),
+        ],
       ),
     );
   }
 
-  void _stopVisit() {
+  /// Terminate the visit with the given status
+  Future<void> _terminateVisit(String status) async {
+    // Check if we have an active visit ID
+    final visitId = _visitService.activeVisitId;
+    if (visitId == null) {
+      // No API visit, just stop the timer locally
+      _stopVisitLocally(status == 'completed');
+      return;
+    }
+
+    setState(() {
+      _isLoadingVisit = true;
+    });
+
+    // Show loading indicator
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const AlertDialog(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 16),
+            Text('Vérification de votre position...'),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      // Check if location services are enabled
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        if (mounted) Navigator.pop(context);
+        setState(() => _isLoadingVisit = false);
+        _showLocationError(
+          'Services de localisation désactivés',
+          'Veuillez activer les services de localisation pour terminer la visite.',
+        );
+        return;
+      }
+
+      // Check location permission
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          if (mounted) Navigator.pop(context);
+          setState(() => _isLoadingVisit = false);
+          _showLocationError(
+            'Permission refusée',
+            'La permission de localisation est nécessaire pour terminer la visite.',
+          );
+          return;
+        }
+      }
+
+      if (permission == LocationPermission.deniedForever) {
+        if (mounted) Navigator.pop(context);
+        setState(() => _isLoadingVisit = false);
+        _showLocationError(
+          'Permission refusée définitivement',
+          'Veuillez activer la permission de localisation dans les paramètres de l\'application.',
+        );
+        return;
+      }
+
+      // Get current position
+      Position position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 15),
+      );
+
+      if (mounted) Navigator.pop(context);
+
+      // Call the API to terminate the visit
+      await _callTerminateVisitApi(visitId, status, position);
+    } catch (e) {
+      if (mounted) Navigator.pop(context);
+      setState(() => _isLoadingVisit = false);
+      _showLocationError(
+        'Erreur de localisation',
+        'Impossible d\'obtenir votre position. Veuillez réessayer.',
+      );
+    }
+  }
+
+  /// Call the API to terminate the visit
+  Future<void> _callTerminateVisitApi(int visitId, String status, Position position) async {
+    // Show loading dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(),
+            const SizedBox(height: 16),
+            Text(status == 'completed'
+                ? 'Finalisation de la visite...'
+                : 'Abandon de la visite...'),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      final request = TerminateVisitRequest(
+        status: status,
+        latitude: position.latitude,
+        longitude: position.longitude,
+      );
+
+      await _visitApiService.terminateVisit(visitId, request);
+
+      // Clear local storage
+      await _visitService.endApiVisit();
+
+      if (mounted) Navigator.pop(context);
+
+      // Stop the timer and reset state
+      _stopVisitLocally(status == 'completed');
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(status == 'completed'
+                ? 'Visite complétée avec succès'
+                : 'Visite abandonnée'),
+            backgroundColor: status == 'completed' ? Colors.green : Colors.orange,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } on VisitApiException catch (e) {
+      if (mounted) Navigator.pop(context);
+      setState(() => _isLoadingVisit = false);
+
+      if (e.isProximityError) {
+        _showProximityError(e);
+      } else if (e.isAlreadyTerminated) {
+        // Visit was already terminated, clear local state
+        await _visitService.endApiVisit();
+        _stopVisitLocally(true);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('La visite a déjà été terminée'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+      } else if (e.isUnauthorized) {
+        _showLocationError(
+          'Non autorisé',
+          'Vous n\'êtes pas autorisé à terminer cette visite.',
+        );
+      } else if (e.isNotFound) {
+        // Visit not found, clear local state
+        await _visitService.endApiVisit();
+        _stopVisitLocally(true);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('La visite n\'existe plus'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+      } else {
+        _showLocationError(
+          'Erreur',
+          e.message,
+        );
+      }
+    } catch (e) {
+      if (mounted) Navigator.pop(context);
+      setState(() => _isLoadingVisit = false);
+      _showLocationError(
+        'Erreur',
+        'Une erreur inattendue s\'est produite: $e',
+      );
+    }
+  }
+
+  /// Stop the visit timer locally without API call
+  void _stopVisitLocally(bool completed) {
     _visitTimer?.cancel();
 
     final duration = _visitDuration;
@@ -532,18 +931,11 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
 
     setState(() {
       _isVisitActive = false;
+      _isLoadingVisit = false;
       _visitTimer = null;
+      _visitStartTime = null;
+      _visitDuration = Duration.zero;
     });
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Visite terminée - Durée: $durationText'),
-          backgroundColor: Colors.blue,
-          duration: const Duration(seconds: 3),
-        ),
-      );
-    }
   }
 
   void _toggleEdit() {
