@@ -6,6 +6,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:sirapro/models/client.dart';
+import 'package:sirapro/utils/app_colors.dart';
 import 'package:sirapro/models/client_photo.dart';
 import 'package:sirapro/models/alert.dart';
 import 'package:sirapro/models/update_client_request.dart';
@@ -693,33 +694,181 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
 
   /// Show dialog to choose between completing or aborting the visit
   void _stopVisit() {
-    showDialog(
+    final hours = _visitDuration.inHours;
+    final minutes = _visitDuration.inMinutes % 60;
+    final seconds = _visitDuration.inSeconds % 60;
+    final durationText = hours > 0
+        ? '${hours}h ${minutes.toString().padLeft(2, '0')}min'
+        : minutes > 0
+            ? '${minutes}min ${seconds.toString().padLeft(2, '0')}s'
+            : '${seconds}s';
+
+    showModalBottomSheet(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Terminer la visite'),
-        content: const Text('Comment souhaitez-vous terminer cette visite?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Annuler'),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _terminateVisit('aborted');
-            },
-            style: TextButton.styleFrom(foregroundColor: Colors.orange),
-            child: const Text('Abandonner'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _terminateVisit('completed');
-            },
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-            child: const Text('Compléter'),
-          ),
-        ],
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Handle bar
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            // Header with icon
+            Container(
+              width: 64,
+              height: 64,
+              decoration: BoxDecoration(
+                color: AppColors.primaryVeryLight,
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.timer_outlined,
+                size: 32,
+                color: AppColors.primary,
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Title
+            const Text(
+              'Terminer la visite',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: AppColors.accent,
+              ),
+            ),
+            const SizedBox(height: 8),
+
+            // Client name
+            Text(
+              _client.name,
+              style: TextStyle(
+                fontSize: 16,
+                color: AppColors.darkGray,
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Duration chip
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppColors.secondaryVeryLight,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: AppColors.secondary.withOpacity(0.3)),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.schedule,
+                    size: 18,
+                    color: AppColors.secondaryDark,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Durée: $durationText',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.secondaryDark,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            // Question
+            Text(
+              'Comment souhaitez-vous terminer cette visite?',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 15,
+                color: AppColors.gray,
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            // Action buttons
+            Row(
+              children: [
+                // Abort button
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      _terminateVisit('aborted');
+                    },
+                    icon: const Icon(Icons.cancel_outlined, size: 20),
+                    label: const Text('Abandonner'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.secondary,
+                      side: BorderSide(color: AppColors.secondary),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                // Complete button
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      _terminateVisit('completed');
+                    },
+                    icon: const Icon(Icons.check_circle_outline, size: 20),
+                    label: const Text('Compléter'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.success,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+
+            // Cancel button
+            SizedBox(
+              width: double.infinity,
+              child: TextButton(
+                onPressed: () => Navigator.pop(context),
+                style: TextButton.styleFrom(
+                  foregroundColor: AppColors.gray,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+                child: const Text(
+                  'Annuler',
+                  style: TextStyle(fontSize: 15),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
