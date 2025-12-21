@@ -57,6 +57,10 @@ flutter pub get
 echo "💾 Precaching iOS artifacts..."
 flutter precache --ios
 
+# Build Flutter for iOS (this generates the Flutter framework)
+echo "🔨 Building Flutter for iOS..."
+flutter build ios --release --no-codesign
+
 # Verify iOS project
 echo "✅ Verifying iOS project setup..."
 cd ios
