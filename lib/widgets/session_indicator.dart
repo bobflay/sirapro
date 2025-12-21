@@ -123,8 +123,9 @@ class _SessionIndicatorState extends State<SessionIndicator> {
         ),
         child: SafeArea(
           bottom: false,
+          minimum: const EdgeInsets.only(top: 4),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
             child: Row(
               children: [
                 // Pulsing indicator dot
