@@ -1,7 +1,9 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sirapro/models/visit.dart';
 import 'package:sirapro/models/api_visit.dart';
+import 'package:sirapro/services/visit_api_service.dart';
 
 /// Service pour gérer les visites actives et empêcher les visites multiples simultanées
 class VisitService {
@@ -176,5 +178,34 @@ class VisitService {
   /// Check if a specific client has an active visit
   bool isClientVisitActive(int clientId) {
     return _activeApiVisit?.clientId == clientId;
+  }
+
+  /// Sync active visit state with the server
+  /// This fetches the current active visit from the API and updates local state
+  /// Returns the active visit if found, null otherwise
+  Future<ApiVisit?> syncWithServer() async {
+    try {
+      final visitApiService = VisitApiService();
+      final activeVisit = await visitApiService.getActiveVisit();
+
+      if (activeVisit != null && activeVisit.isActive) {
+        // Update local state with server data
+        _activeApiVisit = activeVisit;
+        await _saveActiveApiVisit(activeVisit);
+        debugPrint('VisitService: Synced active visit from server - Client: ${activeVisit.client?.name}');
+        return activeVisit;
+      } else {
+        // No active visit on server, clear local state
+        if (_activeApiVisit != null) {
+          debugPrint('VisitService: No active visit on server, clearing local state');
+          await endApiVisit();
+        }
+        return null;
+      }
+    } catch (e) {
+      debugPrint('VisitService: Failed to sync with server: $e');
+      // On error, keep local state as-is
+      return _activeApiVisit;
+    }
   }
 }

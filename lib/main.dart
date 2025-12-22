@@ -37,6 +37,7 @@ class AuthChecker extends StatefulWidget {
 
 class _AuthCheckerState extends State<AuthChecker> {
   final _authService = AuthService();
+  final _visitService = VisitService();
   bool _isLoading = true;
   bool _isLoggedIn = false;
 
@@ -53,6 +54,12 @@ class _AuthCheckerState extends State<AuthChecker> {
     if (hasToken) {
       // Validate token with the server
       final isValid = await _authService.validateToken();
+
+      if (isValid) {
+        // Sync active visit state with server
+        // This ensures the app bar shows the correct state
+        await _visitService.syncWithServer();
+      }
 
       if (mounted) {
         setState(() {

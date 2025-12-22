@@ -1022,7 +1022,25 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
       if (mounted) Navigator.pop(context);
       setState(() => _isLoadingVisit = false);
 
-      if (e.isProximityError) {
+      if (e.isReasonRequired) {
+        // Distance exceeded - show reason selection dialog
+        final reasonResult = await _showDistanceExceedReasonDialog(
+          distance: e.distance ?? 0,
+          maxDistance: e.maxAllowedDistance ?? 300,
+          availableReasons: e.availableReasons ?? DistanceExceedReasons.reasons,
+        );
+
+        if (reasonResult != null && mounted) {
+          // Retry with the reason
+          await _callTerminateVisitApiWithReason(
+            visitId,
+            status,
+            position,
+            reasonResult.reason,
+            reasonResult.otherText,
+          );
+        }
+      } else if (e.isProximityError) {
         _showProximityError(e);
       } else if (e.isAlreadyTerminated) {
         // Visit was already terminated, clear local state
@@ -1059,6 +1077,81 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
           e.message,
         );
       }
+    } catch (e) {
+      if (mounted) Navigator.pop(context);
+      setState(() => _isLoadingVisit = false);
+      _showLocationError(
+        'Erreur',
+        'Une erreur inattendue s\'est produite: $e',
+      );
+    }
+  }
+
+  /// Call the API to terminate the visit with distance exceed reason
+  Future<void> _callTerminateVisitApiWithReason(
+    int visitId,
+    String status,
+    Position position,
+    String reason,
+    String? otherText,
+  ) async {
+    // Show loading dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(),
+            const SizedBox(height: 16),
+            Text(status == 'completed'
+                ? 'Finalisation de la visite...'
+                : 'Abandon de la visite...'),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      final request = TerminateVisitRequest(
+        status: status,
+        latitude: position.latitude,
+        longitude: position.longitude,
+        distanceExceedReason: reason,
+        distanceExceedReasonOther: otherText,
+      );
+
+      final result = await _visitApiService.terminateVisit(visitId, request);
+
+      // Clear local storage
+      await _visitService.endApiVisit();
+
+      if (mounted) Navigator.pop(context);
+
+      // Stop the timer and reset state
+      _stopVisitLocally(status == 'completed');
+
+      if (mounted) {
+        // Show success with warning about outside range
+        if (result.terminatedOutsideRange && result.warning != null) {
+          _showOutsideRangeWarning(result.warning!, result.terminationDistance, status);
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(status == 'completed'
+                  ? 'Visite complétée avec succès'
+                  : 'Visite abandonnée'),
+              backgroundColor: status == 'completed' ? Colors.green : Colors.orange,
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+      }
+    } on VisitApiException catch (e) {
+      if (mounted) Navigator.pop(context);
+      setState(() => _isLoadingVisit = false);
+      _showLocationError('Erreur', e.message);
     } catch (e) {
       if (mounted) Navigator.pop(context);
       setState(() => _isLoadingVisit = false);
@@ -1169,6 +1262,145 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
             child: const Text('OK'),
           ),
         ],
+      ),
+    );
+  }
+
+  /// Show dialog to select reason for distance exceed
+  /// Returns the selected reason key and optional other text, or null if cancelled
+  Future<({String reason, String? otherText})?> _showDistanceExceedReasonDialog({
+    required double distance,
+    required double maxDistance,
+    required Map<String, String> availableReasons,
+  }) async {
+    String? selectedReason;
+    final otherTextController = TextEditingController();
+    bool showOtherField = false;
+
+    return showDialog<({String reason, String? otherText})>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              Icon(
+                Icons.warning_amber_rounded,
+                color: Colors.orange[700],
+                size: 28,
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Text(
+                  'Distance dépassée',
+                  style: TextStyle(fontSize: 18),
+                ),
+              ),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.orange[50],
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.orange[200]!),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.location_off, color: Colors.orange[700], size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Vous êtes à ${distance.toStringAsFixed(0)} mètres du client',
+                              style: TextStyle(
+                                color: Colors.orange[800],
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            Text(
+                              'Distance maximale: ${maxDistance.toStringAsFixed(0)} mètres',
+                              style: TextStyle(
+                                color: Colors.grey[600],
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Veuillez indiquer la raison:',
+                  style: TextStyle(fontWeight: FontWeight.w500),
+                ),
+                const SizedBox(height: 12),
+                ...availableReasons.entries.map((entry) => RadioListTile<String>(
+                  title: Text(entry.value, style: const TextStyle(fontSize: 14)),
+                  value: entry.key,
+                  groupValue: selectedReason,
+                  contentPadding: EdgeInsets.zero,
+                  visualDensity: VisualDensity.compact,
+                  onChanged: (value) {
+                    setDialogState(() {
+                      selectedReason = value;
+                      showOtherField = value == 'other';
+                    });
+                  },
+                )),
+                if (showOtherField) ...[
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: otherTextController,
+                    decoration: InputDecoration(
+                      labelText: 'Précisez',
+                      hintText: 'Entrez la raison...',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 12,
+                      ),
+                    ),
+                    maxLines: 2,
+                    maxLength: 500,
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, null),
+              child: const Text('Annuler'),
+            ),
+            ElevatedButton(
+              onPressed: selectedReason == null ||
+                      (selectedReason == 'other' && otherTextController.text.trim().isEmpty)
+                  ? null
+                  : () {
+                      Navigator.pop(context, (
+                        reason: selectedReason!,
+                        otherText: selectedReason == 'other'
+                            ? otherTextController.text.trim()
+                            : null,
+                      ));
+                    },
+              child: const Text('Confirmer'),
+            ),
+          ],
+        ),
       ),
     );
   }

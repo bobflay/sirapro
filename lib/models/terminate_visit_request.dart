@@ -3,22 +3,30 @@ class TerminateVisitRequest {
   final String status; // "completed" or "aborted"
   final double latitude;
   final double longitude;
+  final String? distanceExceedReason;
+  final String? distanceExceedReasonOther;
 
   TerminateVisitRequest({
     required this.status,
     required this.latitude,
     required this.longitude,
+    this.distanceExceedReason,
+    this.distanceExceedReasonOther,
   });
 
   /// Factory for creating a "completed" termination request
   factory TerminateVisitRequest.complete({
     required double latitude,
     required double longitude,
+    String? distanceExceedReason,
+    String? distanceExceedReasonOther,
   }) {
     return TerminateVisitRequest(
       status: 'completed',
       latitude: latitude,
       longitude: longitude,
+      distanceExceedReason: distanceExceedReason,
+      distanceExceedReasonOther: distanceExceedReasonOther,
     );
   }
 
@@ -26,11 +34,15 @@ class TerminateVisitRequest {
   factory TerminateVisitRequest.abort({
     required double latitude,
     required double longitude,
+    String? distanceExceedReason,
+    String? distanceExceedReasonOther,
   }) {
     return TerminateVisitRequest(
       status: 'aborted',
       latitude: latitude,
       longitude: longitude,
+      distanceExceedReason: distanceExceedReason,
+      distanceExceedReasonOther: distanceExceedReasonOther,
     );
   }
 
@@ -57,10 +69,30 @@ class TerminateVisitRequest {
   bool get isValid => validate().isEmpty;
 
   Map<String, dynamic> toJson() {
-    return {
+    final json = {
       'status': status,
       'latitude': latitude,
       'longitude': longitude,
     };
+    if (distanceExceedReason != null) {
+      json['distance_exceed_reason'] = distanceExceedReason!;
+    }
+    if (distanceExceedReasonOther != null) {
+      json['distance_exceed_reason_other'] = distanceExceedReasonOther!;
+    }
+    return json;
   }
+}
+
+/// Available reasons for exceeding distance limit
+class DistanceExceedReasons {
+  static const Map<String, String> reasons = {
+    'client_moved': 'Le client a déménagé',
+    'gps_error': 'Erreur GPS / Signal faible',
+    'client_outside': 'Client rencontré à l\'extérieur',
+    'wrong_coordinates': 'Coordonnées client incorrectes',
+    'other': 'Autres',
+  };
+
+  static String getLabel(String key) => reasons[key] ?? key;
 }

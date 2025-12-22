@@ -14,12 +14,20 @@ class VisitApiException implements Exception {
   final int? statusCode;
   final String? errorKey;
   final Map<String, List<String>>? errors;
+  final bool requiresReason;
+  final double? distance;
+  final double? maxAllowedDistance;
+  final Map<String, String>? availableReasons;
 
   VisitApiException(
     this.message, {
     this.statusCode,
     this.errorKey,
     this.errors,
+    this.requiresReason = false,
+    this.distance,
+    this.maxAllowedDistance,
+    this.availableReasons,
   });
 
   /// Check if this is a proximity error
@@ -39,6 +47,9 @@ class VisitApiException implements Exception {
 
   /// Check if visit is already terminated
   bool get isAlreadyTerminated => errorKey == 'status' || errors?.containsKey('status') == true;
+
+  /// Check if a reason is required for distance exceed
+  bool get isReasonRequired => requiresReason;
 
   /// Get the proximity error details (e.g., "Current distance: 127.45 meters")
   String? get proximityDetails {
@@ -167,6 +178,7 @@ class VisitApiService {
   /// - status: Visit is already terminated
   /// - 403: Not authorized to terminate this visit
   /// - 404: Visit not found
+  /// - requiresReason: Distance exceeded and reason is required
   Future<VisitTerminationResult> terminateVisit(int visitId, TerminateVisitRequest request) async {
     // Validate request locally first
     final validationErrors = request.validate();
@@ -178,23 +190,81 @@ class VisitApiService {
     }
 
     try {
-      final response = await _apiService.post(
-        '/api/visits/$visitId/terminate',
-        body: request.toJson(),
+      // Make raw HTTP call to get full response body for error handling
+      final uri = Uri.parse('${ApiService.baseUrl}/api/visits/$visitId/terminate');
+      final token = _apiService.token;
+
+      final response = await http.post(
+        uri,
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode(request.toJson()),
       );
 
-      final apiResponse = VisitApiResponse.fromJson(response as Map<String, dynamic>);
+      final body = response.body.isNotEmpty ? jsonDecode(response.body) as Map<String, dynamic> : null;
 
-      if (apiResponse.data == null) {
-        throw VisitApiException('Invalid response from server');
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        final apiResponse = VisitApiResponse.fromJson(body!);
+        if (apiResponse.data == null) {
+          throw VisitApiException('Invalid response from server');
+        }
+        return VisitTerminationResult(
+          visit: apiResponse.data!,
+          warning: apiResponse.warning,
+        );
       }
 
-      return VisitTerminationResult(
-        visit: apiResponse.data!,
-        warning: apiResponse.warning,
+      // Handle error response
+      String errorMessage = body?['message'] as String? ?? 'An error occurred';
+
+      // Check if reason is required (distance exceeded)
+      if (body?['requires_reason'] == true) {
+        final availableReasons = <String, String>{};
+        if (body?['available_reasons'] != null) {
+          (body!['available_reasons'] as Map<String, dynamic>).forEach((key, value) {
+            availableReasons[key] = value.toString();
+          });
+        }
+
+        throw VisitApiException(
+          errorMessage,
+          statusCode: response.statusCode,
+          requiresReason: true,
+          distance: (body?['distance'] as num?)?.toDouble(),
+          maxAllowedDistance: (body?['max_allowed_distance'] as num?)?.toDouble(),
+          availableReasons: availableReasons,
+        );
+      }
+
+      // Parse standard errors
+      Map<String, List<String>>? errors;
+      String? errorKey;
+      if (body?['errors'] != null && body!['errors'] is Map<String, dynamic>) {
+        errors = {};
+        (body['errors'] as Map<String, dynamic>).forEach((key, value) {
+          if (value is List) {
+            errors![key] = value.map((e) => e.toString()).toList();
+          }
+        });
+        if (errors.isNotEmpty) {
+          errorKey = errors.keys.first;
+        }
+      }
+
+      throw VisitApiException(
+        errorMessage,
+        statusCode: response.statusCode,
+        errorKey: errorKey,
+        errors: errors,
       );
-    } on ApiException catch (e) {
-      throw _handleApiException(e);
+    } on http.ClientException {
+      throw VisitApiException('Connection failed. Please check your internet.');
+    } catch (e) {
+      if (e is VisitApiException) rethrow;
+      throw VisitApiException('An unexpected error occurred: $e');
     }
   }
 
