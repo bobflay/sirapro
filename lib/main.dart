@@ -4,7 +4,6 @@ import 'package:sirapro/screens/home_page.dart';
 import 'package:sirapro/services/auth_service.dart';
 import 'package:sirapro/services/visit_service.dart';
 import 'package:sirapro/utils/app_colors.dart';
-import 'package:sirapro/widgets/session_indicator.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
 void main() async {
@@ -25,13 +24,6 @@ class MyApp extends StatelessWidget {
       title: 'SIRA PRO - Carré d\'Or',
       theme: AppTheme.lightTheme,
       home: const AuthChecker(),
-      builder: (context, child) {
-        // Wrap the entire app with the session indicator
-        // This ensures it appears on all screens when a session is active
-        return SessionIndicator(
-          child: child ?? const SizedBox.shrink(),
-        );
-      },
     );
   }
 }
