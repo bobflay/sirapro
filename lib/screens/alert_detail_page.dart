@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../models/alert.dart';
 import '../services/alert_service.dart';
 import '../utils/app_colors.dart';
+import '../widgets/session_aware_app_bar.dart';
 
 /// Page de détail d'une alerte
 class AlertDetailPage extends StatefulWidget {
@@ -32,10 +33,8 @@ class _AlertDetailPageState extends State<AlertDetailPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Détails de l\'alerte'),
-        backgroundColor: AppColors.primary,
-        foregroundColor: AppColors.white,
+      appBar: SessionAwareAppBar(
+        title: 'Détails de l\'alerte',
         actions: [
           if (_alert.status != AlertStatus.resolved)
             IconButton(

@@ -13,6 +13,8 @@ class ApiVisit {
   final double? longitude;
   final int? routingItemId;
   final int? durationSeconds;
+  final double? terminationDistance;
+  final bool? terminatedOutsideRange;
   final ApiVisitClient? client;
   final ApiVisitUser? user;
 
@@ -29,6 +31,8 @@ class ApiVisit {
     this.longitude,
     this.routingItemId,
     this.durationSeconds,
+    this.terminationDistance,
+    this.terminatedOutsideRange,
     this.client,
     this.user,
   });
@@ -71,6 +75,8 @@ class ApiVisit {
       longitude: (json['longitude'] as num?)?.toDouble(),
       routingItemId: json['routing_item_id'] as int?,
       durationSeconds: json['duration_seconds'] as int?,
+      terminationDistance: (json['termination_distance'] as num?)?.toDouble(),
+      terminatedOutsideRange: json['terminated_outside_range'] as bool?,
       client: json['client'] != null
           ? ApiVisitClient.fromJson(json['client'] as Map<String, dynamic>)
           : null,
@@ -94,6 +100,8 @@ class ApiVisit {
       'longitude': longitude,
       'routing_item_id': routingItemId,
       'duration_seconds': durationSeconds,
+      'termination_distance': terminationDistance,
+      'terminated_outside_range': terminatedOutsideRange,
       'client': client?.toJson(),
       'user': user?.toJson(),
     };
@@ -112,6 +120,8 @@ class ApiVisit {
     double? longitude,
     int? routingItemId,
     int? durationSeconds,
+    double? terminationDistance,
+    bool? terminatedOutsideRange,
     ApiVisitClient? client,
     ApiVisitUser? user,
   }) {
@@ -128,6 +138,8 @@ class ApiVisit {
       longitude: longitude ?? this.longitude,
       routingItemId: routingItemId ?? this.routingItemId,
       durationSeconds: durationSeconds ?? this.durationSeconds,
+      terminationDistance: terminationDistance ?? this.terminationDistance,
+      terminatedOutsideRange: terminatedOutsideRange ?? this.terminatedOutsideRange,
       client: client ?? this.client,
       user: user ?? this.user,
     );

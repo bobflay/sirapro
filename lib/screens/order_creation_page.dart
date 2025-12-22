@@ -5,6 +5,7 @@ import '../models/order.dart';
 import '../models/product.dart';
 import '../models/visit.dart';
 import '../data/mock_products.dart';
+import '../widgets/session_aware_app_bar.dart';
 
 /// Page de création de commande
 class OrderCreationPage extends StatefulWidget {
@@ -688,10 +689,8 @@ class _OrderCreationPageState extends State<OrderCreationPage> {
     final cartItemCount = _cartItems.values.fold(0, (sum, item) => sum + item.quantity);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Nouvelle Commande'),
-        backgroundColor: Colors.green,
-        foregroundColor: Colors.white,
+      appBar: SessionAwareAppBar(
+        title: 'Nouvelle Commande',
         actions: [
           // Cart button
           Stack(

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/user.dart';
 import '../services/auth_service.dart';
+import '../widgets/session_aware_app_bar.dart';
 import '../main.dart';
 import 'change_password_page.dart';
 import 'notification_settings_page.dart';
@@ -71,11 +72,8 @@ class _UserProfilePageState extends State<UserProfilePage> {
     if (_isLoading) {
       return Scaffold(
         backgroundColor: Colors.grey[100],
-        appBar: AppBar(
-          title: const Text('Profil'),
-          backgroundColor: Theme.of(context).primaryColor,
-          foregroundColor: Colors.white,
-          elevation: 0,
+        appBar: const SessionAwareAppBar(
+          title: 'Profil',
         ),
         body: const Center(
           child: CircularProgressIndicator(),
@@ -85,11 +83,8 @@ class _UserProfilePageState extends State<UserProfilePage> {
 
     return Scaffold(
       backgroundColor: Colors.grey[100],
-      appBar: AppBar(
-        title: const Text('Profil'),
-        backgroundColor: Theme.of(context).primaryColor,
-        foregroundColor: Colors.white,
-        elevation: 0,
+      appBar: const SessionAwareAppBar(
+        title: 'Profil',
       ),
       body: SafeArea(
         child: SingleChildScrollView(

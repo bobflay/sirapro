@@ -23,6 +23,7 @@ import '../services/api_service.dart';
 import '../services/client_service.dart';
 import '../services/visit_service.dart';
 import '../services/visit_api_service.dart';
+import '../widgets/session_aware_app_bar.dart';
 import 'visit_report_page.dart';
 import 'visit_report_detail_page.dart';
 import 'order_creation_page.dart';
@@ -89,6 +90,9 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
     'Demi-grossiste',
     'Grossiste',
     'Distributeur',
+    'Mamie marché',
+    'Étalage',
+    'Boulangerie',
     'Autre',
   ];
 
@@ -988,7 +992,7 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
         longitude: position.longitude,
       );
 
-      await _visitApiService.terminateVisit(visitId, request);
+      final result = await _visitApiService.terminateVisit(visitId, request);
 
       // Clear local storage
       await _visitService.endApiVisit();
@@ -999,15 +1003,20 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
       _stopVisitLocally(status == 'completed');
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(status == 'completed'
-                ? 'Visite complétée avec succès'
-                : 'Visite abandonnée'),
-            backgroundColor: status == 'completed' ? Colors.green : Colors.orange,
-            duration: const Duration(seconds: 2),
-          ),
-        );
+        // Check if there's a warning (terminated outside allowed range)
+        if (result.terminatedOutsideRange && result.warning != null) {
+          _showOutsideRangeWarning(result.warning!, result.terminationDistance, status);
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(status == 'completed'
+                  ? 'Visite complétée avec succès'
+                  : 'Visite abandonnée'),
+              backgroundColor: status == 'completed' ? Colors.green : Colors.orange,
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
       }
     } on VisitApiException catch (e) {
       if (mounted) Navigator.pop(context);
@@ -1058,6 +1067,110 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
         'Une erreur inattendue s\'est produite: $e',
       );
     }
+  }
+
+  /// Show warning dialog when visit was terminated outside the allowed range
+  void _showOutsideRangeWarning(String warning, double? distance, String status) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Icon(
+              Icons.warning_amber_rounded,
+              color: Colors.orange[700],
+              size: 28,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                status == 'completed' ? 'Visite complétée' : 'Visite abandonnée',
+                style: const TextStyle(fontSize: 18),
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              status == 'completed'
+                  ? 'La visite a été complétée avec succès.'
+                  : 'La visite a été abandonnée.',
+              style: const TextStyle(fontSize: 15),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.orange[50],
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.orange[200]!),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    Icons.location_off,
+                    color: Colors.orange[700],
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Attention',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Visite terminée en dehors de la zone autorisée.',
+                          style: TextStyle(
+                            color: Colors.grey[700],
+                            fontSize: 13,
+                          ),
+                        ),
+                        if (distance != null) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            'Distance: ${distance.toStringAsFixed(0)} mètres',
+                            style: TextStyle(
+                              color: Colors.orange[800],
+                              fontWeight: FontWeight.w500,
+                              fontSize: 13,
+                            ),
+                          ),
+                          Text(
+                            'Distance maximale autorisée: 300 mètres',
+                            style: TextStyle(
+                              color: Colors.grey[600],
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
   }
 
   /// Stop the visit timer locally without API call
@@ -1505,11 +1618,8 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
       },
       child: Scaffold(
         backgroundColor: Colors.grey[100],
-        appBar: AppBar(
-          title: Text(_isEditing ? 'Modifier Client' : 'Détails Client'),
-          backgroundColor: Theme.of(context).primaryColor,
-          foregroundColor: Colors.white,
-          elevation: 0,
+        appBar: SessionAwareAppBar(
+          title: _isEditing ? 'Modifier Client' : 'Détails Client',
           leading: IconButton(
             icon: const Icon(Icons.arrow_back),
             onPressed: () => Navigator.pop(context, _client),
@@ -2501,8 +2611,8 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
   Future<void> _navigateToNewVisitReport() async {
     final visitService = VisitService();
 
-    // Vérifier s'il y a déjà une visite active
-    if (visitService.hasActiveVisit) {
+    // Check if there's an active visit for a DIFFERENT client
+    if (visitService.hasActiveVisit && !visitService.isClientVisitActive(_client.id)) {
       if (!mounted) return;
 
       showDialog(
@@ -2542,7 +2652,52 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
       return;
     }
 
-    // Create a visit for this specific client
+    // If the current client already has an active API visit, use it for the report
+    if (visitService.isClientVisitActive(_client.id)) {
+      final activeApiVisit = visitService.activeApiVisit;
+      if (activeApiVisit != null) {
+        // Create a Visit object from the active API visit
+        final visit = Visit(
+          id: 'api-visit-${activeApiVisit.id}',
+          routeId: 'api-visit',
+          clientId: _client.id.toString(),
+          clientName: _client.boutiqueName,
+          clientAddress: _client.fullAddress,
+          order: 1,
+          latitude: _parseLatitude(_client.gpsLocation),
+          longitude: _parseLongitude(_client.gpsLocation),
+          status: VisitStatus.inProgress,
+          actualStartTime: activeApiVisit.startedAt ?? DateTime.now(),
+          createdAt: activeApiVisit.startedAt ?? DateTime.now(),
+        );
+
+        if (!mounted) return;
+
+        // Navigate to visit report page with the existing visit
+        final VisitReport? report = await Navigator.push<VisitReport>(
+          context,
+          MaterialPageRoute(
+            builder: (context) => VisitReportPage(
+              visit: visit,
+              existingReport: null,
+              apiVisitId: activeApiVisit.id,
+            ),
+          ),
+        );
+
+        if (report != null && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Rapport de visite créé avec succès'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+        return;
+      }
+    }
+
+    // No active visit - create a new legacy visit for this specific client
     final visit = Visit(
       id: 'visit-${DateTime.now().millisecondsSinceEpoch}',
       routeId: 'ad-hoc-visit',

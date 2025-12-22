@@ -5,6 +5,7 @@ import '../models/visit_report.dart';
 import '../models/client.dart';
 import '../data/mock_clients.dart';
 import '../services/visit_service.dart';
+import '../widgets/session_aware_app_bar.dart';
 import 'client_detail_page.dart';
 
 class TourneeDetailPage extends StatefulWidget {
@@ -236,10 +237,8 @@ class _TourneeDetailPageState extends State<TourneeDetailPage> {
     final total = _currentRoute.totalVisits;
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(_currentRoute.name),
-        backgroundColor: Theme.of(context).primaryColor,
-        foregroundColor: Colors.white,
+      appBar: SessionAwareAppBar(
+        title: _currentRoute.name,
       ),
       body: SafeArea(
         child: Padding(

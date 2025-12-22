@@ -3,6 +3,7 @@ import 'package:sirapro/models/stock_item.dart';
 import 'package:sirapro/data/mock_stock.dart';
 import 'package:sirapro/screens/stock_item_detail_page.dart';
 import 'package:sirapro/utils/app_colors.dart';
+import 'package:sirapro/widgets/session_aware_app_bar.dart';
 
 class StockCommercialPage extends StatefulWidget {
   const StockCommercialPage({super.key});
@@ -97,11 +98,8 @@ class _StockCommercialPageState extends State<StockCommercialPage> {
 
     return Scaffold(
       backgroundColor: Colors.grey[100],
-      appBar: AppBar(
-        title: const Text('Stock Commercial'),
-        backgroundColor: Theme.of(context).primaryColor,
-        foregroundColor: Colors.white,
-        elevation: 0,
+      appBar: SessionAwareAppBar(
+        title: 'Stock Commercial',
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),

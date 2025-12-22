@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:sirapro/services/visit_service.dart';
+import 'package:sirapro/services/client_service.dart';
+import 'package:sirapro/screens/client_detail_page.dart';
 import 'package:sirapro/utils/app_colors.dart';
 
 /// A unified app bar that adapts when there's an active visit session.
@@ -33,6 +35,7 @@ class SessionAwareAppBar extends StatefulWidget implements PreferredSizeWidget {
 
 class _SessionAwareAppBarState extends State<SessionAwareAppBar> {
   final VisitService _visitService = VisitService();
+  final ClientService _clientService = ClientService();
   Timer? _timer;
   Duration _elapsed = Duration.zero;
   bool _hasActiveSession = false;
@@ -105,6 +108,25 @@ class _SessionAwareAppBarState extends State<SessionAwareAppBar> {
     return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
   }
 
+  Future<void> _navigateToActiveClient() async {
+    final clientId = _visitService.activeClientId;
+    if (clientId == null) return;
+
+    try {
+      final client = await _clientService.getClient(clientId);
+      if (mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ClientDetailPage(client: client),
+          ),
+        );
+      }
+    } catch (e) {
+      // Silently fail if client cannot be loaded
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_hasActiveSession) {
@@ -132,64 +154,79 @@ class _SessionAwareAppBarState extends State<SessionAwareAppBar> {
       elevation: 0,
       leading: widget.leading,
       automaticallyImplyLeading: widget.automaticallyImplyLeading,
-      title: Row(
-        children: [
-          // Pulsing dot
-          _buildPulsingDot(),
-          const SizedBox(width: 10),
-          // Session info
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
-                  children: [
-                    Text(
-                      widget.title,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.2),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: const Text(
-                        'EN VISITE',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 9,
+      title: GestureDetector(
+        onTap: _navigateToActiveClient,
+        child: Row(
+          children: [
+            // Pulsing dot
+            _buildPulsingDot(),
+            const SizedBox(width: 10),
+            // Session info
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Text(
+                        widget.title,
+                        style: const TextStyle(
+                          fontSize: 16,
                           fontWeight: FontWeight.bold,
-                          letterSpacing: 0.5,
+                          color: Colors.white,
                         ),
                       ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 1),
-                Text(
-                  clientName,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.white.withValues(alpha: 0.9),
-                    fontWeight: FontWeight.w500,
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Text(
+                          'EN VISITE',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
+                  const SizedBox(height: 1),
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          clientName,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.white.withValues(alpha: 0.9),
+                            fontWeight: FontWeight.w500,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Icon(
+                        Icons.chevron_right,
+                        size: 14,
+                        color: Colors.white.withValues(alpha: 0.7),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
       actions: [
         // Timer display

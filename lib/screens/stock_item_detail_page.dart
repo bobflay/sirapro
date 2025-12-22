@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:sirapro/models/stock_item.dart';
 import 'package:sirapro/utils/app_colors.dart';
+import 'package:sirapro/widgets/session_aware_app_bar.dart';
 import 'package:intl/intl.dart';
 
 class StockItemDetailPage extends StatelessWidget {
@@ -32,11 +33,8 @@ class StockItemDetailPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[100],
-      appBar: AppBar(
-        title: const Text('Détails du Produit'),
-        backgroundColor: Theme.of(context).primaryColor,
-        foregroundColor: Colors.white,
-        elevation: 0,
+      appBar: const SessionAwareAppBar(
+        title: 'Détails du Produit',
       ),
       body: SingleChildScrollView(
         child: Column(

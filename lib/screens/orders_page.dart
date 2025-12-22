@@ -4,6 +4,7 @@ import '../models/order.dart';
 import '../models/client.dart';
 import '../data/mock_orders.dart';
 import '../data/mock_clients.dart';
+import '../widgets/session_aware_app_bar.dart';
 import 'order_creation_page.dart';
 import 'order_detail_page.dart';
 
@@ -78,10 +79,8 @@ class _OrdersPageState extends State<OrdersPage> with SingleTickerProviderStateM
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[100],
-      appBar: AppBar(
-        title: const Text('Commandes'),
-        backgroundColor: Colors.purple,
-        foregroundColor: Colors.white,
+      appBar: SessionAwareAppBar(
+        title: 'Commandes',
         bottom: TabBar(
           controller: _tabController,
           indicatorColor: Colors.white,

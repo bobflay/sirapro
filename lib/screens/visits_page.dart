@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:sirapro/models/visit.dart';
 import 'package:sirapro/models/visit_report.dart';
 import 'package:sirapro/screens/visit_detail_page.dart';
+import 'package:sirapro/widgets/session_aware_app_bar.dart';
 import 'package:intl/intl.dart';
 
 class VisitsPage extends StatefulWidget {
@@ -459,11 +460,8 @@ class _VisitsPageState extends State<VisitsPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[100],
-      appBar: AppBar(
-        title: const Text('Visites'),
-        backgroundColor: Theme.of(context).primaryColor,
-        foregroundColor: Colors.white,
-        elevation: 0,
+      appBar: const SessionAwareAppBar(
+        title: 'Visites',
       ),
       body: Column(
         children: [

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:sirapro/models/alert.dart';
 import 'package:sirapro/services/alert_service.dart';
 import 'package:sirapro/utils/app_colors.dart';
+import 'package:sirapro/widgets/session_aware_app_bar.dart';
 import 'package:intl/intl.dart';
 import 'alert_creation_page.dart';
 import 'alert_detail_page.dart';
@@ -64,11 +65,8 @@ class _AlertesPageState extends State<AlertesPage> with SingleTickerProviderStat
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[100],
-      appBar: AppBar(
-        title: const Text('Alertes'),
-        backgroundColor: AppColors.primary,
-        foregroundColor: AppColors.white,
-        elevation: 0,
+      appBar: SessionAwareAppBar(
+        title: 'Alertes',
         bottom: TabBar(
           controller: _tabController,
           indicatorColor: Colors.white,

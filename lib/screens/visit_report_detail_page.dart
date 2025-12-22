@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:share_plus/share_plus.dart';
 import '../models/visit_report.dart';
 import '../services/pdf_report_service.dart';
+import '../widgets/session_aware_app_bar.dart';
 
 /// Page d'affichage détaillé d'un rapport de visite existant
 class VisitReportDetailPage extends StatelessWidget {
@@ -18,10 +19,8 @@ class VisitReportDetailPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[100],
-      appBar: AppBar(
-        title: const Text('Détails du Rapport'),
-        backgroundColor: Colors.blue,
-        foregroundColor: Colors.white,
+      appBar: SessionAwareAppBar(
+        title: 'Détails du Rapport',
         actions: [
           IconButton(
             icon: const Icon(Icons.share),
@@ -361,8 +360,9 @@ class VisitReportDetailPage extends StatelessWidget {
 
   Widget _buildPhotosSection() {
     final photos = <GeotaggedPhoto>[];
-    if (report.facadePhoto != null) photos.add(report.facadePhoto!);
-    if (report.shelfPhoto != null) photos.add(report.shelfPhoto!);
+    // Use the helper methods that combine both legacy and new format
+    photos.addAll(report.allFacadePhotos);
+    photos.addAll(report.allShelfPhotos);
     photos.addAll(report.additionalPhotos);
 
     if (photos.isEmpty) {

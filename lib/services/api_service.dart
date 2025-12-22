@@ -36,6 +36,9 @@ class ApiService {
     _token = null;
   }
 
+  /// Get the current authentication token
+  String? get token => _token;
+
   /// Get default headers with optional auth token
   Map<String, String> _getHeaders({bool includeAuth = true}) {
     final headers = <String, String>{

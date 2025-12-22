@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:sirapro/models/visit.dart';
 import 'package:sirapro/models/visit_report.dart';
+import 'package:sirapro/widgets/session_aware_app_bar.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -210,11 +211,8 @@ class VisitDetailPage extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: Colors.grey[100],
-      appBar: AppBar(
-        title: const Text('Détails de la visite'),
-        backgroundColor: Theme.of(context).primaryColor,
-        foregroundColor: Colors.white,
-        elevation: 0,
+      appBar: SessionAwareAppBar(
+        title: 'Détails de la visite',
         actions: [
           if (visit.latitude != null && visit.longitude != null)
             IconButton(

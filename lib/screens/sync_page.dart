@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:sirapro/widgets/session_aware_app_bar.dart';
 
 class SyncPage extends StatefulWidget {
   const SyncPage({super.key});
@@ -106,11 +107,8 @@ class _SyncPageState extends State<SyncPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[100],
-      appBar: AppBar(
-        title: const Text('Synchronisation'),
-        backgroundColor: Theme.of(context).primaryColor,
-        foregroundColor: Colors.white,
-        elevation: 0,
+      appBar: const SessionAwareAppBar(
+        title: 'Synchronisation',
       ),
       body: SafeArea(
         child: Column(

@@ -73,22 +73,29 @@ class VisitReport {
   final double? validationLongitude;
   final DateTime? validationTime;
 
-  // Photos obligatoires (géolocalisées et horodatées)
-  final GeotaggedPhoto? facadePhoto; // Photo façade (obligatoire)
-  final GeotaggedPhoto? shelfPhoto; // Photo des rayons / linéaires (obligatoire)
+  // Photos de façade (multiples - obligatoire au moins une)
+  final List<GeotaggedPhoto> facadePhotos;
+  // Photos des rayons / linéaires (multiples - obligatoire au moins une)
+  final List<GeotaggedPhoto> shelfPhotos;
+  // Photos supplémentaires optionnelles (stock, anomalies, etc.)
+  final List<GeotaggedPhoto> additionalPhotos;
 
-  // Photos supplémentaires optionnelles
-  final List<GeotaggedPhoto> additionalPhotos; // Stock, anomalies, etc.
+  // Legacy single photo fields (for backwards compatibility)
+  final GeotaggedPhoto? facadePhoto;
+  final GeotaggedPhoto? shelfPhoto;
 
   // Champs de compte rendu
   final bool? gerantPresent; // Présence du gérant : Oui / Non
   final bool? orderPlaced; // Commande réalisée : Oui / Non
+  final bool? needsOrder; // Client a besoin d'une commande
   final double? orderAmount; // Si Oui : montant approximatif
   final String? orderReference; // Lien direct avec la commande saisie
 
   // Observations
-  final String? stockShortages; // Ruptures observées (liste ou texte libre)
-  final String? competitorActivity; // Activité concurrente
+  final bool? stockShortageObserved; // Rupture de stock observée
+  final String? stockShortages; // Détails des ruptures (liste ou texte libre)
+  final bool? competitorActivityObserved; // Activité concurrente observée
+  final String? competitorActivity; // Détails de l'activité concurrente
   final String? comments; // Commentaires libres du commercial
 
   // Statut
@@ -107,14 +114,19 @@ class VisitReport {
     this.validationLatitude,
     this.validationLongitude,
     this.validationTime,
+    this.facadePhotos = const [],
+    this.shelfPhotos = const [],
+    this.additionalPhotos = const [],
     this.facadePhoto,
     this.shelfPhoto,
-    this.additionalPhotos = const [],
     this.gerantPresent,
     this.orderPlaced,
+    this.needsOrder,
     this.orderAmount,
     this.orderReference,
+    this.stockShortageObserved,
     this.stockShortages,
+    this.competitorActivityObserved,
     this.competitorActivity,
     this.comments,
     this.status = VisitReportStatus.incomplete,
@@ -124,8 +136,7 @@ class VisitReport {
 
   /// Vérifie si le rapport est valide (tous les champs obligatoires remplis)
   bool get isValid {
-    return facadePhoto != null &&
-        shelfPhoto != null &&
+    return hasRequiredPhotos &&
         gerantPresent != null &&
         orderPlaced != null &&
         validationLatitude != null &&
@@ -133,8 +144,30 @@ class VisitReport {
   }
 
   /// Vérifie si les photos obligatoires sont présentes
+  /// Supports both legacy single photo and new multiple photos format
   bool get hasRequiredPhotos {
-    return facadePhoto != null && shelfPhoto != null;
+    final hasFacade = facadePhotos.isNotEmpty || facadePhoto != null;
+    final hasShelf = shelfPhotos.isNotEmpty || shelfPhoto != null;
+    return hasFacade && hasShelf;
+  }
+
+  /// Gets all facade photos (combines legacy and new format)
+  List<GeotaggedPhoto> get allFacadePhotos {
+    if (facadePhotos.isNotEmpty) return facadePhotos;
+    if (facadePhoto != null) return [facadePhoto!];
+    return [];
+  }
+
+  /// Gets all shelf photos (combines legacy and new format)
+  List<GeotaggedPhoto> get allShelfPhotos {
+    if (shelfPhotos.isNotEmpty) return shelfPhotos;
+    if (shelfPhoto != null) return [shelfPhoto!];
+    return [];
+  }
+
+  /// Gets total photo count
+  int get totalPhotoCount {
+    return allFacadePhotos.length + allShelfPhotos.length + additionalPhotos.length;
   }
 
   /// Calcule la durée de la visite
@@ -156,14 +189,19 @@ class VisitReport {
       'validationLatitude': validationLatitude,
       'validationLongitude': validationLongitude,
       'validationTime': validationTime?.toIso8601String(),
+      'facadePhotos': facadePhotos.map((p) => p.toJson()).toList(),
+      'shelfPhotos': shelfPhotos.map((p) => p.toJson()).toList(),
+      'additionalPhotos': additionalPhotos.map((p) => p.toJson()).toList(),
       'facadePhoto': facadePhoto?.toJson(),
       'shelfPhoto': shelfPhoto?.toJson(),
-      'additionalPhotos': additionalPhotos.map((p) => p.toJson()).toList(),
       'gerantPresent': gerantPresent,
       'orderPlaced': orderPlaced,
+      'needsOrder': needsOrder,
       'orderAmount': orderAmount,
       'orderReference': orderReference,
+      'stockShortageObserved': stockShortageObserved,
       'stockShortages': stockShortages,
+      'competitorActivityObserved': competitorActivityObserved,
       'competitorActivity': competitorActivity,
       'comments': comments,
       'status': status.toString().split('.').last,
@@ -183,17 +221,28 @@ class VisitReport {
       validationLatitude: json['validationLatitude'] as double?,
       validationLongitude: json['validationLongitude'] as double?,
       validationTime: json['validationTime'] != null ? DateTime.parse(json['validationTime'] as String) : null,
-      facadePhoto: json['facadePhoto'] != null ? GeotaggedPhoto.fromJson(json['facadePhoto']) : null,
-      shelfPhoto: json['shelfPhoto'] != null ? GeotaggedPhoto.fromJson(json['shelfPhoto']) : null,
+      facadePhotos: (json['facadePhotos'] as List<dynamic>?)
+              ?.map((p) => GeotaggedPhoto.fromJson(p))
+              .toList() ??
+          [],
+      shelfPhotos: (json['shelfPhotos'] as List<dynamic>?)
+              ?.map((p) => GeotaggedPhoto.fromJson(p))
+              .toList() ??
+          [],
       additionalPhotos: (json['additionalPhotos'] as List<dynamic>?)
               ?.map((p) => GeotaggedPhoto.fromJson(p))
               .toList() ??
           [],
+      facadePhoto: json['facadePhoto'] != null ? GeotaggedPhoto.fromJson(json['facadePhoto']) : null,
+      shelfPhoto: json['shelfPhoto'] != null ? GeotaggedPhoto.fromJson(json['shelfPhoto']) : null,
       gerantPresent: json['gerantPresent'] as bool?,
       orderPlaced: json['orderPlaced'] as bool?,
+      needsOrder: json['needsOrder'] as bool?,
       orderAmount: json['orderAmount'] as double?,
       orderReference: json['orderReference'] as String?,
+      stockShortageObserved: json['stockShortageObserved'] as bool?,
       stockShortages: json['stockShortages'] as String?,
+      competitorActivityObserved: json['competitorActivityObserved'] as bool?,
       competitorActivity: json['competitorActivity'] as String?,
       comments: json['comments'] as String?,
       status: VisitReportStatus.values.firstWhere(
@@ -215,14 +264,19 @@ class VisitReport {
     double? validationLatitude,
     double? validationLongitude,
     DateTime? validationTime,
+    List<GeotaggedPhoto>? facadePhotos,
+    List<GeotaggedPhoto>? shelfPhotos,
+    List<GeotaggedPhoto>? additionalPhotos,
     GeotaggedPhoto? facadePhoto,
     GeotaggedPhoto? shelfPhoto,
-    List<GeotaggedPhoto>? additionalPhotos,
     bool? gerantPresent,
     bool? orderPlaced,
+    bool? needsOrder,
     double? orderAmount,
     String? orderReference,
+    bool? stockShortageObserved,
     String? stockShortages,
+    bool? competitorActivityObserved,
     String? competitorActivity,
     String? comments,
     VisitReportStatus? status,
@@ -239,14 +293,19 @@ class VisitReport {
       validationLatitude: validationLatitude ?? this.validationLatitude,
       validationLongitude: validationLongitude ?? this.validationLongitude,
       validationTime: validationTime ?? this.validationTime,
+      facadePhotos: facadePhotos ?? this.facadePhotos,
+      shelfPhotos: shelfPhotos ?? this.shelfPhotos,
+      additionalPhotos: additionalPhotos ?? this.additionalPhotos,
       facadePhoto: facadePhoto ?? this.facadePhoto,
       shelfPhoto: shelfPhoto ?? this.shelfPhoto,
-      additionalPhotos: additionalPhotos ?? this.additionalPhotos,
       gerantPresent: gerantPresent ?? this.gerantPresent,
       orderPlaced: orderPlaced ?? this.orderPlaced,
+      needsOrder: needsOrder ?? this.needsOrder,
       orderAmount: orderAmount ?? this.orderAmount,
       orderReference: orderReference ?? this.orderReference,
+      stockShortageObserved: stockShortageObserved ?? this.stockShortageObserved,
       stockShortages: stockShortages ?? this.stockShortages,
+      competitorActivityObserved: competitorActivityObserved ?? this.competitorActivityObserved,
       competitorActivity: competitorActivity ?? this.competitorActivity,
       comments: comments ?? this.comments,
       status: status ?? this.status,

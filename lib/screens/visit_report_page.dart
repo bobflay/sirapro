@@ -5,6 +5,8 @@ import '../models/visit_report.dart';
 import '../models/order.dart';
 import '../models/client.dart';
 import '../services/photo_capture_service.dart';
+import '../services/visit_api_service.dart';
+import '../widgets/session_aware_app_bar.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'order_creation_page.dart';
@@ -13,11 +15,13 @@ import 'order_creation_page.dart';
 class VisitReportPage extends StatefulWidget {
   final Visit visit;
   final VisitReport? existingReport; // Si déjà commencé
+  final int? apiVisitId; // The actual API visit ID for submitting reports
 
   const VisitReportPage({
     super.key,
     required this.visit,
     this.existingReport,
+    this.apiVisitId,
   });
 
   @override
@@ -26,16 +30,18 @@ class VisitReportPage extends StatefulWidget {
 
 class _VisitReportPageState extends State<VisitReportPage> {
   final PhotoCaptureService _photoService = PhotoCaptureService();
+  final VisitApiService _visitApiService = VisitApiService();
   final _formKey = GlobalKey<FormState>();
 
-  // Photos
-  GeotaggedPhoto? _facadePhoto;
-  GeotaggedPhoto? _shelfPhoto;
+  // Photos - now supporting multiple photos per category
+  List<GeotaggedPhoto> _facadePhotos = [];
+  List<GeotaggedPhoto> _shelfPhotos = [];
   List<GeotaggedPhoto> _additionalPhotos = [];
 
   // Champs du formulaire
   bool? _gerantPresent;
   bool? _orderPlaced;
+  bool? _needsOrder;
   final TextEditingController _orderAmountController = TextEditingController();
   final TextEditingController _orderReferenceController = TextEditingController();
   final TextEditingController _commentsController = TextEditingController();
@@ -88,11 +94,13 @@ class _VisitReportPageState extends State<VisitReportPage> {
     if (widget.existingReport != null) {
       final report = widget.existingReport!;
       setState(() {
-        _facadePhoto = report.facadePhoto;
-        _shelfPhoto = report.shelfPhoto;
+        // Load photos - support both old single photo and new multiple photos format
+        _facadePhotos = List.from(report.allFacadePhotos);
+        _shelfPhotos = List.from(report.allShelfPhotos);
         _additionalPhotos = List.from(report.additionalPhotos);
         _gerantPresent = report.gerantPresent;
         _orderPlaced = report.orderPlaced;
+        _needsOrder = report.needsOrder;
         _orderAmountController.text = report.orderAmount?.toString() ?? '';
         _orderReferenceController.text = report.orderReference ?? '';
 
@@ -152,10 +160,10 @@ class _VisitReportPageState extends State<VisitReportPage> {
         setState(() {
           switch (type) {
             case PhotoType.facade:
-              _facadePhoto = photo;
+              _facadePhotos.add(photo);
               break;
             case PhotoType.shelf:
-              _shelfPhoto = photo;
+              _shelfPhotos.add(photo);
               break;
             case PhotoType.additional:
               _additionalPhotos.add(photo);
@@ -250,10 +258,14 @@ class _VisitReportPageState extends State<VisitReportPage> {
     setState(() {
       switch (type) {
         case PhotoType.facade:
-          _facadePhoto = null;
+          if (index != null && index < _facadePhotos.length) {
+            _facadePhotos.removeAt(index);
+          }
           break;
         case PhotoType.shelf:
-          _shelfPhoto = null;
+          if (index != null && index < _shelfPhotos.length) {
+            _shelfPhotos.removeAt(index);
+          }
           break;
         case PhotoType.additional:
           if (index != null && index < _additionalPhotos.length) {
@@ -265,13 +277,13 @@ class _VisitReportPageState extends State<VisitReportPage> {
   }
 
   bool _validateForm() {
-    if (_facadePhoto == null) {
-      _showError('La photo de façade est obligatoire');
+    if (_facadePhotos.isEmpty) {
+      _showError('Au moins une photo de façade est obligatoire');
       return false;
     }
 
-    if (_shelfPhoto == null) {
-      _showError('La photo des rayons est obligatoire');
+    if (_shelfPhotos.isEmpty) {
+      _showError('Au moins une photo des rayons est obligatoire');
       return false;
     }
 
@@ -303,9 +315,18 @@ class _VisitReportPageState extends State<VisitReportPage> {
   }
 
   Future<void> _submitReport() async {
+    debugPrint('=== _submitReport started ===');
+    debugPrint('widget.apiVisitId: ${widget.apiVisitId}');
+    debugPrint('widget.visit.id: ${widget.visit.id}');
+    debugPrint('Facade photos count: ${_facadePhotos.length}');
+    debugPrint('Shelf photos count: ${_shelfPhotos.length}');
+    debugPrint('Additional photos count: ${_additionalPhotos.length}');
+
     if (!_validateForm()) {
+      debugPrint('Form validation failed');
       return;
     }
+    debugPrint('Form validation passed');
 
     setState(() {
       _isSubmitting = true;
@@ -313,11 +334,14 @@ class _VisitReportPageState extends State<VisitReportPage> {
 
     try {
       // Obtenir la position GPS actuelle pour la validation
+      debugPrint('Getting current GPS position...');
       Position? position = await _photoService.getCurrentPosition();
 
       if (position == null) {
+        debugPrint('GPS position is null');
         throw Exception('Impossible d\'obtenir la position GPS. Vérifiez que la localisation est activée.');
       }
+      debugPrint('GPS position: ${position.latitude}, ${position.longitude}');
 
       // Build stock shortages string
       String? stockShortagesText;
@@ -329,8 +353,10 @@ class _VisitReportPageState extends State<VisitReportPage> {
         }
         stockShortagesText = shortages.join(', ');
       }
+      debugPrint('Stock shortages: $stockShortagesText');
 
       // Build competitor activity string
+      debugPrint('Building competitor activity text...');
       String? competitorActivityText;
       if (_selectedCompetitorActivities.isNotEmpty) {
         List<String> activities = List.from(_selectedCompetitorActivities);
@@ -340,8 +366,85 @@ class _VisitReportPageState extends State<VisitReportPage> {
         }
         competitorActivityText = activities.join(', ');
       }
+      debugPrint('Competitor activity: $competitorActivityText');
 
-      // Créer le rapport de visite
+      // Convert GeotaggedPhoto to File for API submission
+      debugPrint('Converting photos to File objects...');
+      debugPrint('_facadePhotos: $_facadePhotos');
+      debugPrint('_shelfPhotos: $_shelfPhotos');
+      debugPrint('_additionalPhotos: $_additionalPhotos');
+
+      final facadeFiles = _facadePhotos.map((p) {
+        debugPrint('  Creating File from facade path: ${p.path}');
+        return File(p.path);
+      }).toList();
+      final shelfFiles = _shelfPhotos.map((p) {
+        debugPrint('  Creating File from shelf path: ${p.path}');
+        return File(p.path);
+      }).toList();
+      final additionalFiles = _additionalPhotos.map((p) {
+        debugPrint('  Creating File from additional path: ${p.path}');
+        return File(p.path);
+      }).toList();
+
+      debugPrint('Facade files created: ${facadeFiles.length}');
+      debugPrint('Shelf files created: ${shelfFiles.length}');
+      debugPrint('Additional files created: ${additionalFiles.length}');
+      debugPrint('Facade files paths: ${facadeFiles.map((f) => f.path).toList()}');
+      debugPrint('Shelf files paths: ${shelfFiles.map((f) => f.path).toList()}');
+
+      // Get API visit ID - prefer explicit apiVisitId, fallback to parsing from visit.id
+      int? visitId = widget.apiVisitId;
+      debugPrint('Initial visitId from widget.apiVisitId: $visitId');
+
+      if (visitId == null) {
+        // Try to extract from visit.id if it's in format "api-visit-{id}"
+        final match = RegExp(r'api-visit-(\d+)').firstMatch(widget.visit.id);
+        if (match != null) {
+          visitId = int.tryParse(match.group(1)!);
+          debugPrint('Extracted visitId from api-visit format: $visitId');
+        } else {
+          // Try direct parsing as fallback
+          visitId = int.tryParse(widget.visit.id);
+          debugPrint('Tried direct parsing of visit.id: $visitId');
+        }
+      }
+
+      if (visitId == null) {
+        debugPrint('ERROR: visitId is still null after all attempts');
+        throw Exception('Aucune visite API active. Veuillez démarrer une visite depuis la fiche client.');
+      }
+
+      debugPrint('Final visitId for API: $visitId');
+      debugPrint('Submitting report to API...');
+
+      // Submit to API
+      await _visitApiService.submitVisitReport(
+        visitId: visitId,
+        latitude: position.latitude,
+        longitude: position.longitude,
+        facadePhotos: facadeFiles,
+        shelfPhotos: shelfFiles,
+        additionalPhotos: additionalFiles,
+        managerPresent: _gerantPresent,
+        orderMade: _orderPlaced,
+        needsOrder: _needsOrder,
+        orderReference: _orderReferenceController.text.trim().isNotEmpty
+            ? _orderReferenceController.text.trim()
+            : null,
+        orderEstimatedAmount: _orderPlaced == true && _orderAmountController.text.trim().isNotEmpty
+            ? double.tryParse(_orderAmountController.text.trim())
+            : null,
+        stockShortageObserved: _selectedStockShortages.isNotEmpty,
+        stockIssues: stockShortagesText,
+        competitorActivityObserved: _selectedCompetitorActivities.isNotEmpty,
+        competitorActivity: competitorActivityText,
+        comments: _commentsController.text.trim().isNotEmpty
+            ? _commentsController.text.trim()
+            : null,
+      );
+
+      // Create the local report object for backwards compatibility
       final report = VisitReport(
         id: widget.existingReport?.id ?? DateTime.now().millisecondsSinceEpoch.toString(),
         visitId: widget.visit.id,
@@ -352,18 +455,21 @@ class _VisitReportPageState extends State<VisitReportPage> {
         validationLatitude: position.latitude,
         validationLongitude: position.longitude,
         validationTime: DateTime.now(),
-        facadePhoto: _facadePhoto,
-        shelfPhoto: _shelfPhoto,
+        facadePhotos: _facadePhotos,
+        shelfPhotos: _shelfPhotos,
         additionalPhotos: _additionalPhotos,
         gerantPresent: _gerantPresent,
         orderPlaced: _orderPlaced,
+        needsOrder: _needsOrder,
         orderAmount: _orderPlaced == true && _orderAmountController.text.trim().isNotEmpty
             ? double.tryParse(_orderAmountController.text.trim())
             : null,
         orderReference: _orderReferenceController.text.trim().isNotEmpty
             ? _orderReferenceController.text.trim()
             : null,
+        stockShortageObserved: _selectedStockShortages.isNotEmpty,
         stockShortages: stockShortagesText,
+        competitorActivityObserved: _selectedCompetitorActivities.isNotEmpty,
         competitorActivity: competitorActivityText,
         comments: _commentsController.text.trim().isNotEmpty
             ? _commentsController.text.trim()
@@ -375,9 +481,35 @@ class _VisitReportPageState extends State<VisitReportPage> {
 
       // Retourner le rapport validé
       if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Rapport soumis avec succès'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
         Navigator.of(context).pop(report);
       }
-    } catch (e) {
+    } on VisitApiException catch (e) {
+      debugPrint('=== VisitApiException caught ===');
+      debugPrint('Message: ${e.message}');
+      debugPrint('Status code: ${e.statusCode}');
+      debugPrint('Error key: ${e.errorKey}');
+      debugPrint('Errors: ${e.errors}');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur: ${e.message}'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    } catch (e, stackTrace) {
+      debugPrint('=== Generic exception caught ===');
+      debugPrint('Exception type: ${e.runtimeType}');
+      debugPrint('Exception: $e');
+      debugPrint('Stack trace: $stackTrace');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -443,9 +575,8 @@ class _VisitReportPageState extends State<VisitReportPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Rapport de Visite'),
-        backgroundColor: Colors.blue,
+      appBar: const SessionAwareAppBar(
+        title: 'Rapport de Visite',
       ),
       body: Form(
         key: _formKey,
@@ -552,24 +683,163 @@ class _VisitReportPageState extends State<VisitReportPage> {
             ),
             const SizedBox(height: 16),
 
-            // Photo façade
-            _buildPhotoItem(
-              title: 'Photo Façade',
-              photo: _facadePhoto,
+            // Photos façade (multiple)
+            _buildMultiPhotoSection(
+              title: 'Photos Façade',
+              photos: _facadePhotos,
               type: PhotoType.facade,
               required: true,
+              subtitle: 'Extérieur de la boutique',
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
 
-            // Photo rayons
-            _buildPhotoItem(
-              title: 'Photo Rayons / Linéaires',
-              photo: _shelfPhoto,
+            // Photos rayons (multiple)
+            _buildMultiPhotoSection(
+              title: 'Photos Rayons / Linéaires',
+              photos: _shelfPhotos,
               type: PhotoType.shelf,
               required: true,
+              subtitle: 'Présentoirs et produits',
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildMultiPhotoSection({
+    required String title,
+    required List<GeotaggedPhoto> photos,
+    required PhotoType type,
+    required bool required,
+    String? subtitle,
+  }) {
+    final bool hasPhotos = photos.isNotEmpty;
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        border: Border.all(
+          color: hasPhotos ? Colors.green : (required ? Colors.orange : Colors.grey),
+          width: 2,
+        ),
+        borderRadius: BorderRadius.circular(8),
+        color: hasPhotos ? Colors.green.withValues(alpha: 0.05) : null,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          title,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
+                        ),
+                        if (required)
+                          const Text(
+                            ' *',
+                            style: TextStyle(color: Colors.red, fontSize: 16),
+                          ),
+                        if (photos.isNotEmpty)
+                          Text(
+                            ' (${photos.length})',
+                            style: TextStyle(
+                              color: Colors.grey[600],
+                              fontSize: 13,
+                            ),
+                          ),
+                      ],
+                    ),
+                    if (subtitle != null)
+                      Text(
+                        subtitle,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              if (hasPhotos)
+                Icon(Icons.check_circle, color: Colors.green[600], size: 24),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          // Display existing photos in a grid
+          if (photos.isNotEmpty) ...[
+            GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 3,
+                crossAxisSpacing: 8,
+                mainAxisSpacing: 8,
+                childAspectRatio: 1,
+              ),
+              itemCount: photos.length,
+              itemBuilder: (context, index) {
+                final photo = photos[index];
+                return Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.file(
+                        File(photo.path),
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                    Positioned(
+                      top: 4,
+                      right: 4,
+                      child: GestureDetector(
+                        onTap: () => _removePhoto(type, index: index),
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            color: Colors.red.withValues(alpha: 0.8),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.close,
+                            size: 16,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+            const SizedBox(height: 12),
+          ],
+
+          // Add photo button
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () => _capturePhoto(type),
+              icon: const Icon(Icons.add_a_photo, size: 18),
+              label: Text(photos.isEmpty ? 'Prendre une photo' : 'Ajouter une photo'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.blue,
+                padding: const EdgeInsets.symmetric(vertical: 10),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -663,7 +933,7 @@ class _VisitReportPageState extends State<VisitReportPage> {
           width: 2,
         ),
         borderRadius: BorderRadius.circular(8),
-        color: hasPhoto ? Colors.green.withOpacity(0.05) : null,
+        color: hasPhoto ? Colors.green.withValues(alpha: 0.05) : null,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -887,6 +1157,26 @@ class _VisitReportPageState extends State<VisitReportPage> {
               const SizedBox(height: 16),
             ],
 
+            // Client a besoin d'une commande (si aucune commande réalisée)
+            if (_orderPlaced == false) ...[
+              CheckboxListTile(
+                title: const Text(
+                  'Le client a besoin d\'une commande',
+                  style: TextStyle(fontSize: 14),
+                ),
+                subtitle: const Text(
+                  'Le client souhaite passer commande ultérieurement',
+                  style: TextStyle(fontSize: 12),
+                ),
+                value: _needsOrder ?? false,
+                onChanged: (value) => setState(() => _needsOrder = value),
+                controlAffinity: ListTileControlAffinity.leading,
+                contentPadding: EdgeInsets.zero,
+                activeColor: Colors.blue,
+              ),
+              const SizedBox(height: 16),
+            ],
+
             // Ruptures observées
             const Text(
               'Ruptures observées (optionnel)',
@@ -1084,18 +1374,21 @@ class _VisitReportPageState extends State<VisitReportPage> {
         validationLatitude: null,
         validationLongitude: null,
         validationTime: null,
-        facadePhoto: _facadePhoto,
-        shelfPhoto: _shelfPhoto,
+        facadePhotos: _facadePhotos,
+        shelfPhotos: _shelfPhotos,
         additionalPhotos: _additionalPhotos,
         gerantPresent: _gerantPresent,
         orderPlaced: _orderPlaced,
+        needsOrder: _needsOrder,
         orderAmount: _orderPlaced == true && _orderAmountController.text.trim().isNotEmpty
             ? double.tryParse(_orderAmountController.text.trim())
             : null,
         orderReference: _orderReferenceController.text.trim().isNotEmpty
             ? _orderReferenceController.text.trim()
             : null,
+        stockShortageObserved: _selectedStockShortages.isNotEmpty,
         stockShortages: stockShortagesText,
+        competitorActivityObserved: _selectedCompetitorActivities.isNotEmpty,
         competitorActivity: competitorActivityText,
         comments: _commentsController.text.trim().isNotEmpty
             ? _commentsController.text.trim()

@@ -3,6 +3,8 @@ import '../models/route.dart' as models;
 import '../models/visit.dart';
 import '../models/visit_report.dart';
 import '../services/visit_service.dart';
+import '../services/visit_api_service.dart';
+import '../widgets/session_aware_app_bar.dart';
 import 'visit_report_page.dart';
 
 /// Page de détail d'une tournée avec gestion complète des visites et rapports
@@ -192,6 +194,21 @@ class _TourneeDetailPageNewState extends State<TourneeDetailPageNew> {
 
     if (!mounted) return;
 
+    // Check for active API visit to get the API visit ID
+    int? apiVisitId;
+    try {
+      final visitApiService = VisitApiService();
+      final activeVisit = await visitApiService.getActiveVisit();
+      if (activeVisit != null) {
+        apiVisitId = activeVisit.id;
+      }
+    } catch (e) {
+      // No active API visit or error fetching - continue without API ID
+      debugPrint('No active API visit: $e');
+    }
+
+    if (!mounted) return;
+
     // Ouvrir le formulaire de rapport
     final VisitReport? report = await Navigator.push<VisitReport>(
       context,
@@ -199,6 +216,7 @@ class _TourneeDetailPageNewState extends State<TourneeDetailPageNew> {
         builder: (context) => VisitReportPage(
           visit: visit,
           existingReport: visit.report,
+          apiVisitId: apiVisitId,
         ),
       ),
     );
@@ -355,10 +373,8 @@ class _TourneeDetailPageNewState extends State<TourneeDetailPageNew> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text(_currentRoute.name),
-        backgroundColor: Theme.of(context).primaryColor,
-        foregroundColor: Colors.white,
+      appBar: SessionAwareAppBar(
+        title: _currentRoute.name,
         actions: [
           IconButton(
             icon: const Icon(Icons.info_outline),

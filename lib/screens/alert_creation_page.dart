@@ -8,6 +8,7 @@ import '../models/visit_report.dart'; // For GeotaggedPhoto
 import '../services/alert_service.dart';
 import '../services/photo_capture_service.dart';
 import '../utils/app_colors.dart';
+import '../widgets/session_aware_app_bar.dart';
 
 /// Page de création d'une alerte - pleine page
 class AlertCreationPage extends StatefulWidget {
@@ -397,10 +398,8 @@ class _AlertCreationPageState extends State<AlertCreationPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.existingAlert != null ? 'Modifier l\'alerte' : 'Créer une alerte'),
-        backgroundColor: AppColors.primary,
-        foregroundColor: AppColors.white,
+      appBar: SessionAwareAppBar(
+        title: widget.existingAlert != null ? 'Modifier l\'alerte' : 'Créer une alerte',
       ),
       body: Form(
         key: _formKey,

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:sirapro/widgets/session_aware_app_bar.dart';
 
 class NotificationsPage extends StatelessWidget {
   const NotificationsPage({super.key});
@@ -7,11 +8,8 @@ class NotificationsPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[100],
-      appBar: AppBar(
-        title: const Text('Notifications'),
-        backgroundColor: Theme.of(context).primaryColor,
-        foregroundColor: Colors.white,
-        elevation: 0,
+      appBar: const SessionAwareAppBar(
+        title: 'Notifications',
       ),
       body: SafeArea(
         child: ListView(

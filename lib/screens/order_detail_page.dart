@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:share_plus/share_plus.dart';
 import '../models/order.dart';
+import '../widgets/session_aware_app_bar.dart';
 
 /// Page d'affichage détaillé d'une commande
 class OrderDetailPage extends StatelessWidget {
@@ -16,10 +17,8 @@ class OrderDetailPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[100],
-      appBar: AppBar(
-        title: const Text('Détails de la Commande'),
-        backgroundColor: Colors.purple,
-        foregroundColor: Colors.white,
+      appBar: SessionAwareAppBar(
+        title: 'Détails de la Commande',
         actions: [
           IconButton(
             icon: const Icon(Icons.share),

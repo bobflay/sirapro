@@ -1,11 +1,14 @@
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:sirapro/models/create_client_request.dart';
 import 'package:sirapro/models/user.dart';
 import 'package:sirapro/services/api_service.dart';
 import 'package:sirapro/services/auth_service.dart';
 import 'package:sirapro/services/client_service.dart';
 import 'package:sirapro/utils/app_colors.dart';
+import 'package:sirapro/widgets/session_aware_app_bar.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:easy_stepper/easy_stepper.dart';
@@ -56,6 +59,11 @@ class _CreateClientPageState extends State<CreateClientPage> {
   String? _gpsLocation;
   String? _selectedZone;
 
+  // GPS Location picker state
+  LatLng? _originalGpsPosition; // The position from GPS sensor
+  LatLng? _adjustedGpsPosition; // The position after user adjustment
+  static const double _maxAdjustmentRadius = 300.0; // Maximum adjustment radius in meters
+
   // Visual Data
   File? _facadePhoto;
   File? _rayonsPhoto;
@@ -76,6 +84,9 @@ class _CreateClientPageState extends State<CreateClientPage> {
     'Demi-grossiste',
     'Grossiste',
     'Distributeur',
+    'Mamie marché',
+    'Étalage',
+    'Boulangerie',
     'Autre',
   ];
 
@@ -497,19 +508,33 @@ class _CreateClientPageState extends State<CreateClientPage> {
         timeLimit: const Duration(seconds: 10),
       );
 
-      setState(() {
-        _gpsLocation = '${position.latitude.toStringAsFixed(6)}, ${position.longitude.toStringAsFixed(6)}';
-      });
-
       if (mounted) {
         ScaffoldMessenger.of(context).clearSnackBars();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Position GPS enregistrée avec succès'),
-            backgroundColor: Colors.green,
-            duration: Duration(seconds: 2),
-          ),
-        );
+      }
+
+      // Store the original GPS position
+      final gpsPosition = LatLng(position.latitude, position.longitude);
+
+      // Show the map picker for fine-tuning
+      if (mounted) {
+        final adjustedPosition = await _showLocationPickerDialog(gpsPosition);
+        if (adjustedPosition != null) {
+          setState(() {
+            _originalGpsPosition = gpsPosition;
+            _adjustedGpsPosition = adjustedPosition;
+            _gpsLocation = '${adjustedPosition.latitude.toStringAsFixed(6)}, ${adjustedPosition.longitude.toStringAsFixed(6)}';
+          });
+
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Position GPS enregistrée avec succès'),
+                backgroundColor: Colors.green,
+                duration: Duration(seconds: 2),
+              ),
+            );
+          }
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -523,6 +548,20 @@ class _CreateClientPageState extends State<CreateClientPage> {
         );
       }
     }
+  }
+
+  /// Show the location picker as a full screen page
+  /// Uses a fixed center marker - user moves the map to adjust position
+  Future<LatLng?> _showLocationPickerDialog(LatLng initialPosition) async {
+    return Navigator.push<LatLng>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => _LocationPickerPage(
+          initialPosition: initialPosition,
+          maxRadius: _maxAdjustmentRadius,
+        ),
+      ),
+    );
   }
 
   void _showLocationPermissionDialog() {
@@ -910,11 +949,8 @@ class _CreateClientPageState extends State<CreateClientPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[100],
-      appBar: AppBar(
-        title: const Text('Nouveau Client'),
-        backgroundColor: Theme.of(context).primaryColor,
-        foregroundColor: Colors.white,
-        elevation: 0,
+      appBar: const SessionAwareAppBar(
+        title: 'Nouveau Client',
       ),
       body: Form(
         key: _formKey,
@@ -2147,6 +2183,328 @@ class _CreateClientPageState extends State<CreateClientPage> {
             ),
           ),
       ],
+    );
+  }
+}
+
+/// Full screen location picker page
+class _LocationPickerPage extends StatefulWidget {
+  final LatLng initialPosition;
+  final double maxRadius;
+
+  const _LocationPickerPage({
+    required this.initialPosition,
+    required this.maxRadius,
+  });
+
+  @override
+  State<_LocationPickerPage> createState() => _LocationPickerPageState();
+}
+
+class _LocationPickerPageState extends State<_LocationPickerPage> {
+  late LatLng _currentPosition;
+  GoogleMapController? _mapController;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentPosition = widget.initialPosition;
+  }
+
+  /// Calculate distance between two LatLng points in meters using Haversine formula
+  double _calculateDistance(LatLng from, LatLng to) {
+    const double earthRadius = 6371000; // Earth's radius in meters
+    final double lat1 = from.latitude * math.pi / 180;
+    final double lat2 = to.latitude * math.pi / 180;
+    final double deltaLat = (to.latitude - from.latitude) * math.pi / 180;
+    final double deltaLng = (to.longitude - from.longitude) * math.pi / 180;
+
+    final double a = math.sin(deltaLat / 2) * math.sin(deltaLat / 2) +
+        math.cos(lat1) * math.cos(lat2) * math.sin(deltaLng / 2) * math.sin(deltaLng / 2);
+    final double c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+
+    return earthRadius * c;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final distance = _calculateDistance(widget.initialPosition, _currentPosition);
+    final isWithinRadius = distance <= widget.maxRadius;
+
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        title: const Text('Ajuster la position'),
+        backgroundColor: AppColors.primary,
+        foregroundColor: Colors.white,
+        leading: IconButton(
+          icon: const Icon(Icons.close),
+          onPressed: () => Navigator.pop(context, null),
+        ),
+      ),
+      body: Column(
+        children: [
+          // Header with instructions
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            color: Colors.grey[100],
+            child: Column(
+              children: [
+                Text(
+                  'Déplacez la carte pour ajuster la position (max ${widget.maxRadius.toInt()}m)',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey[700],
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 12),
+                // Distance indicator
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: isWithinRadius
+                        ? AppColors.success.withValues(alpha: 0.1)
+                        : AppColors.error.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(25),
+                    border: Border.all(
+                      color: isWithinRadius ? AppColors.success : AppColors.error,
+                      width: 2,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        isWithinRadius ? Icons.check_circle : Icons.warning,
+                        size: 20,
+                        color: isWithinRadius ? AppColors.success : AppColors.error,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Distance: ${distance.toInt()}m / ${widget.maxRadius.toInt()}m',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                          color: isWithinRadius ? AppColors.success : AppColors.error,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // Map with fixed center marker
+          Expanded(
+            child: Stack(
+              children: [
+                GoogleMap(
+                  initialCameraPosition: CameraPosition(
+                    target: widget.initialPosition,
+                    zoom: 18,
+                  ),
+                  onMapCreated: (controller) {
+                    _mapController = controller;
+                  },
+                  onCameraMove: (CameraPosition position) {
+                    setState(() {
+                      _currentPosition = position.target;
+                    });
+                  },
+                  markers: {
+                    // Original GPS position marker (blue) - stays fixed on map
+                    Marker(
+                      markerId: const MarkerId('original_location'),
+                      position: widget.initialPosition,
+                      icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+                    ),
+                  },
+                  circles: {
+                    Circle(
+                      circleId: const CircleId('radius_limit'),
+                      center: widget.initialPosition,
+                      radius: widget.maxRadius,
+                      fillColor: AppColors.primary.withValues(alpha: 0.1),
+                      strokeColor: AppColors.primary.withValues(alpha: 0.5),
+                      strokeWidth: 2,
+                    ),
+                  },
+                  myLocationEnabled: true,
+                  myLocationButtonEnabled: false,
+                  zoomControlsEnabled: false,
+                  mapToolbarEnabled: false,
+                ),
+                // Fixed center marker (red pin icon)
+                Center(
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: 36),
+                    child: Icon(
+                      Icons.location_on,
+                      size: 48,
+                      color: isWithinRadius ? AppColors.error : Colors.grey,
+                    ),
+                  ),
+                ),
+                // Marker shadow/dot at the bottom of pin
+                Center(
+                  child: Container(
+                    width: 6,
+                    height: 6,
+                    decoration: const BoxDecoration(
+                      color: Colors.black45,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ),
+                // Zoom controls
+                Positioned(
+                  right: 16,
+                  bottom: 120,
+                  child: Column(
+                    children: [
+                      FloatingActionButton.small(
+                        heroTag: 'zoom_in',
+                        backgroundColor: Colors.white,
+                        onPressed: () {
+                          _mapController?.animateCamera(CameraUpdate.zoomIn());
+                        },
+                        child: const Icon(Icons.add, color: Colors.black87),
+                      ),
+                      const SizedBox(height: 8),
+                      FloatingActionButton.small(
+                        heroTag: 'zoom_out',
+                        backgroundColor: Colors.white,
+                        onPressed: () {
+                          _mapController?.animateCamera(CameraUpdate.zoomOut());
+                        },
+                        child: const Icon(Icons.remove, color: Colors.black87),
+                      ),
+                    ],
+                  ),
+                ),
+                // Reset to GPS position button
+                Positioned(
+                  left: 16,
+                  bottom: 16,
+                  child: FloatingActionButton.extended(
+                    heroTag: 'reset',
+                    backgroundColor: Colors.white,
+                    onPressed: () {
+                      _mapController?.animateCamera(
+                        CameraUpdate.newLatLng(widget.initialPosition),
+                      );
+                    },
+                    icon: const Icon(Icons.my_location, color: Colors.blue),
+                    label: const Text(
+                      'Position GPS',
+                      style: TextStyle(color: Colors.black87),
+                    ),
+                  ),
+                ),
+                // Warning when outside radius
+                if (!isWithinRadius)
+                  Positioned(
+                    top: 16,
+                    left: 16,
+                    right: 16,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: AppColors.error,
+                        borderRadius: BorderRadius.circular(8),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.2),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: const Row(
+                        children: [
+                          Icon(Icons.warning, color: Colors.white, size: 20),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Position trop éloignée du point GPS!',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          // Bottom buttons
+          Container(
+            padding: EdgeInsets.only(
+              left: 16,
+              right: 16,
+              top: 16,
+              bottom: MediaQuery.of(context).padding.bottom + 16,
+            ),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.1),
+                  blurRadius: 10,
+                  offset: const Offset(0, -5),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(context, null),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      side: BorderSide(color: Colors.grey[400]!),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: const Text('Annuler'),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  flex: 2,
+                  child: ElevatedButton(
+                    onPressed: isWithinRadius
+                        ? () => Navigator.pop(context, _currentPosition)
+                        : null,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.success,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      disabledBackgroundColor: Colors.grey[300],
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: const Text(
+                      'Confirmer la position',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

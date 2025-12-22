@@ -5,6 +5,7 @@ import 'package:sirapro/screens/client_detail_page.dart';
 import 'package:sirapro/models/client.dart';
 import 'package:sirapro/services/client_service.dart';
 import 'package:sirapro/services/api_service.dart';
+import 'package:sirapro/widgets/session_aware_app_bar.dart';
 
 const String _baseUrl = 'https://sira.xpertbot.online';
 
@@ -249,10 +250,8 @@ class _ClientsPageState extends State<ClientsPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[100],
-      appBar: AppBar(
-        title: const Text('Clients'),
-        backgroundColor: Theme.of(context).primaryColor,
-        foregroundColor: Colors.white,
+      appBar: SessionAwareAppBar(
+        title: 'Clients',
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),

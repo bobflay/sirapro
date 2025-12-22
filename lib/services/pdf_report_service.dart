@@ -220,8 +220,9 @@ class PdfReportService {
 
   static pw.Widget _buildPhotosSection(VisitReport report) {
     final photos = <GeotaggedPhoto>[];
-    if (report.facadePhoto != null) photos.add(report.facadePhoto!);
-    if (report.shelfPhoto != null) photos.add(report.shelfPhoto!);
+    // Use the helper methods that combine both legacy and new format
+    photos.addAll(report.allFacadePhotos);
+    photos.addAll(report.allShelfPhotos);
     photos.addAll(report.additionalPhotos);
 
     if (photos.isEmpty) {
