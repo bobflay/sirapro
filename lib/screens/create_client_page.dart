@@ -49,11 +49,9 @@ class _CreateClientPageState extends State<CreateClientPage> {
   final _gerantNameController = TextEditingController();
   final _phoneController = TextEditingController();
   final _whatsappController = TextEditingController();
-  final _emailController = TextEditingController();
   final _addressController = TextEditingController();
   final _quartierController = TextEditingController();
   final _villeController = TextEditingController();
-  final _itineraireController = TextEditingController();
 
   // Geographic Data
   String? _gpsLocation;
@@ -115,11 +113,9 @@ class _CreateClientPageState extends State<CreateClientPage> {
     _gerantNameController.dispose();
     _phoneController.dispose();
     _whatsappController.dispose();
-    _emailController.dispose();
     _addressController.dispose();
     _quartierController.dispose();
     _villeController.dispose();
-    _itineraireController.dispose();
     _pageController.dispose();
     super.dispose();
   }
@@ -201,11 +197,6 @@ class _CreateClientPageState extends State<CreateClientPage> {
         if (_phoneController.text.trim().isEmpty) {
           _fieldErrors['phone'] = 'Ce champ est requis';
         }
-        // Email validation (only if email is provided)
-        final email = _emailController.text.trim();
-        if (email.isNotEmpty && !_isValidEmail(email)) {
-          _fieldErrors['email'] = 'Format d\'email invalide';
-        }
         break;
 
       case 1: // Geographic Data
@@ -256,13 +247,6 @@ class _CreateClientPageState extends State<CreateClientPage> {
       _showValidationErrors = false;
     });
     return true;
-  }
-
-  bool _isValidEmail(String email) {
-    final emailRegex = RegExp(
-      r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
-    );
-    return emailRegex.hasMatch(email);
   }
 
   String? _getFieldError(String fieldKey) {
@@ -679,9 +663,7 @@ class _CreateClientPageState extends State<CreateClientPage> {
         whatsapp: _whatsappController.text.trim().isNotEmpty
             ? _whatsappController.text.trim()
             : null,
-        email: _emailController.text.trim().isNotEmpty
-            ? _emailController.text.trim()
-            : null,
+        email: null,
         city: _villeController.text.trim(),
         district: _quartierController.text.trim().isNotEmpty
             ? _quartierController.text.trim()
@@ -1218,14 +1200,6 @@ class _CreateClientPageState extends State<CreateClientPage> {
             icon: Icons.chat,
             keyboardType: TextInputType.phone,
           ),
-          const SizedBox(height: 16),
-          _buildTextField(
-            controller: _emailController,
-            label: 'Email',
-            icon: Icons.email,
-            keyboardType: TextInputType.emailAddress,
-            errorText: _getFieldError('email'),
-          ),
         ],
       ),
     );
@@ -1237,6 +1211,14 @@ class _CreateClientPageState extends State<CreateClientPage> {
       child: Column(
         children: [
           _buildTextField(
+            controller: _villeController,
+            label: 'Ville',
+            icon: Icons.location_on,
+            isRequired: true,
+            errorText: _getFieldError('ville'),
+          ),
+          const SizedBox(height: 16),
+          _buildTextField(
             controller: _quartierController,
             label: 'Quartier',
             icon: Icons.location_city,
@@ -1244,13 +1226,7 @@ class _CreateClientPageState extends State<CreateClientPage> {
             errorText: _getFieldError('quartier'),
           ),
           const SizedBox(height: 16),
-          _buildTextField(
-            controller: _villeController,
-            label: 'Ville',
-            icon: Icons.location_on,
-            isRequired: true,
-            errorText: _getFieldError('ville'),
-          ),
+          _buildZoneDropdown(),
           const SizedBox(height: 16),
           _buildTextField(
             controller: _addressController,
@@ -1260,16 +1236,6 @@ class _CreateClientPageState extends State<CreateClientPage> {
             maxLines: 2,
             errorText: _getFieldError('address'),
           ),
-          const SizedBox(height: 16),
-          _buildTextField(
-            controller: _itineraireController,
-            label: 'Description de l\'itinéraire',
-            icon: Icons.directions,
-            maxLines: 3,
-            hintText: 'Comment accéder à la boutique...',
-          ),
-          const SizedBox(height: 16),
-          _buildZoneDropdown(),
           const SizedBox(height: 20),
           _buildGPSButton(),
         ],
