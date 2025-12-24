@@ -664,7 +664,7 @@ class _CreateClientPageState extends State<CreateClientPage> {
         managerName: _gerantNameController.text.trim(),
         phone: PhoneUtils.stripSpaces(_phoneController.text.trim()),
         whatsapp: _whatsappController.text.trim().isNotEmpty
-            ? _whatsappController.text.trim()
+            ? PhoneUtils.stripSpaces(_whatsappController.text.trim())
             : null,
         email: null,
         city: _villeController.text.trim(),
@@ -1199,11 +1199,56 @@ class _CreateClientPageState extends State<CreateClientPage> {
             inputFormatters: [PhoneNumberFormatter()],
           ),
           const SizedBox(height: 16),
-          _buildTextField(
-            controller: _whatsappController,
-            label: 'WhatsApp',
-            icon: Icons.chat,
-            keyboardType: TextInputType.phone,
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: _buildTextField(
+                  controller: _whatsappController,
+                  label: 'WhatsApp',
+                  icon: Icons.chat,
+                  keyboardType: TextInputType.phone,
+                  hintText: '05 XX XX XX XX',
+                  inputFormatters: [PhoneNumberFormatter()],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Tooltip(
+                  message: 'Copier le numéro de téléphone',
+                  child: Material(
+                    color: AppColors.primary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                    child: InkWell(
+                      onTap: () {
+                        if (_phoneController.text.isNotEmpty) {
+                          setState(() {
+                            _whatsappController.text = _phoneController.text;
+                          });
+                        }
+                      },
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        width: 50,
+                        height: 50,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: AppColors.primary.withValues(alpha: 0.3),
+                          ),
+                        ),
+                        child: Icon(
+                          Icons.content_copy,
+                          color: AppColors.primary,
+                          size: 22,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),
