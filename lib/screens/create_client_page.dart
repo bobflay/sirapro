@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:sirapro/models/create_client_request.dart';
 import 'package:sirapro/models/user.dart';
@@ -8,6 +9,7 @@ import 'package:sirapro/services/api_service.dart';
 import 'package:sirapro/services/auth_service.dart';
 import 'package:sirapro/services/client_service.dart';
 import 'package:sirapro/utils/app_colors.dart';
+import 'package:sirapro/utils/phone_formatter.dart';
 import 'package:sirapro/widgets/session_aware_app_bar.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -38,7 +40,6 @@ class _CreateClientPageState extends State<CreateClientPage> {
   // User data for base_commerciale_id and zone_id
   User? _currentUser;
   List<Zone> _availableZones = [];
-  Zone? _selectedZoneObject;
 
   // Client code (auto-generated or user input)
   final _codeController = TextEditingController();
@@ -50,12 +51,220 @@ class _CreateClientPageState extends State<CreateClientPage> {
   final _phoneController = TextEditingController();
   final _whatsappController = TextEditingController();
   final _addressController = TextEditingController();
-  final _quartierController = TextEditingController();
-  final _villeController = TextEditingController();
 
   // Geographic Data
+  String? _selectedVille;
+  String? _selectedQuartier;
   String? _gpsLocation;
   String? _selectedZone;
+
+  // Cities of Abidjan regional delegation
+  final List<String> _villes = [
+    'Abobo',
+    'Adjamé',
+    'Anyama',
+    'Attécoubé',
+    'Bingerville',
+    'Cocody',
+    'Koumassi',
+    'Marcory',
+    'Plateau',
+    'Port-Bouët',
+    'Treichville',
+    'Yopougon',
+    'Songon',
+    'Grand-Bassam',
+  ];
+
+  // Quartiers by city
+  final Map<String, List<String>> _quartiersByVille = {
+    'Abobo': [
+      'Abobo-Baoulé',
+      'Abobo-Gare',
+      'Abobo-Nord',
+      'Abobo-Sud',
+      'Avocatier',
+      'Agnissankoi',
+      'Anador',
+      'Bocabo',
+      'Clouetcha',
+      'Houphouët-Boigny',
+      'Kennedy',
+      'Kobladji',
+      'PK18',
+      'Plaque',
+      'Sagbé',
+      'Samaké',
+      'Sogefia',
+      'Autre',
+    ],
+    'Adjamé': [
+      'Adjamé-220 Logements',
+      'Adjamé-Bracodi',
+      'Adjamé-Liberté',
+      'Adjamé-Village',
+      'Bromakoté',
+      'Dallas',
+      'Ébrié',
+      'Forum',
+      'Indénié',
+      'Habitat',
+      'Roxy',
+      'Williamsville',
+      'Autre',
+    ],
+    'Anyama': [
+      'Anyama-Adjamé',
+      'Anyama-Gare',
+      'Anyama-RAN',
+      'Anyama-Sud',
+      'Zossonkoi',
+      'Autre',
+    ],
+    'Attécoubé': [
+      'Attécoubé-Agban',
+      'Attécoubé-Village',
+      'Boribana',
+      'Ébrié',
+      'Locodjro',
+      'Mossikro',
+      'Santé',
+      'Autre',
+    ],
+    'Bingerville': [
+      'Bingerville-Centre',
+      'Gbagba',
+      'Akouai Santai',
+      'Eloka',
+      'Autre',
+    ],
+    'Cocody': [
+      'Angré',
+      'Attoban',
+      'Blokauss',
+      'Bonoumin',
+      'Cocody-Centre',
+      'Danga',
+      'Deux Plateaux',
+      'Deux Plateaux-Vallon',
+      'Faya',
+      'II Plateaux',
+      'Mermoz',
+      'M\'Badon',
+      'M\'Pouto',
+      'Riviera 1',
+      'Riviera 2',
+      'Riviera 3',
+      'Riviera 4',
+      'Riviera Palmeraie',
+      'Riviera Faya',
+      'Riviera Golf',
+      'Saint-Jean',
+      'Autre',
+    ],
+    'Koumassi': [
+      'Koumassi-Centre',
+      'Grand Campement',
+      'Koumassi-Nord',
+      'Koumassi-Sicogi',
+      'Remblais',
+      'Sopim',
+      'Autre',
+    ],
+    'Marcory': [
+      'Marcory-Anoumabo',
+      'Marcory-Résidentiel',
+      'Biétry',
+      'Zone 4',
+      'Zone 4C',
+      'Autre',
+    ],
+    'Plateau': [
+      'Plateau-Centre',
+      'Plateau-Commerce',
+      'Plateau-Dokui',
+      'Autre',
+    ],
+    'Port-Bouët': [
+      'Aéroport',
+      'Gonzagueville',
+      'Jean-Folly',
+      'Port-Bouët-Centre',
+      'Vridi',
+      'Vridi Canal',
+      'Autre',
+    ],
+    'Treichville': [
+      'Treichville-Centre',
+      'Avenue 10',
+      'Avenue 12',
+      'Avenue 17',
+      'Belleville',
+      'Habitat',
+      'Autre',
+    ],
+    'Yopougon': [
+      'Andokoi',
+      'Ananeraie',
+      'Banco',
+      'Banco-Nord',
+      'Gesco',
+      'Kouté',
+      'Koweït',
+      'Lievre Rouge',
+      'Lokoua',
+      'Maroc',
+      'Micao',
+      'Millionnaire',
+      'Niangon',
+      'Niangon-Nord',
+      'Niangon-Sud',
+      'Port-Bouët 2',
+      'Selmer',
+      'Sicogi',
+      'Sideci',
+      'Siporex',
+      'Sogefia',
+      'Toits Rouges',
+      'Toit Rouge',
+      'Wassakara',
+      'Yao Séhi',
+      'Yopougon-Attié',
+      'Autre',
+    ],
+    'Songon': [
+      'Songon-Agban',
+      'Songon-Dagbé',
+      'Songon-Kassemblé',
+      'Songon-M\'Brathé',
+      'Songon-Téké',
+      'Autre',
+    ],
+    'Grand-Bassam': [
+      'Grand-Bassam-Centre',
+      'Quartier France',
+      'Impérial',
+      'Moossou',
+      'Petit Paris',
+      'Phare',
+      'Autre',
+    ],
+  };
+
+  // Zones/Secteurs (generic sectors available for all quartiers)
+  final List<String> _zones = [
+    'Secteur 1',
+    'Secteur 2',
+    'Secteur 3',
+    'Secteur 4',
+    'Secteur 5',
+    'Secteur 6',
+    'Secteur 7',
+    'Secteur 8',
+    'Secteur 9',
+    'Secteur 10',
+    'Autre',
+  ];
 
   // GPS Location picker state
   LatLng? _originalGpsPosition; // The position from GPS sensor
@@ -114,8 +323,6 @@ class _CreateClientPageState extends State<CreateClientPage> {
     _phoneController.dispose();
     _whatsappController.dispose();
     _addressController.dispose();
-    _quartierController.dispose();
-    _villeController.dispose();
     _pageController.dispose();
     super.dispose();
   }
@@ -128,11 +335,6 @@ class _CreateClientPageState extends State<CreateClientPage> {
         setState(() {
           _currentUser = user;
           _availableZones = user.zones;
-          // Auto-select first zone if available
-          if (_availableZones.isNotEmpty) {
-            _selectedZoneObject = _availableZones.first;
-            _selectedZone = _selectedZoneObject!.name;
-          }
         });
       }
     } catch (e) {
@@ -194,22 +396,23 @@ class _CreateClientPageState extends State<CreateClientPage> {
         if (_gerantNameController.text.trim().isEmpty) {
           _fieldErrors['gerantName'] = 'Ce champ est requis';
         }
-        if (_phoneController.text.trim().isEmpty) {
-          _fieldErrors['phone'] = 'Ce champ est requis';
+        final phoneError = PhoneUtils.validate(_phoneController.text);
+        if (phoneError != null) {
+          _fieldErrors['phone'] = phoneError;
         }
         break;
 
       case 1: // Geographic Data
-        if (_quartierController.text.trim().isEmpty) {
-          _fieldErrors['quartier'] = 'Ce champ est requis';
+        if (_selectedVille == null) {
+          _fieldErrors['ville'] = 'Veuillez sélectionner une ville';
         }
-        if (_villeController.text.trim().isEmpty) {
-          _fieldErrors['ville'] = 'Ce champ est requis';
+        if (_selectedQuartier == null) {
+          _fieldErrors['quartier'] = 'Veuillez sélectionner un quartier';
         }
         if (_addressController.text.trim().isEmpty) {
           _fieldErrors['address'] = 'Ce champ est requis';
         }
-        if (_selectedZoneObject == null) {
+        if (_selectedZone == null) {
           _fieldErrors['zone'] = 'Veuillez sélectionner une zone';
         }
         if (_gpsLocation == null) {
@@ -630,7 +833,14 @@ class _CreateClientPageState extends State<CreateClientPage> {
 
     // Get base_commerciale_id and zone_id
     final baseCommercialeId = _currentUser!.primaryBase?.id;
-    final zoneId = _selectedZoneObject?.id;
+
+    // Try to find matching zone from user's available zones, or use first available
+    int? zoneId;
+    if (_availableZones.isNotEmpty) {
+      // Try to find a zone with matching name
+      final matchingZone = _availableZones.where((z) => z.name == _selectedZone).firstOrNull;
+      zoneId = matchingZone?.id ?? _availableZones.first.id;
+    }
 
     if (baseCommercialeId == null) {
       _showErrorSnackbar('Base commerciale non configurée. Contactez votre administrateur.');
@@ -638,7 +848,7 @@ class _CreateClientPageState extends State<CreateClientPage> {
     }
 
     if (zoneId == null) {
-      _showErrorSnackbar('Veuillez sélectionner une zone.');
+      _showErrorSnackbar('Aucune zone configurée pour votre compte. Contactez votre administrateur.');
       return;
     }
 
@@ -659,15 +869,13 @@ class _CreateClientPageState extends State<CreateClientPage> {
         baseCommercialeId: baseCommercialeId,
         zoneId: zoneId,
         managerName: _gerantNameController.text.trim(),
-        phone: _phoneController.text.trim(),
+        phone: PhoneUtils.stripSpaces(_phoneController.text.trim()),
         whatsapp: _whatsappController.text.trim().isNotEmpty
-            ? _whatsappController.text.trim()
+            ? PhoneUtils.stripSpaces(_whatsappController.text.trim())
             : null,
         email: null,
-        city: _villeController.text.trim(),
-        district: _quartierController.text.trim().isNotEmpty
-            ? _quartierController.text.trim()
-            : null,
+        city: _selectedVille!,
+        district: _selectedQuartier,
         addressDescription: _addressController.text.trim().isNotEmpty
             ? _addressController.text.trim()
             : null,
@@ -1192,13 +1400,60 @@ class _CreateClientPageState extends State<CreateClientPage> {
             isRequired: true,
             keyboardType: TextInputType.phone,
             errorText: _getFieldError('phone'),
+            hintText: '05 XX XX XX XX',
+            inputFormatters: [PhoneNumberFormatter()],
           ),
           const SizedBox(height: 16),
-          _buildTextField(
-            controller: _whatsappController,
-            label: 'WhatsApp',
-            icon: Icons.chat,
-            keyboardType: TextInputType.phone,
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: _buildTextField(
+                  controller: _whatsappController,
+                  label: 'WhatsApp',
+                  icon: Icons.chat,
+                  keyboardType: TextInputType.phone,
+                  hintText: '05 XX XX XX XX',
+                  inputFormatters: [PhoneNumberFormatter()],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Tooltip(
+                  message: 'Copier le numéro de téléphone',
+                  child: Material(
+                    color: AppColors.primary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                    child: InkWell(
+                      onTap: () {
+                        if (_phoneController.text.isNotEmpty) {
+                          setState(() {
+                            _whatsappController.text = _phoneController.text;
+                          });
+                        }
+                      },
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        width: 50,
+                        height: 50,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: AppColors.primary.withValues(alpha: 0.3),
+                          ),
+                        ),
+                        child: Icon(
+                          Icons.content_copy,
+                          color: AppColors.primary,
+                          size: 22,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -1206,27 +1461,64 @@ class _CreateClientPageState extends State<CreateClientPage> {
   }
 
   Widget _buildGeographicDataStep() {
+    // Get quartiers for selected city
+    final quartiersForCity = _selectedVille != null
+        ? _quartiersByVille[_selectedVille] ?? []
+        : <String>[];
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
-          _buildTextField(
-            controller: _villeController,
+          _buildDropdownField(
+            value: _selectedVille,
             label: 'Ville',
             icon: Icons.location_on,
+            items: _villes,
             isRequired: true,
             errorText: _getFieldError('ville'),
+            onChanged: (value) {
+              setState(() {
+                _selectedVille = value;
+                // Reset quartier when city changes
+                _selectedQuartier = null;
+              });
+            },
           ),
           const SizedBox(height: 16),
-          _buildTextField(
-            controller: _quartierController,
+          _buildDropdownField(
+            value: _selectedQuartier,
             label: 'Quartier',
             icon: Icons.location_city,
+            items: quartiersForCity,
             isRequired: true,
             errorText: _getFieldError('quartier'),
+            onChanged: quartiersForCity.isEmpty
+                ? null
+                : (value) {
+                    setState(() {
+                      _selectedQuartier = value;
+                      // Reset zone when quartier changes
+                      _selectedZone = null;
+                    });
+                  },
           ),
           const SizedBox(height: 16),
-          _buildZoneDropdown(),
+          _buildDropdownField(
+            value: _selectedZone,
+            label: 'Zone / Secteur',
+            icon: Icons.map,
+            items: _selectedQuartier != null ? _zones : [],
+            isRequired: true,
+            errorText: _getFieldError('zone'),
+            onChanged: _selectedQuartier == null
+                ? null
+                : (value) {
+                    setState(() {
+                      _selectedZone = value;
+                    });
+                  },
+          ),
           const SizedBox(height: 16),
           _buildTextField(
             controller: _addressController,
@@ -1363,135 +1655,6 @@ class _CreateClientPageState extends State<CreateClientPage> {
                 const SizedBox(width: 4),
                 Text(
                   _getFieldError('gps')!,
-                  style: TextStyle(
-                    color: AppColors.error,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
-            ),
-          ),
-      ],
-    );
-  }
-
-  Widget _buildZoneDropdown() {
-    final hasError = _getFieldError('zone') != null;
-    final zoneNames = _availableZones.map((z) => z.name).toList();
-
-    // If no zones available, show a message
-    if (_availableZones.isEmpty) {
-      return Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.orange.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.orange),
-        ),
-        child: Row(
-          children: [
-            const Icon(Icons.warning, color: Colors.orange),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Zones non disponibles',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: Colors.orange,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Aucune zone n\'est configurée pour votre compte. Contactez votre administrateur.',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey[700],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            border: hasError ? Border.all(color: AppColors.error, width: 2) : null,
-            boxShadow: [
-              BoxShadow(
-                color: hasError
-                    ? AppColors.error.withValues(alpha: 0.2)
-                    : Colors.grey.withValues(alpha: 0.1),
-                spreadRadius: 1,
-                blurRadius: 5,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          child: DropdownButtonFormField<String>(
-            value: _selectedZone,
-            decoration: InputDecoration(
-              labelText: 'Zone / Secteur *',
-              labelStyle: TextStyle(
-                color: hasError ? AppColors.error : null,
-              ),
-              prefixIcon: Icon(
-                Icons.map,
-                color: hasError ? AppColors.error : AppColors.primary,
-              ),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide.none,
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide.none,
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide.none,
-              ),
-              filled: true,
-              fillColor: Colors.white,
-            ),
-            items: zoneNames.map((zoneName) {
-              return DropdownMenuItem(
-                value: zoneName,
-                child: Text(zoneName),
-              );
-            }).toList(),
-            onChanged: (value) {
-              setState(() {
-                _selectedZone = value;
-                // Find and store the selected zone object
-                _selectedZoneObject = _availableZones.firstWhere(
-                  (z) => z.name == value,
-                  orElse: () => _availableZones.first,
-                );
-              });
-            },
-          ),
-        ),
-        if (hasError)
-          Padding(
-            padding: const EdgeInsets.only(left: 12, top: 6),
-            child: Row(
-              children: [
-                Icon(Icons.error_outline, size: 14, color: AppColors.error),
-                const SizedBox(width: 4),
-                Text(
-                  _getFieldError('zone')!,
                   style: TextStyle(
                     color: AppColors.error,
                     fontSize: 12,
@@ -1992,6 +2155,7 @@ class _CreateClientPageState extends State<CreateClientPage> {
     int maxLines = 1,
     String? hintText,
     String? errorText,
+    List<TextInputFormatter>? inputFormatters,
   }) {
     final hasError = errorText != null;
     return Column(
@@ -2017,6 +2181,7 @@ class _CreateClientPageState extends State<CreateClientPage> {
             controller: controller,
             keyboardType: keyboardType,
             maxLines: maxLines,
+            inputFormatters: inputFormatters,
             decoration: InputDecoration(
               labelText: isRequired ? '$label *' : label,
               labelStyle: TextStyle(
