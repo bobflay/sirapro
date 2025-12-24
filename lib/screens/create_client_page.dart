@@ -1,10 +1,11 @@
-import 'dart:io';
 import 'dart:math' as math;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:sirapro/models/create_client_request.dart';
 import 'package:sirapro/models/user.dart';
+import 'package:sirapro/models/visit_report.dart';
 import 'package:sirapro/services/api_service.dart';
 import 'package:sirapro/services/auth_service.dart';
 import 'package:sirapro/services/client_service.dart';
@@ -271,10 +272,10 @@ class _CreateClientPageState extends State<CreateClientPage> {
   LatLng? _adjustedGpsPosition; // The position after user adjustment
   static const double _maxAdjustmentRadius = 300.0; // Maximum adjustment radius in meters
 
-  // Visual Data
-  File? _facadePhoto;
-  File? _rayonsPhoto;
-  final List<File> _additionalPhotos = [];
+  // Visual Data - using GeotaggedPhoto for cross-platform support
+  GeotaggedPhoto? _facadePhoto;
+  GeotaggedPhoto? _rayonsPhoto;
+  final List<GeotaggedPhoto> _additionalPhotos = [];
   final ImagePicker _imagePicker = ImagePicker();
 
   // Commercial Data
@@ -458,7 +459,7 @@ class _CreateClientPageState extends State<CreateClientPage> {
 
   Future<void> _showPhotoSourceDialog({
     required String title,
-    required Function(File) onPhotoSelected,
+    required Function(GeotaggedPhoto) onPhotoSelected,
   }) async {
     showModalBottomSheet(
       context: context,
@@ -555,7 +556,7 @@ class _CreateClientPageState extends State<CreateClientPage> {
     );
   }
 
-  Future<void> _capturePhoto(ImageSource source, Function(File) onPhotoSelected) async {
+  Future<void> _capturePhoto(ImageSource source, Function(GeotaggedPhoto) onPhotoSelected) async {
     try {
       final XFile? pickedFile = await _imagePicker.pickImage(
         source: source,
@@ -565,8 +566,9 @@ class _CreateClientPageState extends State<CreateClientPage> {
       );
 
       if (pickedFile != null) {
-        final file = File(pickedFile.path);
-        onPhotoSelected(file);
+        // Create GeotaggedPhoto from XFile (works on both web and mobile)
+        final photo = await GeotaggedPhoto.fromXFile(pickedFile);
+        onPhotoSelected(photo);
       }
     } catch (e) {
       if (mounted) {
@@ -589,10 +591,12 @@ class _CreateClientPageState extends State<CreateClientPage> {
       );
 
       if (pickedFiles.isNotEmpty) {
+        // Convert all XFiles to GeotaggedPhoto (works on both web and mobile)
+        final photos = await Future.wait(
+          pickedFiles.map((pickedFile) => GeotaggedPhoto.fromXFile(pickedFile)),
+        );
         setState(() {
-          for (var pickedFile in pickedFiles) {
-            _additionalPhotos.add(File(pickedFile.path));
-          }
+          _additionalPhotos.addAll(photos);
         });
       }
     } catch (e) {
@@ -943,60 +947,40 @@ class _CreateClientPageState extends State<CreateClientPage> {
   }
 
   /// Upload photos for the created client
+  /// Uses GeotaggedPhoto for cross-platform support (works on both web and mobile)
   Future<void> _uploadClientPhotos(int clientId) async {
-    final photosToUpload = <MapEntry<File, String>>[];
+    // Count total photos to upload
+    int totalPhotos = 0;
+    if (_facadePhoto != null) totalPhotos++;
+    if (_rayonsPhoto != null) totalPhotos++;
+    totalPhotos += _additionalPhotos.length;
 
-    // Collect all photos with their types
-    if (_facadePhoto != null) {
-      photosToUpload.add(MapEntry(_facadePhoto!, 'facade'));
-    }
-    if (_rayonsPhoto != null) {
-      photosToUpload.add(MapEntry(_rayonsPhoto!, 'shelves'));
-    }
-    for (final photo in _additionalPhotos) {
-      photosToUpload.add(MapEntry(photo, 'other'));
-    }
-
-    if (photosToUpload.isEmpty) {
+    if (totalPhotos == 0) {
       return;
     }
 
     setState(() {
       _isUploadingPhotos = true;
-      _uploadProgress = 'Téléchargement des photos: 0/${photosToUpload.length}';
+      _uploadProgress = 'Téléchargement des photos: 0/$totalPhotos';
     });
 
     _showLoadingDialog('Téléchargement des photos...');
 
-    // Parse GPS coordinates for photos
-    double? latitude;
-    double? longitude;
-    if (_gpsLocation != null) {
-      final coords = _gpsLocation!.split(',');
-      if (coords.length == 2) {
-        latitude = double.tryParse(coords[0].trim());
-        longitude = double.tryParse(coords[1].trim());
-      }
-    }
-
     int uploadedCount = 0;
     final List<String> errors = [];
 
-    // Upload photos in batches by type for better organization
-    // First upload facade photo
+    // Upload facade photo using GeotaggedPhoto (works on both web and mobile)
     if (_facadePhoto != null) {
       try {
-        await _clientService.uploadSinglePhoto(
+        await _clientService.uploadGeotaggedPhotos(
           clientId,
-          _facadePhoto!,
+          [_facadePhoto!],
           type: 'facade',
-          latitude: latitude,
-          longitude: longitude,
         );
         uploadedCount++;
         if (mounted) {
           setState(() {
-            _uploadProgress = 'Téléchargement des photos: $uploadedCount/${photosToUpload.length}';
+            _uploadProgress = 'Téléchargement des photos: $uploadedCount/$totalPhotos';
           });
         }
       } catch (e) {
@@ -1004,20 +988,18 @@ class _CreateClientPageState extends State<CreateClientPage> {
       }
     }
 
-    // Upload shelves photo
+    // Upload shelves photo using GeotaggedPhoto (works on both web and mobile)
     if (_rayonsPhoto != null) {
       try {
-        await _clientService.uploadSinglePhoto(
+        await _clientService.uploadGeotaggedPhotos(
           clientId,
-          _rayonsPhoto!,
+          [_rayonsPhoto!],
           type: 'shelves',
-          latitude: latitude,
-          longitude: longitude,
         );
         uploadedCount++;
         if (mounted) {
           setState(() {
-            _uploadProgress = 'Téléchargement des photos: $uploadedCount/${photosToUpload.length}';
+            _uploadProgress = 'Téléchargement des photos: $uploadedCount/$totalPhotos';
           });
         }
       } catch (e) {
@@ -1025,23 +1007,21 @@ class _CreateClientPageState extends State<CreateClientPage> {
       }
     }
 
-    // Upload additional photos (in batches of up to 10)
+    // Upload additional photos using GeotaggedPhoto (works on both web and mobile)
+    // Upload in batches of up to 10
     if (_additionalPhotos.isNotEmpty) {
-      // Split into batches of 10
       for (int i = 0; i < _additionalPhotos.length; i += 10) {
         final batch = _additionalPhotos.skip(i).take(10).toList();
         try {
-          await _clientService.uploadMultiplePhotos(
+          await _clientService.uploadGeotaggedPhotos(
             clientId,
             batch,
             type: 'other',
-            latitude: latitude,
-            longitude: longitude,
           );
           uploadedCount += batch.length;
           if (mounted) {
             setState(() {
-              _uploadProgress = 'Téléchargement des photos: $uploadedCount/${photosToUpload.length}';
+              _uploadProgress = 'Téléchargement des photos: $uploadedCount/$totalPhotos';
             });
           }
         } catch (e) {
@@ -1061,7 +1041,7 @@ class _CreateClientPageState extends State<CreateClientPage> {
       if (errors.isNotEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('${photosToUpload.length - errors.length}/${photosToUpload.length} photos téléchargées. Certaines photos ont échoué.'),
+            content: Text('$uploadedCount/$totalPhotos photos téléchargées. Certaines photos ont échoué.'),
             backgroundColor: Colors.orange,
             duration: const Duration(seconds: 4),
           ),
@@ -1757,7 +1737,7 @@ class _CreateClientPageState extends State<CreateClientPage> {
     required String label,
     required String description,
     required IconData icon,
-    required File? photo,
+    required GeotaggedPhoto? photo,
     required VoidCallback onTap,
     bool isRequired = false,
     String? errorText,
@@ -1970,12 +1950,14 @@ class _CreateClientPageState extends State<CreateClientPage> {
                   children: [
                     ClipRRect(
                       borderRadius: BorderRadius.circular(12),
-                      child: Image.file(
-                        _additionalPhotos[index],
-                        width: 100,
-                        height: 100,
-                        fit: BoxFit.cover,
-                      ),
+                      child: _additionalPhotos[index].hasBytes
+                          ? Image.memory(
+                              _additionalPhotos[index].bytes!,
+                              width: 100,
+                              height: 100,
+                              fit: BoxFit.cover,
+                            )
+                          : const Icon(Icons.broken_image),
                     ),
                     Positioned(
                       top: 4,

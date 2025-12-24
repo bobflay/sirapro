@@ -1,9 +1,10 @@
-import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import '../models/client.dart';
 import '../models/clients_response.dart';
 import '../models/create_client_request.dart';
 import '../models/update_client_request.dart';
 import '../models/photo_upload_request.dart';
+import '../models/visit_report.dart';
 import 'api_service.dart';
 
 /// Service for managing client-related API operations
@@ -232,6 +233,7 @@ class ClientService {
   }
 
   /// Upload a single photo for a client with specific type
+  /// Works on mobile only - uses File paths
   ///
   /// [clientId] - The ID of the client
   /// [photo] - The photo file to upload
@@ -241,11 +243,14 @@ class ClientService {
   /// Returns [PhotoUploadResponse] with uploaded photo details
   Future<PhotoUploadResponse> uploadSinglePhoto(
     int clientId,
-    File photo, {
+    dynamic photo, {
     String? type,
     double? latitude,
     double? longitude,
   }) async {
+    if (kIsWeb) {
+      throw ApiException('uploadSinglePhoto is not supported on web. Use uploadGeotaggedPhotos instead.');
+    }
     final request = PhotoUploadRequest(
       photos: [photo],
       type: type,
@@ -256,6 +261,7 @@ class ClientService {
   }
 
   /// Upload multiple photos for a client
+  /// Works on mobile only - uses File paths
   ///
   /// [clientId] - The ID of the client
   /// [photos] - List of photo files to upload (max 10)
@@ -265,18 +271,77 @@ class ClientService {
   /// Returns [PhotoUploadResponse] with uploaded photo details
   Future<PhotoUploadResponse> uploadMultiplePhotos(
     int clientId,
-    List<File> photos, {
+    List<dynamic> photos, {
     String? type,
     double? latitude,
     double? longitude,
   }) async {
+    if (kIsWeb) {
+      throw ApiException('uploadMultiplePhotos is not supported on web. Use uploadGeotaggedPhotos instead.');
+    }
     final request = PhotoUploadRequest(
-      photos: photos,
+      photos: photos.cast<dynamic>(),
       type: type,
       latitude: latitude,
       longitude: longitude,
     );
     return uploadClientPhotos(clientId, request);
+  }
+
+  /// Upload GeotaggedPhoto objects for a client
+  /// Works on both web and mobile platforms
+  ///
+  /// [clientId] - The ID of the client
+  /// [photos] - List of GeotaggedPhoto objects to upload
+  /// [type] - Optional photo type for all photos
+  /// Returns [PhotoUploadResponse] with uploaded photo details
+  Future<PhotoUploadResponse> uploadGeotaggedPhotos(
+    int clientId,
+    List<GeotaggedPhoto> photos, {
+    String? type,
+  }) async {
+    if (photos.isEmpty) {
+      throw ApiException('No photos to upload');
+    }
+
+    // Validate all photos have bytes
+    for (var photo in photos) {
+      if (!photo.hasBytes) {
+        throw ApiException('Photo ${photo.effectiveFileName} has no bytes data');
+      }
+    }
+
+    // Build fields for the request
+    final fields = <String, String>{};
+    if (type != null) {
+      fields['type'] = type;
+    }
+
+    // Use GPS from first photo if available
+    final firstPhoto = photos.first;
+    if (firstPhoto.latitude != null) {
+      fields['latitude'] = firstPhoto.latitude.toString();
+    }
+    if (firstPhoto.longitude != null) {
+      fields['longitude'] = firstPhoto.longitude.toString();
+    }
+
+    final response = await _apiService.uploadGeotaggedPhotos(
+      '/api/clients/$clientId/photos',
+      photos: photos,
+      fileFieldName: 'photos[]',
+      fields: fields,
+    );
+
+    final data = response as Map<String, dynamic>;
+
+    // Check for API-level errors
+    if (data['status'] == false) {
+      final message = data['message'] as String? ?? 'Photo upload failed';
+      throw ApiException(message, statusCode: 422);
+    }
+
+    return PhotoUploadResponse.fromJson(data);
   }
 
   /// Reset the singleton instance (useful for testing)
