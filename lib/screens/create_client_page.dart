@@ -52,16 +52,15 @@ class _CreateClientPageState extends State<CreateClientPage> {
   final _phoneController = TextEditingController();
   final _whatsappController = TextEditingController();
   final _addressController = TextEditingController();
-  final _quartierController = TextEditingController();
 
   // Geographic Data
   String? _selectedVille;
+  String? _selectedQuartier;
   String? _gpsLocation;
   String? _selectedZone;
 
   // Cities of Abidjan regional delegation
   final List<String> _villes = [
-    'Abidjan',
     'Abobo',
     'Adjamé',
     'Anyama',
@@ -77,6 +76,181 @@ class _CreateClientPageState extends State<CreateClientPage> {
     'Songon',
     'Grand-Bassam',
   ];
+
+  // Quartiers by city
+  final Map<String, List<String>> _quartiersByVille = {
+    'Abobo': [
+      'Abobo-Baoulé',
+      'Abobo-Gare',
+      'Abobo-Nord',
+      'Abobo-Sud',
+      'Avocatier',
+      'Agnissankoi',
+      'Anador',
+      'Bocabo',
+      'Clouetcha',
+      'Houphouët-Boigny',
+      'Kennedy',
+      'Kobladji',
+      'PK18',
+      'Plaque',
+      'Sagbé',
+      'Samaké',
+      'Sogefia',
+      'Autre',
+    ],
+    'Adjamé': [
+      'Adjamé-220 Logements',
+      'Adjamé-Bracodi',
+      'Adjamé-Liberté',
+      'Adjamé-Village',
+      'Bromakoté',
+      'Dallas',
+      'Ébrié',
+      'Forum',
+      'Indénié',
+      'Habitat',
+      'Roxy',
+      'Williamsville',
+      'Autre',
+    ],
+    'Anyama': [
+      'Anyama-Adjamé',
+      'Anyama-Gare',
+      'Anyama-RAN',
+      'Anyama-Sud',
+      'Zossonkoi',
+      'Autre',
+    ],
+    'Attécoubé': [
+      'Attécoubé-Agban',
+      'Attécoubé-Village',
+      'Boribana',
+      'Ébrié',
+      'Locodjro',
+      'Mossikro',
+      'Santé',
+      'Autre',
+    ],
+    'Bingerville': [
+      'Bingerville-Centre',
+      'Gbagba',
+      'Akouai Santai',
+      'Eloka',
+      'Autre',
+    ],
+    'Cocody': [
+      'Angré',
+      'Attoban',
+      'Blokauss',
+      'Bonoumin',
+      'Cocody-Centre',
+      'Danga',
+      'Deux Plateaux',
+      'Deux Plateaux-Vallon',
+      'Faya',
+      'II Plateaux',
+      'Mermoz',
+      'M\'Badon',
+      'M\'Pouto',
+      'Riviera 1',
+      'Riviera 2',
+      'Riviera 3',
+      'Riviera 4',
+      'Riviera Palmeraie',
+      'Riviera Faya',
+      'Riviera Golf',
+      'Saint-Jean',
+      'Autre',
+    ],
+    'Koumassi': [
+      'Koumassi-Centre',
+      'Grand Campement',
+      'Koumassi-Nord',
+      'Koumassi-Sicogi',
+      'Remblais',
+      'Sopim',
+      'Autre',
+    ],
+    'Marcory': [
+      'Marcory-Anoumabo',
+      'Marcory-Résidentiel',
+      'Biétry',
+      'Zone 4',
+      'Zone 4C',
+      'Autre',
+    ],
+    'Plateau': [
+      'Plateau-Centre',
+      'Plateau-Commerce',
+      'Plateau-Dokui',
+      'Autre',
+    ],
+    'Port-Bouët': [
+      'Aéroport',
+      'Gonzagueville',
+      'Jean-Folly',
+      'Port-Bouët-Centre',
+      'Vridi',
+      'Vridi Canal',
+      'Autre',
+    ],
+    'Treichville': [
+      'Treichville-Centre',
+      'Avenue 10',
+      'Avenue 12',
+      'Avenue 17',
+      'Belleville',
+      'Habitat',
+      'Autre',
+    ],
+    'Yopougon': [
+      'Andokoi',
+      'Ananeraie',
+      'Banco',
+      'Banco-Nord',
+      'Gesco',
+      'Kouté',
+      'Koweït',
+      'Lievre Rouge',
+      'Lokoua',
+      'Maroc',
+      'Micao',
+      'Millionnaire',
+      'Niangon',
+      'Niangon-Nord',
+      'Niangon-Sud',
+      'Port-Bouët 2',
+      'Selmer',
+      'Sicogi',
+      'Sideci',
+      'Siporex',
+      'Sogefia',
+      'Toits Rouges',
+      'Toit Rouge',
+      'Wassakara',
+      'Yao Séhi',
+      'Yopougon-Attié',
+      'Autre',
+    ],
+    'Songon': [
+      'Songon-Agban',
+      'Songon-Dagbé',
+      'Songon-Kassemblé',
+      'Songon-M\'Brathé',
+      'Songon-Téké',
+      'Autre',
+    ],
+    'Grand-Bassam': [
+      'Grand-Bassam-Centre',
+      'Quartier France',
+      'Impérial',
+      'Moossou',
+      'Petit Paris',
+      'Phare',
+      'Autre',
+    ],
+  };
 
   // GPS Location picker state
   LatLng? _originalGpsPosition; // The position from GPS sensor
@@ -135,7 +309,6 @@ class _CreateClientPageState extends State<CreateClientPage> {
     _phoneController.dispose();
     _whatsappController.dispose();
     _addressController.dispose();
-    _quartierController.dispose();
     _pageController.dispose();
     super.dispose();
   }
@@ -224,8 +397,8 @@ class _CreateClientPageState extends State<CreateClientPage> {
         if (_selectedVille == null) {
           _fieldErrors['ville'] = 'Veuillez sélectionner une ville';
         }
-        if (_quartierController.text.trim().isEmpty) {
-          _fieldErrors['quartier'] = 'Ce champ est requis';
+        if (_selectedQuartier == null) {
+          _fieldErrors['quartier'] = 'Veuillez sélectionner un quartier';
         }
         if (_addressController.text.trim().isEmpty) {
           _fieldErrors['address'] = 'Ce champ est requis';
@@ -686,9 +859,7 @@ class _CreateClientPageState extends State<CreateClientPage> {
             : null,
         email: null,
         city: _selectedVille!,
-        district: _quartierController.text.trim().isNotEmpty
-            ? _quartierController.text.trim()
-            : null,
+        district: _selectedQuartier,
         addressDescription: _addressController.text.trim().isNotEmpty
             ? _addressController.text.trim()
             : null,
@@ -1274,6 +1445,11 @@ class _CreateClientPageState extends State<CreateClientPage> {
   }
 
   Widget _buildGeographicDataStep() {
+    // Get quartiers for selected city
+    final quartiersForCity = _selectedVille != null
+        ? _quartiersByVille[_selectedVille] ?? []
+        : <String>[];
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -1288,16 +1464,26 @@ class _CreateClientPageState extends State<CreateClientPage> {
             onChanged: (value) {
               setState(() {
                 _selectedVille = value;
+                // Reset quartier when city changes
+                _selectedQuartier = null;
               });
             },
           ),
           const SizedBox(height: 16),
-          _buildTextField(
-            controller: _quartierController,
+          _buildDropdownField(
+            value: _selectedQuartier,
             label: 'Quartier',
             icon: Icons.location_city,
+            items: quartiersForCity,
             isRequired: true,
             errorText: _getFieldError('quartier'),
+            onChanged: quartiersForCity.isEmpty
+                ? null
+                : (value) {
+                    setState(() {
+                      _selectedQuartier = value;
+                    });
+                  },
           ),
           const SizedBox(height: 16),
           _buildZoneDropdown(),
