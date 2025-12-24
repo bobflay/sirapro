@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:sirapro/models/create_client_request.dart';
 import 'package:sirapro/models/user.dart';
@@ -8,6 +9,7 @@ import 'package:sirapro/services/api_service.dart';
 import 'package:sirapro/services/auth_service.dart';
 import 'package:sirapro/services/client_service.dart';
 import 'package:sirapro/utils/app_colors.dart';
+import 'package:sirapro/utils/phone_formatter.dart';
 import 'package:sirapro/widgets/session_aware_app_bar.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -194,8 +196,9 @@ class _CreateClientPageState extends State<CreateClientPage> {
         if (_gerantNameController.text.trim().isEmpty) {
           _fieldErrors['gerantName'] = 'Ce champ est requis';
         }
-        if (_phoneController.text.trim().isEmpty) {
-          _fieldErrors['phone'] = 'Ce champ est requis';
+        final phoneError = PhoneUtils.validate(_phoneController.text);
+        if (phoneError != null) {
+          _fieldErrors['phone'] = phoneError;
         }
         break;
 
@@ -659,7 +662,7 @@ class _CreateClientPageState extends State<CreateClientPage> {
         baseCommercialeId: baseCommercialeId,
         zoneId: zoneId,
         managerName: _gerantNameController.text.trim(),
-        phone: _phoneController.text.trim(),
+        phone: PhoneUtils.stripSpaces(_phoneController.text.trim()),
         whatsapp: _whatsappController.text.trim().isNotEmpty
             ? _whatsappController.text.trim()
             : null,
@@ -1192,6 +1195,8 @@ class _CreateClientPageState extends State<CreateClientPage> {
             isRequired: true,
             keyboardType: TextInputType.phone,
             errorText: _getFieldError('phone'),
+            hintText: '05 XX XX XX XX',
+            inputFormatters: [PhoneNumberFormatter()],
           ),
           const SizedBox(height: 16),
           _buildTextField(
@@ -1992,6 +1997,7 @@ class _CreateClientPageState extends State<CreateClientPage> {
     int maxLines = 1,
     String? hintText,
     String? errorText,
+    List<TextInputFormatter>? inputFormatters,
   }) {
     final hasError = errorText != null;
     return Column(
@@ -2017,6 +2023,7 @@ class _CreateClientPageState extends State<CreateClientPage> {
             controller: controller,
             keyboardType: keyboardType,
             maxLines: maxLines,
+            inputFormatters: inputFormatters,
             decoration: InputDecoration(
               labelText: isRequired ? '$label *' : label,
               labelStyle: TextStyle(
