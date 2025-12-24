@@ -53,11 +53,30 @@ class _CreateClientPageState extends State<CreateClientPage> {
   final _whatsappController = TextEditingController();
   final _addressController = TextEditingController();
   final _quartierController = TextEditingController();
-  final _villeController = TextEditingController();
 
   // Geographic Data
+  String? _selectedVille;
   String? _gpsLocation;
   String? _selectedZone;
+
+  // Cities of Abidjan regional delegation
+  final List<String> _villes = [
+    'Abidjan',
+    'Abobo',
+    'Adjamé',
+    'Anyama',
+    'Attécoubé',
+    'Bingerville',
+    'Cocody',
+    'Koumassi',
+    'Marcory',
+    'Plateau',
+    'Port-Bouët',
+    'Treichville',
+    'Yopougon',
+    'Songon',
+    'Grand-Bassam',
+  ];
 
   // GPS Location picker state
   LatLng? _originalGpsPosition; // The position from GPS sensor
@@ -117,7 +136,6 @@ class _CreateClientPageState extends State<CreateClientPage> {
     _whatsappController.dispose();
     _addressController.dispose();
     _quartierController.dispose();
-    _villeController.dispose();
     _pageController.dispose();
     super.dispose();
   }
@@ -203,11 +221,11 @@ class _CreateClientPageState extends State<CreateClientPage> {
         break;
 
       case 1: // Geographic Data
+        if (_selectedVille == null) {
+          _fieldErrors['ville'] = 'Veuillez sélectionner une ville';
+        }
         if (_quartierController.text.trim().isEmpty) {
           _fieldErrors['quartier'] = 'Ce champ est requis';
-        }
-        if (_villeController.text.trim().isEmpty) {
-          _fieldErrors['ville'] = 'Ce champ est requis';
         }
         if (_addressController.text.trim().isEmpty) {
           _fieldErrors['address'] = 'Ce champ est requis';
@@ -667,7 +685,7 @@ class _CreateClientPageState extends State<CreateClientPage> {
             ? PhoneUtils.stripSpaces(_whatsappController.text.trim())
             : null,
         email: null,
-        city: _villeController.text.trim(),
+        city: _selectedVille!,
         district: _quartierController.text.trim().isNotEmpty
             ? _quartierController.text.trim()
             : null,
@@ -1260,12 +1278,18 @@ class _CreateClientPageState extends State<CreateClientPage> {
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
-          _buildTextField(
-            controller: _villeController,
+          _buildDropdownField(
+            value: _selectedVille,
             label: 'Ville',
             icon: Icons.location_on,
+            items: _villes,
             isRequired: true,
             errorText: _getFieldError('ville'),
+            onChanged: (value) {
+              setState(() {
+                _selectedVille = value;
+              });
+            },
           ),
           const SizedBox(height: 16),
           _buildTextField(
