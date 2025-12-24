@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'dart:io' if (dart.library.html) '../stubs/io_stub.dart';
 
 /// Request model for uploading client photos via POST /api/clients/{client_id}/photos
 class PhotoUploadRequest {

@@ -1,3 +1,4 @@
+import 'dart:io' if (dart.library.html) '../stubs/io_stub.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import '../models/client.dart';
 import '../models/clients_response.dart';
