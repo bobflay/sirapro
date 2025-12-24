@@ -129,6 +129,24 @@ void main() {
           expect(errors.where((e) => e.contains('Type')), isEmpty);
         });
 
+        test('accepts valid type: Mamie marché', () {
+          final request = createValidRequest(type: 'Mamie marché');
+          final errors = request.validate();
+          expect(errors.where((e) => e.contains('Type')), isEmpty);
+        });
+
+        test('accepts valid type: Étalage', () {
+          final request = createValidRequest(type: 'Étalage');
+          final errors = request.validate();
+          expect(errors.where((e) => e.contains('Type')), isEmpty);
+        });
+
+        test('accepts valid type: Boulangerie', () {
+          final request = createValidRequest(type: 'Boulangerie');
+          final errors = request.validate();
+          expect(errors.where((e) => e.contains('Type')), isEmpty);
+        });
+
         test('returns error for invalid type', () {
           final request = createValidRequest(type: 'InvalidType');
           final errors = request.validate();

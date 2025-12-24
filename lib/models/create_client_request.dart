@@ -7,7 +7,7 @@ class CreateClientRequest {
   final String name;
 
   /// Client type (required)
-  /// One of: Boutique, Supermarché, Demi-grossiste, Grossiste, Distributeur, Autre
+  /// One of: Boutique, Supermarché, Demi-grossiste, Grossiste, Distributeur, Mamie marché, Étalage, Boulangerie, Autre
   final String type;
 
   /// Client potential (required)
@@ -136,6 +136,9 @@ class CreateClientRequest {
       'Demi-grossiste',
       'Grossiste',
       'Distributeur',
+      'Mamie marché',
+      'Étalage',
+      'Boulangerie',
       'Autre'
     ];
     if (!validTypes.contains(type)) {

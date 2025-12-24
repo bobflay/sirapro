@@ -8,7 +8,7 @@ class UpdateClientRequest {
   final String? name;
 
   /// Client type (optional)
-  /// One of: Boutique, Supermarché, Demi-grossiste, Grossiste, Distributeur, Autre
+  /// One of: Boutique, Supermarché, Demi-grossiste, Grossiste, Distributeur, Mamie marché, Étalage, Boulangerie, Autre
   final String? type;
 
   /// Client potential (optional)
@@ -166,6 +166,9 @@ class UpdateClientRequest {
         'Demi-grossiste',
         'Grossiste',
         'Distributeur',
+        'Mamie marché',
+        'Étalage',
+        'Boulangerie',
         'Autre'
       ];
       if (!validTypes.contains(type)) {
