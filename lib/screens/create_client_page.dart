@@ -1139,8 +1139,9 @@ class _CreateClientPageState extends State<CreateClientPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[100],
-      appBar: const SessionAwareAppBar(
+      appBar: SessionAwareAppBar(
         title: 'Nouveau Client',
+        automaticallyImplyLeading: _currentStep == 0,
       ),
       body: Form(
         key: _formKey,
