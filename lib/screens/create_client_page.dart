@@ -40,7 +40,6 @@ class _CreateClientPageState extends State<CreateClientPage> {
   // User data for base_commerciale_id and zone_id
   User? _currentUser;
   List<Zone> _availableZones = [];
-  Zone? _selectedZoneObject;
 
   // Client code (auto-generated or user input)
   final _codeController = TextEditingController();
@@ -252,6 +251,21 @@ class _CreateClientPageState extends State<CreateClientPage> {
     ],
   };
 
+  // Zones/Secteurs (generic sectors available for all quartiers)
+  final List<String> _zones = [
+    'Secteur 1',
+    'Secteur 2',
+    'Secteur 3',
+    'Secteur 4',
+    'Secteur 5',
+    'Secteur 6',
+    'Secteur 7',
+    'Secteur 8',
+    'Secteur 9',
+    'Secteur 10',
+    'Autre',
+  ];
+
   // GPS Location picker state
   LatLng? _originalGpsPosition; // The position from GPS sensor
   LatLng? _adjustedGpsPosition; // The position after user adjustment
@@ -321,11 +335,6 @@ class _CreateClientPageState extends State<CreateClientPage> {
         setState(() {
           _currentUser = user;
           _availableZones = user.zones;
-          // Auto-select first zone if available
-          if (_availableZones.isNotEmpty) {
-            _selectedZoneObject = _availableZones.first;
-            _selectedZone = _selectedZoneObject!.name;
-          }
         });
       }
     } catch (e) {
@@ -403,7 +412,7 @@ class _CreateClientPageState extends State<CreateClientPage> {
         if (_addressController.text.trim().isEmpty) {
           _fieldErrors['address'] = 'Ce champ est requis';
         }
-        if (_selectedZoneObject == null) {
+        if (_selectedZone == null) {
           _fieldErrors['zone'] = 'Veuillez sélectionner une zone';
         }
         if (_gpsLocation == null) {
@@ -824,7 +833,14 @@ class _CreateClientPageState extends State<CreateClientPage> {
 
     // Get base_commerciale_id and zone_id
     final baseCommercialeId = _currentUser!.primaryBase?.id;
-    final zoneId = _selectedZoneObject?.id;
+
+    // Try to find matching zone from user's available zones, or use first available
+    int? zoneId;
+    if (_availableZones.isNotEmpty) {
+      // Try to find a zone with matching name
+      final matchingZone = _availableZones.where((z) => z.name == _selectedZone).firstOrNull;
+      zoneId = matchingZone?.id ?? _availableZones.first.id;
+    }
 
     if (baseCommercialeId == null) {
       _showErrorSnackbar('Base commerciale non configurée. Contactez votre administrateur.');
@@ -832,7 +848,7 @@ class _CreateClientPageState extends State<CreateClientPage> {
     }
 
     if (zoneId == null) {
-      _showErrorSnackbar('Veuillez sélectionner une zone.');
+      _showErrorSnackbar('Aucune zone configurée pour votre compte. Contactez votre administrateur.');
       return;
     }
 
@@ -1482,11 +1498,27 @@ class _CreateClientPageState extends State<CreateClientPage> {
                 : (value) {
                     setState(() {
                       _selectedQuartier = value;
+                      // Reset zone when quartier changes
+                      _selectedZone = null;
                     });
                   },
           ),
           const SizedBox(height: 16),
-          _buildZoneDropdown(),
+          _buildDropdownField(
+            value: _selectedZone,
+            label: 'Zone / Secteur',
+            icon: Icons.map,
+            items: _selectedQuartier != null ? _zones : [],
+            isRequired: true,
+            errorText: _getFieldError('zone'),
+            onChanged: _selectedQuartier == null
+                ? null
+                : (value) {
+                    setState(() {
+                      _selectedZone = value;
+                    });
+                  },
+          ),
           const SizedBox(height: 16),
           _buildTextField(
             controller: _addressController,
@@ -1623,135 +1655,6 @@ class _CreateClientPageState extends State<CreateClientPage> {
                 const SizedBox(width: 4),
                 Text(
                   _getFieldError('gps')!,
-                  style: TextStyle(
-                    color: AppColors.error,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
-            ),
-          ),
-      ],
-    );
-  }
-
-  Widget _buildZoneDropdown() {
-    final hasError = _getFieldError('zone') != null;
-    final zoneNames = _availableZones.map((z) => z.name).toList();
-
-    // If no zones available, show a message
-    if (_availableZones.isEmpty) {
-      return Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.orange.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.orange),
-        ),
-        child: Row(
-          children: [
-            const Icon(Icons.warning, color: Colors.orange),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Zones non disponibles',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: Colors.orange,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Aucune zone n\'est configurée pour votre compte. Contactez votre administrateur.',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey[700],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            border: hasError ? Border.all(color: AppColors.error, width: 2) : null,
-            boxShadow: [
-              BoxShadow(
-                color: hasError
-                    ? AppColors.error.withValues(alpha: 0.2)
-                    : Colors.grey.withValues(alpha: 0.1),
-                spreadRadius: 1,
-                blurRadius: 5,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          child: DropdownButtonFormField<String>(
-            value: _selectedZone,
-            decoration: InputDecoration(
-              labelText: 'Zone / Secteur *',
-              labelStyle: TextStyle(
-                color: hasError ? AppColors.error : null,
-              ),
-              prefixIcon: Icon(
-                Icons.map,
-                color: hasError ? AppColors.error : AppColors.primary,
-              ),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide.none,
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide.none,
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide.none,
-              ),
-              filled: true,
-              fillColor: Colors.white,
-            ),
-            items: zoneNames.map((zoneName) {
-              return DropdownMenuItem(
-                value: zoneName,
-                child: Text(zoneName),
-              );
-            }).toList(),
-            onChanged: (value) {
-              setState(() {
-                _selectedZone = value;
-                // Find and store the selected zone object
-                _selectedZoneObject = _availableZones.firstWhere(
-                  (z) => z.name == value,
-                  orElse: () => _availableZones.first,
-                );
-              });
-            },
-          ),
-        ),
-        if (hasError)
-          Padding(
-            padding: const EdgeInsets.only(left: 12, top: 6),
-            child: Row(
-              children: [
-                Icon(Icons.error_outline, size: 14, color: AppColors.error),
-                const SizedBox(width: 4),
-                Text(
-                  _getFieldError('zone')!,
                   style: TextStyle(
                     color: AppColors.error,
                     fontSize: 12,
