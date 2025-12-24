@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import '../models/visit.dart';
 import '../models/visit_report.dart';
@@ -368,30 +368,31 @@ class _VisitReportPageState extends State<VisitReportPage> {
       }
       debugPrint('Competitor activity: $competitorActivityText');
 
-      // Convert GeotaggedPhoto to File for API submission
-      debugPrint('Converting photos to File objects...');
-      debugPrint('_facadePhotos: $_facadePhotos');
-      debugPrint('_shelfPhotos: $_shelfPhotos');
-      debugPrint('_additionalPhotos: $_additionalPhotos');
+      // Use GeotaggedPhoto objects directly for cross-platform API submission
+      debugPrint('Preparing photos for upload...');
+      debugPrint('_facadePhotos: ${_facadePhotos.length} photos');
+      debugPrint('_shelfPhotos: ${_shelfPhotos.length} photos');
+      debugPrint('_additionalPhotos: ${_additionalPhotos.length} photos');
 
-      final facadeFiles = _facadePhotos.map((p) {
-        debugPrint('  Creating File from facade path: ${p.path}');
-        return File(p.path);
-      }).toList();
-      final shelfFiles = _shelfPhotos.map((p) {
-        debugPrint('  Creating File from shelf path: ${p.path}');
-        return File(p.path);
-      }).toList();
-      final additionalFiles = _additionalPhotos.map((p) {
-        debugPrint('  Creating File from additional path: ${p.path}');
-        return File(p.path);
-      }).toList();
-
-      debugPrint('Facade files created: ${facadeFiles.length}');
-      debugPrint('Shelf files created: ${shelfFiles.length}');
-      debugPrint('Additional files created: ${additionalFiles.length}');
-      debugPrint('Facade files paths: ${facadeFiles.map((f) => f.path).toList()}');
-      debugPrint('Shelf files paths: ${shelfFiles.map((f) => f.path).toList()}');
+      // Verify all photos have bytes
+      for (var p in _facadePhotos) {
+        debugPrint('  Facade photo: ${p.effectiveFileName}, has bytes: ${p.hasBytes}');
+        if (!p.hasBytes) {
+          throw Exception('Facade photo missing bytes data');
+        }
+      }
+      for (var p in _shelfPhotos) {
+        debugPrint('  Shelf photo: ${p.effectiveFileName}, has bytes: ${p.hasBytes}');
+        if (!p.hasBytes) {
+          throw Exception('Shelf photo missing bytes data');
+        }
+      }
+      for (var p in _additionalPhotos) {
+        debugPrint('  Additional photo: ${p.effectiveFileName}, has bytes: ${p.hasBytes}');
+        if (!p.hasBytes) {
+          throw Exception('Additional photo missing bytes data');
+        }
+      }
 
       // Get API visit ID - prefer explicit apiVisitId, fallback to parsing from visit.id
       int? visitId = widget.apiVisitId;
@@ -418,14 +419,14 @@ class _VisitReportPageState extends State<VisitReportPage> {
       debugPrint('Final visitId for API: $visitId');
       debugPrint('Submitting report to API...');
 
-      // Submit to API
+      // Submit to API with GeotaggedPhoto objects (works on both web and mobile)
       await _visitApiService.submitVisitReport(
         visitId: visitId,
         latitude: position.latitude,
         longitude: position.longitude,
-        facadePhotos: facadeFiles,
-        shelfPhotos: shelfFiles,
-        additionalPhotos: additionalFiles,
+        facadePhotos: _facadePhotos,
+        shelfPhotos: _shelfPhotos,
+        additionalPhotos: _additionalPhotos,
         managerPresent: _gerantPresent,
         orderMade: _orderPlaced,
         needsOrder: _needsOrder,
@@ -795,10 +796,15 @@ class _VisitReportPageState extends State<VisitReportPage> {
                   children: [
                     ClipRRect(
                       borderRadius: BorderRadius.circular(8),
-                      child: Image.file(
-                        File(photo.path),
-                        fit: BoxFit.cover,
-                      ),
+                      child: photo.hasBytes
+                          ? Image.memory(
+                              photo.bytes!,
+                              fit: BoxFit.cover,
+                            )
+                          : Container(
+                              color: Colors.grey[300],
+                              child: const Icon(Icons.image_not_supported, size: 48),
+                            ),
                     ),
                     Positioned(
                       top: 4,
@@ -962,12 +968,19 @@ class _VisitReportPageState extends State<VisitReportPage> {
             // Miniature de la photo
             ClipRRect(
               borderRadius: BorderRadius.circular(4),
-              child: Image.file(
-                File(photo.path),
-                height: 100,
-                width: double.infinity,
-                fit: BoxFit.cover,
-              ),
+              child: photo.hasBytes
+                  ? Image.memory(
+                      photo.bytes!,
+                      height: 100,
+                      width: double.infinity,
+                      fit: BoxFit.cover,
+                    )
+                  : Container(
+                      height: 100,
+                      width: double.infinity,
+                      color: Colors.grey[300],
+                      child: const Icon(Icons.image_not_supported, size: 48),
+                    ),
             ),
             const SizedBox(height: 8),
 

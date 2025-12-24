@@ -1,10 +1,27 @@
+import 'dart:typed_data';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:image_picker/image_picker.dart';
+
 /// Représente une photo géolocalisée et horodatée
+///
+/// Supports both web and mobile platforms:
+/// - On mobile: uses file path for storage and display
+/// - On web: uses bytes for storage and display (path is a blob URL)
 class GeotaggedPhoto {
-  final String path; // Chemin local du fichier
+  final String path; // Chemin local du fichier (or blob URL on web)
   final DateTime timestamp;
   final double? latitude;
   final double? longitude;
   final String? description; // Optionnel pour contexte
+
+  /// Image bytes for cross-platform support (required on web, optional on mobile)
+  final Uint8List? bytes;
+
+  /// Original filename
+  final String? fileName;
+
+  /// MIME type
+  final String? mimeType;
 
   GeotaggedPhoto({
     required this.path,
@@ -12,7 +29,64 @@ class GeotaggedPhoto {
     this.latitude,
     this.longitude,
     this.description,
+    this.bytes,
+    this.fileName,
+    this.mimeType,
   });
+
+  /// Create a GeotaggedPhoto from an XFile (from image_picker)
+  /// Works on both web and mobile platforms
+  static Future<GeotaggedPhoto> fromXFile(
+    XFile xFile, {
+    double? latitude,
+    double? longitude,
+    String? description,
+  }) async {
+    final imageBytes = await xFile.readAsBytes();
+    final name = xFile.name;
+    final mime = xFile.mimeType ?? _getMimeType(name);
+
+    return GeotaggedPhoto(
+      path: xFile.path,
+      timestamp: DateTime.now(),
+      latitude: latitude,
+      longitude: longitude,
+      description: description,
+      bytes: imageBytes,
+      fileName: name,
+      mimeType: mime,
+    );
+  }
+
+  /// Determine MIME type from filename
+  static String _getMimeType(String fileName) {
+    final ext = fileName.split('.').last.toLowerCase();
+    switch (ext) {
+      case 'jpg':
+      case 'jpeg':
+        return 'image/jpeg';
+      case 'png':
+        return 'image/png';
+      case 'gif':
+        return 'image/gif';
+      case 'webp':
+        return 'image/webp';
+      default:
+        return 'image/jpeg';
+    }
+  }
+
+  /// Check if running on web
+  bool get isWeb => kIsWeb;
+
+  /// Check if bytes are available
+  bool get hasBytes => bytes != null;
+
+  /// Get the effective filename
+  String get effectiveFileName {
+    if (fileName != null) return fileName!;
+    return path.split('/').last;
+  }
 
   Map<String, dynamic> toJson() {
     return {
@@ -21,6 +95,9 @@ class GeotaggedPhoto {
       'latitude': latitude,
       'longitude': longitude,
       'description': description,
+      'fileName': fileName,
+      'mimeType': mimeType,
+      // Note: bytes are not serialized to JSON (too large)
     };
   }
 
@@ -31,6 +108,9 @@ class GeotaggedPhoto {
       latitude: json['latitude'] as double?,
       longitude: json['longitude'] as double?,
       description: json['description'] as String?,
+      fileName: json['fileName'] as String?,
+      mimeType: json['mimeType'] as String?,
+      // bytes are not restored from JSON
     );
   }
 
@@ -40,6 +120,9 @@ class GeotaggedPhoto {
     double? latitude,
     double? longitude,
     String? description,
+    Uint8List? bytes,
+    String? fileName,
+    String? mimeType,
   }) {
     return GeotaggedPhoto(
       path: path ?? this.path,
@@ -47,6 +130,9 @@ class GeotaggedPhoto {
       latitude: latitude ?? this.latitude,
       longitude: longitude ?? this.longitude,
       description: description ?? this.description,
+      bytes: bytes ?? this.bytes,
+      fileName: fileName ?? this.fileName,
+      mimeType: mimeType ?? this.mimeType,
     );
   }
 }

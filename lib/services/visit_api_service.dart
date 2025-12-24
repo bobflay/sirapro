@@ -1,11 +1,12 @@
 import 'dart:convert';
-import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import '../models/api_visit.dart';
 import '../models/start_visit_request.dart';
 import '../models/terminate_visit_request.dart';
+import '../models/visit_report.dart';
 import 'api_service.dart';
 
 /// Exception for visit-related API errors with detailed error info
@@ -343,6 +344,7 @@ class VisitApiService {
   /// Submit a visit report with photos
   ///
   /// Sends the report data as multipart/form-data with photos.
+  /// Works on both web and mobile platforms by using GeotaggedPhoto objects.
   ///
   /// Throws [VisitApiException] on error with details:
   /// - 400: Invalid request data
@@ -353,9 +355,9 @@ class VisitApiService {
     required int visitId,
     required double latitude,
     required double longitude,
-    List<File> facadePhotos = const [],
-    List<File> shelfPhotos = const [],
-    List<File> additionalPhotos = const [],
+    List<GeotaggedPhoto> facadePhotos = const [],
+    List<GeotaggedPhoto> shelfPhotos = const [],
+    List<GeotaggedPhoto> additionalPhotos = const [],
     bool? managerPresent,
     bool? orderMade,
     bool? needsOrder,
@@ -444,29 +446,30 @@ class VisitApiService {
       }
 
       // Add facade photos (backend expects 'photo_facade[]' array format)
+      // Using bytes-based upload for cross-platform support
       debugPrint('Adding facade photos...');
       for (int i = 0; i < facadePhotos.length; i++) {
-        final file = facadePhotos[i];
-        debugPrint('  Facade photo $i: ${file.path}, exists: ${await file.exists()}');
-        final multipartFile = await _createMultipartFile(file, 'photo_facade[]');
+        final photo = facadePhotos[i];
+        debugPrint('  Facade photo $i: ${photo.effectiveFileName}, has bytes: ${photo.hasBytes}');
+        final multipartFile = _createMultipartFileFromPhoto(photo, 'photo_facade[]');
         request.files.add(multipartFile);
       }
 
       // Add shelf photos (backend expects 'photo_shelves[]' array format)
       debugPrint('Adding shelf photos...');
       for (int i = 0; i < shelfPhotos.length; i++) {
-        final file = shelfPhotos[i];
-        debugPrint('  Shelf photo $i: ${file.path}, exists: ${await file.exists()}');
-        final multipartFile = await _createMultipartFile(file, 'photo_shelves[]');
+        final photo = shelfPhotos[i];
+        debugPrint('  Shelf photo $i: ${photo.effectiveFileName}, has bytes: ${photo.hasBytes}');
+        final multipartFile = _createMultipartFileFromPhoto(photo, 'photo_shelves[]');
         request.files.add(multipartFile);
       }
 
       // Add additional photos (backend expects 'photos_other[]' array format)
       debugPrint('Adding additional photos...');
       for (int i = 0; i < additionalPhotos.length; i++) {
-        final file = additionalPhotos[i];
-        debugPrint('  Additional photo $i: ${file.path}, exists: ${await file.exists()}');
-        final multipartFile = await _createMultipartFile(file, 'photos_other[]');
+        final photo = additionalPhotos[i];
+        debugPrint('  Additional photo $i: ${photo.effectiveFileName}, has bytes: ${photo.hasBytes}');
+        final multipartFile = _createMultipartFileFromPhoto(photo, 'photos_other[]');
         request.files.add(multipartFile);
       }
 
@@ -492,37 +495,42 @@ class VisitApiService {
     }
   }
 
-  /// Create a multipart file from a File object
-  Future<http.MultipartFile> _createMultipartFile(File file, String fieldName) async {
-    final fileName = file.path.split('/').last;
-    final extension = fileName.split('.').last.toLowerCase();
+  /// Create a multipart file from a GeotaggedPhoto object
+  /// Uses bytes for cross-platform support (works on both web and mobile)
+  http.MultipartFile _createMultipartFileFromPhoto(GeotaggedPhoto photo, String fieldName) {
+    final Uint8List? bytes = photo.bytes;
 
-    // Determine content type
-    String contentType;
+    if (bytes == null) {
+      throw VisitApiException('Photo has no bytes data. Cannot upload.');
+    }
+
+    final fileName = photo.effectiveFileName;
+    final mimeType = photo.mimeType ?? _getMimeType(fileName);
+
+    return http.MultipartFile.fromBytes(
+      fieldName,
+      bytes,
+      filename: fileName,
+      contentType: MediaType.parse(mimeType),
+    );
+  }
+
+  /// Get MIME type from filename
+  String _getMimeType(String fileName) {
+    final extension = fileName.split('.').last.toLowerCase();
     switch (extension) {
       case 'jpg':
       case 'jpeg':
-        contentType = 'image/jpeg';
-        break;
+        return 'image/jpeg';
       case 'png':
-        contentType = 'image/png';
-        break;
+        return 'image/png';
       case 'gif':
-        contentType = 'image/gif';
-        break;
+        return 'image/gif';
       case 'webp':
-        contentType = 'image/webp';
-        break;
+        return 'image/webp';
       default:
-        contentType = 'application/octet-stream';
+        return 'application/octet-stream';
     }
-
-    return http.MultipartFile.fromPath(
-      fieldName,
-      file.path,
-      filename: fileName,
-      contentType: MediaType.parse(contentType),
-    );
   }
 
   /// Handle API response for visit report submission

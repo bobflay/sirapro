@@ -1,10 +1,11 @@
-import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:image_picker/image_picker.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:permission_handler/permission_handler.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:path/path.dart' as path;
 import '../models/visit_report.dart';
+
+// Conditional imports for mobile-only features
+import 'photo_capture_service_mobile.dart'
+    if (dart.library.html) 'photo_capture_service_web.dart' as platform;
 
 /// Résultat de la vérification des permissions
 class PermissionResult {
@@ -22,78 +23,70 @@ class PermissionResult {
 }
 
 /// Service pour la capture de photos géolocalisées et horodatées
+/// Works on both web and mobile platforms
 class PhotoCaptureService {
   final ImagePicker _picker = ImagePicker();
 
   /// Vérifie et demande les permissions nécessaires
-  /// Retourne un PermissionResult avec le statut et les détails
+  /// On web, permissions are handled by the browser automatically
   Future<PermissionResult> checkAndRequestPermissions() async {
-    print('🔍 Vérification des permissions pour la caméra et la localisation...');
-
-    // Vérifier d'abord l'état actuel avec permission_handler
-    PermissionStatus cameraStatus = await Permission.camera.status;
-    PermissionStatus locationStatus = await Permission.locationWhenInUse.status;
-
-    print('📸 État caméra: $cameraStatus');
-    print('📍 État localisation: $locationStatus');
-
-    // Si les permissions sont déjà refusées de manière permanente
-    bool cameraPermanentlyDenied = cameraStatus.isPermanentlyDenied;
-    bool locationPermanentlyDenied = locationStatus.isPermanentlyDenied;
-
-    if (cameraPermanentlyDenied || locationPermanentlyDenied) {
-      List<String> deniedPermissions = [];
-      if (cameraPermanentlyDenied) deniedPermissions.add('Caméra');
-      if (locationPermanentlyDenied) deniedPermissions.add('Localisation');
-
-      print('❌ Permissions refusées définitivement: ${deniedPermissions.join(", ")}');
-
-      return PermissionResult(
-        isGranted: false,
-        isPermanentlyDenied: true,
-        message: 'Les permissions ${deniedPermissions.join(" et ")} ont été refusées de manière permanente. Veuillez les activer dans les paramètres de l\'application.',
-        deniedPermissions: deniedPermissions,
-      );
-    }
-
-    // Si les permissions sont déjà accordées
-    if (cameraStatus.isGranted && locationStatus.isGranted) {
-      print('✅ Toutes les permissions sont déjà accordées');
+    if (kIsWeb) {
+      // On web, browser handles permissions automatically
       return PermissionResult(
         isGranted: true,
-        message: 'Permissions accordées',
+        message: 'Permissions handled by browser',
       );
     }
 
-    // Pour iOS, on ne demande PAS les permissions ici avec permission_handler
-    // car cela cause un bug où elles sont marquées comme permanentlyDenied
-    // Les permissions seront demandées automatiquement par ImagePicker et Geolocator
-    // quand on les utilise pour la première fois
-
-    // Si les permissions ne sont pas encore accordées, on laisse passer
-    // et on laisse ImagePicker/Geolocator les demander nativement
-    print('⚠️ Permissions pas encore accordées - seront demandées par les plugins natifs');
-    return PermissionResult(
-      isGranted: true, // On dit que c'est OK, les plugins natifs vont demander
-      message: 'Permissions seront demandées',
-    );
+    // Mobile permission handling
+    return platform.checkAndRequestPermissions();
   }
 
   /// Vérifie si les services de localisation sont activés
   Future<bool> checkLocationServiceEnabled() async {
+    if (kIsWeb) {
+      // On web, we'll try to get location and see if it works
+      return true;
+    }
     return await Geolocator.isLocationServiceEnabled();
   }
 
   /// Obtient la position GPS actuelle
   Future<Position?> getCurrentPosition() async {
     try {
-      // Vérifier si le service de localisation est activé
+      if (kIsWeb) {
+        // On web, use Geolocator which has web support
+        try {
+          LocationPermission permission = await Geolocator.checkPermission();
+          if (permission == LocationPermission.denied) {
+            permission = await Geolocator.requestPermission();
+            if (permission == LocationPermission.denied) {
+              return null;
+            }
+          }
+
+          if (permission == LocationPermission.deniedForever) {
+            return null;
+          }
+
+          Position position = await Geolocator.getCurrentPosition(
+            desiredAccuracy: LocationAccuracy.high,
+            timeLimit: const Duration(seconds: 10),
+          );
+          return position;
+        } catch (e) {
+          print('Web GPS error: $e');
+          return null;
+        }
+      }
+
+      // Mobile: Check if location service is enabled
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
         return null;
       }
 
-      // Vérifier les permissions
+      // Check permissions
       LocationPermission permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
@@ -106,7 +99,7 @@ class PhotoCaptureService {
         return null;
       }
 
-      // Obtenir la position avec une haute précision
+      // Get position with high accuracy
       Position position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
         timeLimit: const Duration(seconds: 10),
@@ -120,18 +113,21 @@ class PhotoCaptureService {
   }
 
   /// Capture une photo avec la caméra et ajoute GPS + timestamp
+  /// Works on both web and mobile platforms
   Future<GeotaggedPhoto?> capturePhoto({
     String? description,
     bool fromCamera = true,
   }) async {
     try {
-      // Vérifier les permissions
-      PermissionResult permissionResult = await checkAndRequestPermissions();
-      if (!permissionResult.isGranted) {
-        throw Exception(permissionResult.message);
+      // Check permissions (skipped on web)
+      if (!kIsWeb) {
+        PermissionResult permissionResult = await checkAndRequestPermissions();
+        if (!permissionResult.isGranted) {
+          throw Exception(permissionResult.message);
+        }
       }
 
-      // Capture de la photo
+      // Capture the photo using image_picker (works on both platforms)
       final XFile? image = await _picker.pickImage(
         source: fromCamera ? ImageSource.camera : ImageSource.gallery,
         imageQuality: 85,
@@ -143,27 +139,12 @@ class PhotoCaptureService {
         return null;
       }
 
-      // Obtenir la position GPS au moment de la capture
+      // Get GPS position at capture time
       Position? position = await getCurrentPosition();
 
-      // Créer un nom de fichier unique avec timestamp
-      final DateTime now = DateTime.now();
-      final String timestamp = now.toIso8601String().replaceAll(':', '-');
-      final String fileName = 'photo_$timestamp${path.extension(image.path)}';
-
-      // Sauvegarder la photo dans le dossier de l'application
-      final Directory appDir = await getApplicationDocumentsDirectory();
-      final String photosDir = path.join(appDir.path, 'photos');
-      await Directory(photosDir).create(recursive: true);
-      final String savedPath = path.join(photosDir, fileName);
-
-      // Copier le fichier
-      await File(image.path).copy(savedPath);
-
-      // Créer l'objet GeotaggedPhoto
-      return GeotaggedPhoto(
-        path: savedPath,
-        timestamp: now,
+      // Create GeotaggedPhoto from XFile (works on both platforms)
+      return await GeotaggedPhoto.fromXFile(
+        image,
         latitude: position?.latitude,
         longitude: position?.longitude,
         description: description,
@@ -193,60 +174,59 @@ class PhotoCaptureService {
   }
 
   /// Supprime une photo du stockage
+  /// On web, this is a no-op since photos are stored in memory
   Future<void> deletePhoto(String photoPath) async {
+    if (kIsWeb) {
+      // On web, photos are in memory, nothing to delete from filesystem
+      return;
+    }
+
     try {
-      final File file = File(photoPath);
-      if (await file.exists()) {
-        await file.delete();
-      }
+      await platform.deleteFile(photoPath);
     } catch (e) {
       print('Erreur lors de la suppression de la photo: $e');
     }
   }
 
   /// Obtient la taille d'une photo en Mo
+  /// On web, returns 0 since we don't have filesystem access
   Future<double> getPhotoSizeMB(String photoPath) async {
+    if (kIsWeb) {
+      return 0;
+    }
+
     try {
-      final File file = File(photoPath);
-      if (await file.exists()) {
-        final int bytes = await file.length();
-        return bytes / (1024 * 1024);
-      }
+      return await platform.getFileSizeMB(photoPath);
     } catch (e) {
       print('Erreur lors de la lecture de la taille de la photo: $e');
+      return 0;
     }
-    return 0;
   }
 
   /// Vérifie si une photo existe
+  /// On web, always returns false since we don't have filesystem access
   Future<bool> photoExists(String photoPath) async {
+    if (kIsWeb) {
+      return false;
+    }
+
     try {
-      return await File(photoPath).exists();
+      return await platform.fileExists(photoPath);
     } catch (e) {
       return false;
     }
   }
 
   /// Nettoie les anciennes photos (plus de X jours)
+  /// On web, this is a no-op since photos are stored in memory
   Future<void> cleanOldPhotos({int daysToKeep = 30}) async {
+    if (kIsWeb) {
+      // On web, photos are in memory, nothing to clean
+      return;
+    }
+
     try {
-      final Directory appDir = await getApplicationDocumentsDirectory();
-      final String photosDir = path.join(appDir.path, 'photos');
-      final Directory dir = Directory(photosDir);
-
-      if (await dir.exists()) {
-        final DateTime cutoffDate = DateTime.now().subtract(Duration(days: daysToKeep));
-        final List<FileSystemEntity> files = dir.listSync();
-
-        for (var file in files) {
-          if (file is File) {
-            final FileStat stat = await file.stat();
-            if (stat.modified.isBefore(cutoffDate)) {
-              await file.delete();
-            }
-          }
-        }
-      }
+      await platform.cleanOldPhotos(daysToKeep: daysToKeep);
     } catch (e) {
       print('Erreur lors du nettoyage des anciennes photos: $e');
     }
