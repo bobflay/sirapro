@@ -1,5 +1,6 @@
 import 'dart:async';
-import 'dart:io';
+import 'dart:typed_data';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -53,13 +54,14 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
   bool _isLoadingVisit = false;
 
   // Client photos - local files (newly added)
-  final List<File> _localPhotos = [];
+  // Store bytes for cross-platform compatibility (works on both web and mobile)
+  final List<Uint8List> _localPhotoBytes = [];
   final PageController _photoPageController = PageController();
   int _currentPhotoIndex = 0;
   final ImagePicker _imagePicker = ImagePicker();
 
   // Total photos count (API photos + local photos)
-  int get _totalPhotosCount => _client.photos.length + _localPhotos.length;
+  int get _totalPhotosCount => _client.photos.length + _localPhotoBytes.length;
 
   // Visit tracking
   bool _isVisitActive = false;
@@ -249,7 +251,8 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
       );
 
       if (pickedFile != null) {
-        final file = File(pickedFile.path);
+        // Read bytes for cross-platform support
+        final Uint8List bytes = await pickedFile.readAsBytes();
 
         // Show loading indicator
         if (mounted) {
@@ -284,9 +287,6 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
           // Location not available, continue without it
         }
 
-        // Upload to API
-        final apiService = ApiService();
-
         // Generate a proper filename with timestamp
         final timestamp = DateTime.now().millisecondsSinceEpoch;
         final extension = pickedFile.name.contains('.')
@@ -294,21 +294,22 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
             : 'jpg';
         final fileName = 'client_${_client.id}_$timestamp.$extension';
 
-        final fields = <String, String>{
-          'type': 'facade',
-          'file_name': fileName,
-        };
-
-        if (position != null) {
-          fields['latitude'] = position.latitude.toString();
-          fields['longitude'] = position.longitude.toString();
-        }
-
-        await apiService.uploadFiles(
-          '/api/clients/${_client.id}/photos',
-          files: [file],
-          fields: fields,
+        // Create GeotaggedPhoto for cross-platform upload
+        final geotaggedPhoto = GeotaggedPhoto(
+          path: kIsWeb ? fileName : pickedFile.path,
+          timestamp: DateTime.now(),
+          bytes: bytes,
           fileName: fileName,
+          latitude: position?.latitude,
+          longitude: position?.longitude,
+          mimeType: 'image/$extension',
+        );
+
+        // Upload using cross-platform method
+        await _clientService.uploadGeotaggedPhotos(
+          _client.id,
+          [geotaggedPhoto],
+          type: 'facade',
         );
 
         // Hide loading snackbar
@@ -316,14 +317,15 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
           ScaffoldMessenger.of(context).hideCurrentSnackBar();
         }
 
-        // Add to local list
+        // Add to local list (store bytes for cross-platform display)
         setState(() {
-          _localPhotos.add(file);
-          _currentPhotoIndex = _localPhotos.length - 1;
+          _localPhotoBytes.add(bytes);
+          _currentPhotoIndex = _localPhotoBytes.length - 1;
         });
 
         // Animate to the new photo
-        if (_localPhotos.length > 1) {
+        final totalLocalPhotos = _localPhotoBytes.length;
+        if (totalLocalPhotos > 1) {
           _photoPageController.animateToPage(
             _currentPhotoIndex,
             duration: const Duration(milliseconds: 300),
@@ -384,7 +386,7 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
               Navigator.pop(context);
               final localIndex = index - apiPhotosCount;
               setState(() {
-                _localPhotos.removeAt(localIndex);
+                _localPhotoBytes.removeAt(localIndex);
                 if (_currentPhotoIndex >= _totalPhotosCount && _totalPhotosCount > 0) {
                   _currentPhotoIndex = _totalPhotosCount - 1;
                 }
@@ -404,7 +406,7 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
       MaterialPageRoute(
         builder: (context) => _FullScreenPhotoViewer(
           apiPhotos: _client.photos,
-          localPhotos: _localPhotos,
+          localPhotoBytes: _localPhotoBytes,
           initialIndex: index,
           onDelete: _deletePhoto,
           baseUrl: _baseUrl,
@@ -3659,7 +3661,7 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
               imageProvider = NetworkImage(photoUrl);
             } else {
               final localIndex = index - apiPhotosCount;
-              imageProvider = FileImage(_localPhotos[localIndex]);
+              imageProvider = MemoryImage(_localPhotoBytes[localIndex]);
             }
 
             return GestureDetector(
@@ -4003,14 +4005,14 @@ class _SlideToActionWidgetState extends State<SlideToActionWidget> {
 // Full screen photo viewer with swipe and delete functionality
 class _FullScreenPhotoViewer extends StatefulWidget {
   final List<ClientPhoto> apiPhotos;
-  final List<File> localPhotos;
+  final List<Uint8List> localPhotoBytes;
   final int initialIndex;
   final Function(int) onDelete;
   final String baseUrl;
 
   const _FullScreenPhotoViewer({
     required this.apiPhotos,
-    required this.localPhotos,
+    required this.localPhotoBytes,
     required this.initialIndex,
     required this.onDelete,
     required this.baseUrl,
@@ -4024,7 +4026,7 @@ class _FullScreenPhotoViewerState extends State<_FullScreenPhotoViewer> {
   late PageController _pageController;
   late int _currentIndex;
 
-  int get _totalPhotosCount => widget.apiPhotos.length + widget.localPhotos.length;
+  int get _totalPhotosCount => widget.apiPhotos.length + widget.localPhotoBytes.length;
 
   @override
   void initState() {
@@ -4116,10 +4118,10 @@ class _FullScreenPhotoViewerState extends State<_FullScreenPhotoViewer> {
         },
       );
     } else {
-      // Local photo - use FileImage
+      // Local photo - use MemoryImage (works on both web and mobile)
       final localIndex = index - widget.apiPhotos.length;
-      return Image.file(
-        widget.localPhotos[localIndex],
+      return Image.memory(
+        widget.localPhotoBytes[localIndex],
         fit: BoxFit.contain,
       );
     }

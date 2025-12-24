@@ -280,7 +280,7 @@ class ClientService {
       throw ApiException('uploadMultiplePhotos is not supported on web. Use uploadGeotaggedPhotos instead.');
     }
     final request = PhotoUploadRequest(
-      photos: photos.cast<File>(),
+      photos: photos,
       type: type,
       latitude: latitude,
       longitude: longitude,

@@ -1,9 +1,10 @@
-import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 /// Request model for uploading client photos via POST /api/clients/{client_id}/photos
 class PhotoUploadRequest {
   /// List of photo files to upload (required, 1-10 files)
-  final List<File> photos;
+  /// On mobile: List<File>, on web: not used (use uploadGeotaggedPhotos instead)
+  final List<dynamic> photos;
 
   /// Photo type (optional)
   /// One of: facade, shelves, stock, anomaly, other
@@ -64,22 +65,26 @@ class PhotoUploadRequest {
       errors.add('Maximum 10 photos par requête');
     }
 
-    // Check file sizes (10MB max per image)
-    const maxFileSize = 10 * 1024 * 1024; // 10MB in bytes
-    for (int i = 0; i < photos.length; i++) {
-      final file = photos[i];
-      if (file.lengthSync() > maxFileSize) {
-        errors.add('Photo ${i + 1} dépasse la taille maximale de 10MB');
+    // File-specific validations (only on mobile)
+    // Uses dynamic typing to avoid dart:io import which doesn't exist on web
+    if (!kIsWeb) {
+      // Check file sizes (10MB max per image)
+      const maxFileSize = 10 * 1024 * 1024; // 10MB in bytes
+      for (int i = 0; i < photos.length; i++) {
+        final dynamic file = photos[i];
+        if ((file.lengthSync() as int) > maxFileSize) {
+          errors.add('Photo ${i + 1} dépasse la taille maximale de 10MB');
+        }
       }
-    }
 
-    // Validate file extensions
-    final validExtensions = ['jpeg', 'jpg', 'png'];
-    for (int i = 0; i < photos.length; i++) {
-      final file = photos[i];
-      final extension = file.path.split('.').last.toLowerCase();
-      if (!validExtensions.contains(extension)) {
-        errors.add('Photo ${i + 1}: format invalide (seuls jpeg, jpg, png sont acceptés)');
+      // Validate file extensions
+      final validExtensions = ['jpeg', 'jpg', 'png'];
+      for (int i = 0; i < photos.length; i++) {
+        final dynamic file = photos[i];
+        final extension = (file.path as String).split('.').last.toLowerCase();
+        if (!validExtensions.contains(extension)) {
+          errors.add('Photo ${i + 1}: format invalide (seuls jpeg, jpg, png sont acceptés)');
+        }
       }
     }
 
