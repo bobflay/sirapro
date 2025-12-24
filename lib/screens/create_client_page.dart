@@ -2236,7 +2236,7 @@ class _CreateClientPageState extends State<CreateClientPage> {
     required String label,
     required IconData icon,
     required List<String> items,
-    required void Function(String?) onChanged,
+    void Function(String?)? onChanged,
     bool isRequired = false,
     String? errorText,
   }) {
