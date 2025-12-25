@@ -1,5 +1,4 @@
 import 'dart:math' as math;
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -16,6 +15,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:easy_stepper/easy_stepper.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:sirapro/services/geocoding_service.dart';
 
 class CreateClientPage extends StatefulWidget {
   const CreateClientPage({super.key});
@@ -32,11 +32,16 @@ class _CreateClientPageState extends State<CreateClientPage> {
   // Services
   final ClientService _clientService = ClientService();
   final AuthService _authService = AuthService();
+  final GeocodingService _geocodingService = GeocodingService();
 
   // Loading and error states
   bool _isLoading = false;
   bool _isUploadingPhotos = false;
   String? _uploadProgress;
+
+  // Upload progress tracking with ValueNotifier for real-time dialog updates
+  final ValueNotifier<double> _uploadProgressNotifier = ValueNotifier<double>(0.0);
+  final ValueNotifier<String> _uploadProgressLabelNotifier = ValueNotifier<String>('');
 
   // User data for base_commerciale_id and zone_id
   User? _currentUser;
@@ -58,6 +63,12 @@ class _CreateClientPageState extends State<CreateClientPage> {
   String? _selectedQuartier;
   String? _gpsLocation;
   String? _selectedZone;
+
+  // GPS-first address auto-fill state
+  bool _isLoadingAddress = false;
+  bool _addressAutoFilled = false;
+  List<String> _dynamicVilles = [];
+  Map<String, List<String>> _dynamicQuartiers = {};
 
   // Cities of Abidjan regional delegation
   final List<String> _villes = [
@@ -566,8 +577,23 @@ class _CreateClientPageState extends State<CreateClientPage> {
       );
 
       if (pickedFile != null) {
-        // Create GeotaggedPhoto from XFile (works on both web and mobile)
-        final photo = await GeotaggedPhoto.fromXFile(pickedFile);
+        // Parse GPS coordinates from stored location
+        double? latitude;
+        double? longitude;
+        if (_gpsLocation != null) {
+          final coords = _gpsLocation!.split(',');
+          if (coords.length == 2) {
+            latitude = double.tryParse(coords[0].trim());
+            longitude = double.tryParse(coords[1].trim());
+          }
+        }
+
+        // Create GeotaggedPhoto from XFile with GPS data (works on both web and mobile)
+        final photo = await GeotaggedPhoto.fromXFile(
+          pickedFile,
+          latitude: latitude,
+          longitude: longitude,
+        );
         onPhotoSelected(photo);
       }
     } catch (e) {
@@ -591,9 +617,24 @@ class _CreateClientPageState extends State<CreateClientPage> {
       );
 
       if (pickedFiles.isNotEmpty) {
-        // Convert all XFiles to GeotaggedPhoto (works on both web and mobile)
+        // Parse GPS coordinates from stored location
+        double? latitude;
+        double? longitude;
+        if (_gpsLocation != null) {
+          final coords = _gpsLocation!.split(',');
+          if (coords.length == 2) {
+            latitude = double.tryParse(coords[0].trim());
+            longitude = double.tryParse(coords[1].trim());
+          }
+        }
+
+        // Convert all XFiles to GeotaggedPhoto with GPS data (works on both web and mobile)
         final photos = await Future.wait(
-          pickedFiles.map((pickedFile) => GeotaggedPhoto.fromXFile(pickedFile)),
+          pickedFiles.map((pickedFile) => GeotaggedPhoto.fromXFile(
+            pickedFile,
+            latitude: latitude,
+            longitude: longitude,
+          )),
         );
         setState(() {
           _additionalPhotos.addAll(photos);
@@ -626,118 +667,6 @@ class _CreateClientPageState extends State<CreateClientPage> {
   void _previousStep() {
     if (_currentStep > 0) {
       _goToStep(_currentStep - 1);
-    }
-  }
-
-  Future<void> _captureGPSLocation() async {
-    try {
-      // Use Geolocator's permission handling instead of permission_handler
-      // to avoid iOS bug where permissions are incorrectly marked as denied
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
-
-      if (permission == LocationPermission.denied) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('La permission de localisation est requise pour enregistrer la position GPS.'),
-              backgroundColor: Colors.orange,
-              duration: Duration(seconds: 4),
-            ),
-          );
-        }
-        return;
-      }
-
-      if (permission == LocationPermission.deniedForever) {
-        if (mounted) {
-          _showLocationPermissionDialog();
-        }
-        return;
-      }
-
-      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Veuillez activer le service de localisation dans les paramètres de votre appareil.'),
-              backgroundColor: Colors.orange,
-              duration: Duration(seconds: 4),
-            ),
-          );
-        }
-        return;
-      }
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Row(
-              children: [
-                SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                  ),
-                ),
-                SizedBox(width: 16),
-                Text('Obtention de la position GPS...'),
-              ],
-            ),
-            duration: Duration(seconds: 10),
-          ),
-        );
-      }
-
-      Position position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-        timeLimit: const Duration(seconds: 10),
-      );
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).clearSnackBars();
-      }
-
-      // Store the original GPS position
-      final gpsPosition = LatLng(position.latitude, position.longitude);
-
-      // Show the map picker for fine-tuning
-      if (mounted) {
-        final adjustedPosition = await _showLocationPickerDialog(gpsPosition);
-        if (adjustedPosition != null) {
-          setState(() {
-            _originalGpsPosition = gpsPosition;
-            _adjustedGpsPosition = adjustedPosition;
-            _gpsLocation = '${adjustedPosition.latitude.toStringAsFixed(6)}, ${adjustedPosition.longitude.toStringAsFixed(6)}';
-          });
-
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Position GPS enregistrée avec succès'),
-                backgroundColor: Colors.green,
-                duration: Duration(seconds: 2),
-              ),
-            );
-          }
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).clearSnackBars();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Erreur lors de l\'obtention de la position GPS: ${e.toString()}'),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 4),
-          ),
-        );
-      }
     }
   }
 
@@ -946,108 +875,156 @@ class _CreateClientPageState extends State<CreateClientPage> {
     }
   }
 
-  /// Upload photos for the created client
+  /// Upload photos for the created client with real-time progress tracking
   /// Uses GeotaggedPhoto for cross-platform support (works on both web and mobile)
   Future<void> _uploadClientPhotos(int clientId) async {
-    // Count total photos to upload
-    int totalPhotos = 0;
-    if (_facadePhoto != null) totalPhotos++;
-    if (_rayonsPhoto != null) totalPhotos++;
-    totalPhotos += _additionalPhotos.length;
+    // Collect all photos to upload
+    final List<_PhotoUploadTask> uploadTasks = [];
 
-    if (totalPhotos == 0) {
+    if (_facadePhoto != null) {
+      uploadTasks.add(_PhotoUploadTask(
+        photos: [_facadePhoto!],
+        type: 'facade',
+        title: 'Façade',
+        description: 'Photo façade de ${_boutiqueNameController.text}',
+      ));
+    }
+
+    if (_rayonsPhoto != null) {
+      uploadTasks.add(_PhotoUploadTask(
+        photos: [_rayonsPhoto!],
+        type: 'shelves',
+        title: 'Rayons',
+        description: 'Photo rayons de ${_boutiqueNameController.text}',
+      ));
+    }
+
+    // Split additional photos into batches of up to 10
+    if (_additionalPhotos.isNotEmpty) {
+      for (int i = 0; i < _additionalPhotos.length; i += 10) {
+        final batch = _additionalPhotos.skip(i).take(10).toList();
+        uploadTasks.add(_PhotoUploadTask(
+          photos: batch,
+          type: 'other',
+          title: 'Photos additionnelles',
+          description: 'Photos additionnelles de ${_boutiqueNameController.text}',
+        ));
+      }
+    }
+
+    if (uploadTasks.isEmpty) {
       return;
+    }
+
+    // Calculate total bytes to upload
+    double totalBytes = 0;
+    for (var task in uploadTasks) {
+      for (var photo in task.photos) {
+        totalBytes += (photo.bytes?.length ?? 0).toDouble();
+      }
     }
 
     setState(() {
       _isUploadingPhotos = true;
-      _uploadProgress = 'Téléchargement des photos: 0/$totalPhotos';
     });
+    _uploadProgressNotifier.value = 0.0;
+    _uploadProgressLabelNotifier.value = 'Préparation...';
 
-    _showLoadingDialog('Téléchargement des photos...');
+    // Show progress dialog
+    _showUploadProgressDialog(uploadTasks.length);
 
-    int uploadedCount = 0;
+    int completedTasks = 0;
+    double bytesUploaded = 0;
     final List<String> errors = [];
 
-    // Upload facade photo using GeotaggedPhoto (works on both web and mobile)
-    if (_facadePhoto != null) {
+    for (int taskIndex = 0; taskIndex < uploadTasks.length; taskIndex++) {
+      final task = uploadTasks[taskIndex];
+      final double taskBytes = task.photos.fold<double>(0, (sum, photo) => sum + (photo.bytes?.length ?? 0).toDouble());
+
       try {
-        await _clientService.uploadGeotaggedPhotos(
+        await _clientService.uploadGeotaggedPhotosWithProgress(
           clientId,
-          [_facadePhoto!],
-          type: 'facade',
+          task.photos,
+          type: task.type,
+          title: task.title,
+          description: task.description,
+          onProgress: (sent, total) {
+            if (mounted && total > 0) {
+              // Calculate overall progress
+              final currentTaskProgress = sent / total;
+              final overallBytesUploaded = bytesUploaded + (taskBytes * currentTaskProgress);
+              final overallProgress = totalBytes > 0 ? overallBytesUploaded / totalBytes : 0.0;
+
+              _uploadProgressNotifier.value = overallProgress;
+              _uploadProgressLabelNotifier.value = 'Photo ${taskIndex + 1}/${uploadTasks.length} - ${(overallProgress * 100).toInt()}%';
+            }
+          },
         );
-        uploadedCount++;
+
+        bytesUploaded += taskBytes;
+        completedTasks++;
+
         if (mounted) {
-          setState(() {
-            _uploadProgress = 'Téléchargement des photos: $uploadedCount/$totalPhotos';
-          });
+          _uploadProgressNotifier.value = totalBytes > 0 ? bytesUploaded / totalBytes : 1.0;
+          _uploadProgressLabelNotifier.value = 'Téléchargé $completedTasks/${uploadTasks.length}';
         }
       } catch (e) {
-        errors.add('Photo façade: ${e.toString()}');
-      }
-    }
-
-    // Upload shelves photo using GeotaggedPhoto (works on both web and mobile)
-    if (_rayonsPhoto != null) {
-      try {
-        await _clientService.uploadGeotaggedPhotos(
-          clientId,
-          [_rayonsPhoto!],
-          type: 'shelves',
-        );
-        uploadedCount++;
-        if (mounted) {
-          setState(() {
-            _uploadProgress = 'Téléchargement des photos: $uploadedCount/$totalPhotos';
-          });
-        }
-      } catch (e) {
-        errors.add('Photo rayons: ${e.toString()}');
-      }
-    }
-
-    // Upload additional photos using GeotaggedPhoto (works on both web and mobile)
-    // Upload in batches of up to 10
-    if (_additionalPhotos.isNotEmpty) {
-      for (int i = 0; i < _additionalPhotos.length; i += 10) {
-        final batch = _additionalPhotos.skip(i).take(10).toList();
-        try {
-          await _clientService.uploadGeotaggedPhotos(
-            clientId,
-            batch,
-            type: 'other',
-          );
-          uploadedCount += batch.length;
-          if (mounted) {
-            setState(() {
-              _uploadProgress = 'Téléchargement des photos: $uploadedCount/$totalPhotos';
-            });
-          }
-        } catch (e) {
-          errors.add('Photos additionnelles: ${e.toString()}');
-        }
+        errors.add('${task.title}: ${e.toString()}');
+        bytesUploaded += taskBytes; // Still count as processed for progress
       }
     }
 
     if (mounted) {
-      Navigator.of(context).pop(); // Close loading dialog
+      Navigator.of(context).pop(); // Close progress dialog
       setState(() {
         _isUploadingPhotos = false;
         _uploadProgress = null;
       });
+      _uploadProgressNotifier.value = 0.0;
+      _uploadProgressLabelNotifier.value = '';
 
       // Show warning if some photos failed to upload
       if (errors.isNotEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('$uploadedCount/$totalPhotos photos téléchargées. Certaines photos ont échoué.'),
+            content: Text('$completedTasks/${uploadTasks.length} lots téléchargés. Certaines photos ont échoué.'),
             backgroundColor: Colors.orange,
             duration: const Duration(seconds: 4),
           ),
         );
       }
     }
+  }
+
+  /// Show upload progress dialog with real-time progress bar
+  void _showUploadProgressDialog(int totalTasks) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          content: ValueListenableBuilder<double>(
+            valueListenable: _uploadProgressNotifier,
+            builder: (context, progressValue, _) {
+              return ValueListenableBuilder<String>(
+                valueListenable: _uploadProgressLabelNotifier,
+                builder: (context, progressLabel, _) {
+                  return _UploadProgressContent(
+                    progressValue: progressValue,
+                    progressLabel: progressLabel,
+                    totalTasks: totalTasks,
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      ),
+    );
   }
 
   void _showLoadingDialog(String message) {
@@ -1442,20 +1419,50 @@ class _CreateClientPageState extends State<CreateClientPage> {
   }
 
   Widget _buildGeographicDataStep() {
-    // Get quartiers for selected city
-    final quartiersForCity = _selectedVille != null
+    // Get all villes (static + dynamic)
+    final allVilles = [..._villes, ..._dynamicVilles];
+
+    // Get quartiers for selected city (static + dynamic)
+    final staticQuartiers = _selectedVille != null
         ? _quartiersByVille[_selectedVille] ?? []
         : <String>[];
+    final dynamicQuartiers = _selectedVille != null
+        ? _dynamicQuartiers[_selectedVille] ?? []
+        : <String>[];
+    final quartiersForCity = [...staticQuartiers, ...dynamicQuartiers];
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
+          // GPS Capture Button at the TOP - primary action
+          _buildGpsAutoFillButton(),
+          const SizedBox(height: 20),
+
+          // Divider with "or edit manually" text
+          Row(
+            children: [
+              Expanded(child: Divider(color: Colors.grey[300])),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Text(
+                  _addressAutoFilled ? 'Modifier si besoin' : 'Ou remplir manuellement',
+                  style: TextStyle(
+                    color: Colors.grey[500],
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+              Expanded(child: Divider(color: Colors.grey[300])),
+            ],
+          ),
+          const SizedBox(height: 20),
+
           _buildDropdownField(
             value: _selectedVille,
             label: 'Ville',
             icon: Icons.location_on,
-            items: _villes,
+            items: allVilles,
             isRequired: true,
             errorText: _getFieldError('ville'),
             onChanged: (value) {
@@ -1509,144 +1516,410 @@ class _CreateClientPageState extends State<CreateClientPage> {
             maxLines: 2,
             errorText: _getFieldError('address'),
           ),
-          const SizedBox(height: 20),
-          _buildGPSButton(),
+
+          // Show GPS status at bottom if already captured
+          if (_gpsLocation != null) ...[
+            const SizedBox(height: 16),
+            _buildGpsStatusIndicator(),
+          ],
         ],
       ),
     );
   }
 
-  Widget _buildGPSButton() {
-    final hasError = _getFieldError('gps') != null;
-    final hasLocation = _gpsLocation != null;
+  /// Build the GPS auto-fill button - the main action for Step 1
+  Widget _buildGpsAutoFillButton() {
+    final hasError = _getFieldError('gps') != null && _gpsLocation == null;
 
-    // Determine colors based on state
-    Color getBackgroundColor() {
-      if (hasLocation) return AppColors.success.withValues(alpha: 0.1);
-      if (hasError) return AppColors.error.withValues(alpha: 0.1);
-      return Colors.transparent;
-    }
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        gradient: _addressAutoFilled
+            ? null
+            : LinearGradient(
+                colors: [AppColors.primary, AppColors.primaryDark],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+        color: _addressAutoFilled ? AppColors.success.withValues(alpha: 0.1) : null,
+        border: _addressAutoFilled
+            ? Border.all(color: AppColors.success, width: 2)
+            : hasError
+                ? Border.all(color: AppColors.error, width: 2)
+                : null,
+        boxShadow: _addressAutoFilled
+            ? null
+            : [
+                BoxShadow(
+                  color: AppColors.primary.withValues(alpha: 0.3),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: _isLoadingAddress ? null : _captureGpsAndFillAddress,
+          borderRadius: BorderRadius.circular(16),
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: _isLoadingAddress
+                ? _buildLoadingContent()
+                : _addressAutoFilled
+                    ? _buildSuccessContent()
+                    : _buildDefaultContent(hasError),
+          ),
+        ),
+      ),
+    );
+  }
 
-    Color getBorderColor() {
-      if (hasLocation) return AppColors.success;
-      if (hasError) return AppColors.error;
-      return Colors.transparent;
-    }
+  Widget _buildLoadingContent() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        const SizedBox(
+          width: 24,
+          height: 24,
+          child: CircularProgressIndicator(
+            strokeWidth: 3,
+            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+          ),
+        ),
+        const SizedBox(width: 16),
+        const Text(
+          'Recherche de l\'adresse...',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ],
+    );
+  }
 
-    Color getIconColor() {
-      if (hasLocation) return AppColors.success;
-      if (hasError) return AppColors.error;
-      return Colors.white;
-    }
-
-    Color getTextColor() {
-      if (hasLocation) return AppColors.success;
-      if (hasError) return AppColors.error;
-      return Colors.white;
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _buildSuccessContent() {
+    return Row(
       children: [
         Container(
-          width: double.infinity,
+          padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            gradient: hasLocation || hasError
-                ? null
-                : LinearGradient(
-                    colors: [AppColors.primary, AppColors.primaryDark],
-                  ),
-            color: hasLocation || hasError ? getBackgroundColor() : null,
-            border: hasLocation || hasError
-                ? Border.all(color: getBorderColor(), width: 2)
-                : null,
+            color: AppColors.success.withValues(alpha: 0.2),
+            shape: BoxShape.circle,
           ),
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: _captureGPSLocation,
-              borderRadius: BorderRadius.circular(12),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      hasLocation
-                          ? Icons.check_circle
-                          : hasError
-                              ? Icons.error_outline
-                              : Icons.my_location,
-                      color: getIconColor(),
-                      size: 24,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            hasLocation
-                                ? 'Position GPS enregistrée'
-                                : 'Enregistrer la position GPS *',
-                            style: TextStyle(
-                              color: getTextColor(),
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          if (hasLocation)
-                            Text(
-                              _gpsLocation!,
-                              style: TextStyle(
-                                color: AppColors.success,
-                                fontSize: 12,
-                              ),
-                            ),
-                          if (hasError && !hasLocation)
-                            Text(
-                              'Appuyez pour capturer votre position',
-                              style: TextStyle(
-                                color: AppColors.error,
-                                fontSize: 12,
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                    if (hasLocation)
-                      IconButton(
-                        onPressed: _captureGPSLocation,
-                        icon: Icon(Icons.refresh, color: AppColors.success),
-                        tooltip: 'Actualiser',
-                      ),
-                  ],
+          child: Icon(
+            Icons.check_circle,
+            color: AppColors.success,
+            size: 28,
+          ),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Adresse remplie automatiquement',
+                style: TextStyle(
+                  color: AppColors.success,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
                 ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Appuyez pour recapturer le GPS',
+                style: TextStyle(
+                  color: AppColors.success.withValues(alpha: 0.8),
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
+        ),
+        Icon(
+          Icons.refresh,
+          color: AppColors.success,
+          size: 24,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDefaultContent(bool hasError) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.2),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(
+            hasError ? Icons.error_outline : Icons.my_location,
+            color: Colors.white,
+            size: 28,
+          ),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Capturer la position GPS',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Remplir l\'adresse automatiquement',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.9),
+                  fontSize: 13,
+                ),
+              ),
+            ],
+          ),
+        ),
+        Icon(
+          Icons.arrow_forward,
+          color: Colors.white.withValues(alpha: 0.8),
+          size: 24,
+        ),
+      ],
+    );
+  }
+
+  /// Build GPS status indicator shown at the bottom
+  Widget _buildGpsStatusIndicator() {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.success.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.success.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.check_circle, color: AppColors.success, size: 20),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'GPS: $_gpsLocation',
+              style: TextStyle(
+                color: AppColors.success,
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
               ),
             ),
           ),
-        ),
-        if (hasError && !hasLocation)
-          Padding(
-            padding: const EdgeInsets.only(left: 12, top: 6),
-            child: Row(
-              children: [
-                Icon(Icons.error_outline, size: 14, color: AppColors.error),
-                const SizedBox(width: 4),
-                Text(
-                  _getFieldError('gps')!,
-                  style: TextStyle(
-                    color: AppColors.error,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
-            ),
-          ),
-      ],
+        ],
+      ),
     );
+  }
+
+  /// Capture GPS and auto-fill address fields using reverse geocoding
+  Future<void> _captureGpsAndFillAddress() async {
+    setState(() {
+      _isLoadingAddress = true;
+    });
+
+    try {
+      // Check permissions
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+
+      if (permission == LocationPermission.denied) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('La permission de localisation est requise.'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+        setState(() => _isLoadingAddress = false);
+        return;
+      }
+
+      if (permission == LocationPermission.deniedForever) {
+        if (mounted) {
+          _showLocationPermissionDialog();
+        }
+        setState(() => _isLoadingAddress = false);
+        return;
+      }
+
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Veuillez activer le service de localisation.'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+        setState(() => _isLoadingAddress = false);
+        return;
+      }
+
+      // Get current position
+      Position position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 10),
+      );
+
+      // Reverse geocode to get address
+      final addressComponents = await _geocodingService.reverseGeocode(
+        position.latitude,
+        position.longitude,
+      );
+
+      if (addressComponents != null) {
+        // Match or add city
+        final matchedCity = _matchOrAddCity(addressComponents.city);
+
+        // Match or add quartier
+        final matchedQuartier = _matchOrAddQuartier(
+          addressComponents.quartier,
+          matchedCity,
+        );
+
+        setState(() {
+          _selectedVille = matchedCity;
+          _selectedQuartier = matchedQuartier;
+          _addressController.text = addressComponents.fullAddress ?? '';
+        });
+      }
+
+      // Store GPS location
+      final gpsPosition = LatLng(position.latitude, position.longitude);
+
+      // Show map picker for fine-tuning
+      if (mounted) {
+        final adjustedPosition = await _showLocationPickerDialog(gpsPosition);
+        if (adjustedPosition != null) {
+          setState(() {
+            _originalGpsPosition = gpsPosition;
+            _adjustedGpsPosition = adjustedPosition;
+            _gpsLocation = '${adjustedPosition.latitude.toStringAsFixed(6)}, ${adjustedPosition.longitude.toStringAsFixed(6)}';
+            _addressAutoFilled = true;
+            _isLoadingAddress = false;
+          });
+
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Row(
+                  children: [
+                    const Icon(Icons.check_circle, color: Colors.white),
+                    const SizedBox(width: 12),
+                    const Expanded(child: Text('Position et adresse enregistrées')),
+                  ],
+                ),
+                backgroundColor: AppColors.success,
+                duration: const Duration(seconds: 2),
+              ),
+            );
+          }
+        } else {
+          setState(() => _isLoadingAddress = false);
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur: ${e.toString()}'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+        setState(() => _isLoadingAddress = false);
+      }
+    }
+  }
+
+  /// Match a city name to existing options or add it dynamically
+  String? _matchOrAddCity(String? city) {
+    if (city == null || city.isEmpty) return null;
+
+    final cityLower = city.toLowerCase().trim();
+
+    // Try exact match (case-insensitive)
+    for (final ville in _villes) {
+      if (ville.toLowerCase() == cityLower) {
+        return ville;
+      }
+    }
+
+    // Try fuzzy match (contains)
+    for (final ville in _villes) {
+      if (cityLower.contains(ville.toLowerCase()) ||
+          ville.toLowerCase().contains(cityLower)) {
+        return ville;
+      }
+    }
+
+    // Check if already in dynamic list
+    for (final ville in _dynamicVilles) {
+      if (ville.toLowerCase() == cityLower) {
+        return ville;
+      }
+    }
+
+    // Add as new dynamic entry
+    final newCity = city.trim();
+    _dynamicVilles.add(newCity);
+    return newCity;
+  }
+
+  /// Match a quartier name to existing options or add it dynamically
+  String? _matchOrAddQuartier(String? quartier, String? city) {
+    if (quartier == null || quartier.isEmpty || city == null) return null;
+
+    final quartierLower = quartier.toLowerCase().trim();
+    final staticQuartiers = _quartiersByVille[city] ?? [];
+    final dynamicQuartiersForCity = _dynamicQuartiers[city] ?? [];
+
+    // Try exact match (case-insensitive) in static list
+    for (final q in staticQuartiers) {
+      if (q.toLowerCase() == quartierLower) {
+        return q;
+      }
+    }
+
+    // Try fuzzy match in static list
+    for (final q in staticQuartiers) {
+      if (quartierLower.contains(q.toLowerCase()) ||
+          q.toLowerCase().contains(quartierLower)) {
+        return q;
+      }
+    }
+
+    // Check if already in dynamic list
+    for (final q in dynamicQuartiersForCity) {
+      if (q.toLowerCase() == quartierLower) {
+        return q;
+      }
+    }
+
+    // Add as new dynamic entry
+    final newQuartier = quartier.trim();
+    if (_dynamicQuartiers[city] == null) {
+      _dynamicQuartiers[city] = [];
+    }
+    _dynamicQuartiers[city]!.add(newQuartier);
+    return newQuartier;
   }
 
   Widget _buildVisualDataStep() {
@@ -2619,6 +2892,108 @@ class _LocationPickerPageState extends State<_LocationPickerPage> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Helper class to group photos for upload with metadata
+class _PhotoUploadTask {
+  final List<GeotaggedPhoto> photos;
+  final String type;
+  final String title;
+  final String description;
+
+  _PhotoUploadTask({
+    required this.photos,
+    required this.type,
+    required this.title,
+    required this.description,
+  });
+}
+
+/// Widget that displays upload progress with animated progress bar
+class _UploadProgressContent extends StatelessWidget {
+  final double progressValue;
+  final String progressLabel;
+  final int totalTasks;
+
+  const _UploadProgressContent({
+    required this.progressValue,
+    required this.progressLabel,
+    required this.totalTasks,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Upload icon with animation
+        Container(
+          width: 70,
+          height: 70,
+          decoration: BoxDecoration(
+            color: AppColors.primary.withValues(alpha: 0.1),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(
+            Icons.cloud_upload_outlined,
+            size: 40,
+            color: AppColors.primary,
+          ),
+        ),
+        const SizedBox(height: 20),
+        // Title
+        const Text(
+          'Téléchargement des photos',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: Colors.black87,
+          ),
+        ),
+        const SizedBox(height: 8),
+        // Progress label
+        Text(
+          progressLabel,
+          style: TextStyle(
+            fontSize: 14,
+            color: Colors.grey[600],
+          ),
+        ),
+        const SizedBox(height: 20),
+        // Progress bar
+        ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: LinearProgressIndicator(
+            value: progressValue,
+            minHeight: 12,
+            backgroundColor: Colors.grey[200],
+            valueColor: AlwaysStoppedAnimation<Color>(
+              progressValue >= 1.0 ? AppColors.success : AppColors.primary,
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        // Percentage text
+        Text(
+          '${(progressValue * 100).toInt()}%',
+          style: TextStyle(
+            fontSize: 24,
+            fontWeight: FontWeight.bold,
+            color: progressValue >= 1.0 ? AppColors.success : AppColors.primary,
+          ),
+        ),
+        const SizedBox(height: 8),
+        // Helper text
+        Text(
+          'Veuillez patienter...',
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.grey[500],
+          ),
+        ),
+      ],
     );
   }
 }

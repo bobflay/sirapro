@@ -34,7 +34,6 @@ class _VisitReportPageState extends State<VisitReportPage> {
   final _formKey = GlobalKey<FormState>();
 
   // Photos - now supporting multiple photos per category
-  List<GeotaggedPhoto> _facadePhotos = [];
   List<GeotaggedPhoto> _shelfPhotos = [];
   List<GeotaggedPhoto> _additionalPhotos = [];
 
@@ -95,7 +94,6 @@ class _VisitReportPageState extends State<VisitReportPage> {
       final report = widget.existingReport!;
       setState(() {
         // Load photos - support both old single photo and new multiple photos format
-        _facadePhotos = List.from(report.allFacadePhotos);
         _shelfPhotos = List.from(report.allShelfPhotos);
         _additionalPhotos = List.from(report.additionalPhotos);
         _gerantPresent = report.gerantPresent;
@@ -160,7 +158,7 @@ class _VisitReportPageState extends State<VisitReportPage> {
         setState(() {
           switch (type) {
             case PhotoType.facade:
-              _facadePhotos.add(photo);
+              // Facade photos removed - no longer needed
               break;
             case PhotoType.shelf:
               _shelfPhotos.add(photo);
@@ -258,9 +256,7 @@ class _VisitReportPageState extends State<VisitReportPage> {
     setState(() {
       switch (type) {
         case PhotoType.facade:
-          if (index != null && index < _facadePhotos.length) {
-            _facadePhotos.removeAt(index);
-          }
+          // Facade photos removed - no longer needed
           break;
         case PhotoType.shelf:
           if (index != null && index < _shelfPhotos.length) {
@@ -277,11 +273,6 @@ class _VisitReportPageState extends State<VisitReportPage> {
   }
 
   bool _validateForm() {
-    if (_facadePhotos.isEmpty) {
-      _showError('Au moins une photo de façade est obligatoire');
-      return false;
-    }
-
     if (_shelfPhotos.isEmpty) {
       _showError('Au moins une photo des rayons est obligatoire');
       return false;
@@ -318,7 +309,6 @@ class _VisitReportPageState extends State<VisitReportPage> {
     debugPrint('=== _submitReport started ===');
     debugPrint('widget.apiVisitId: ${widget.apiVisitId}');
     debugPrint('widget.visit.id: ${widget.visit.id}');
-    debugPrint('Facade photos count: ${_facadePhotos.length}');
     debugPrint('Shelf photos count: ${_shelfPhotos.length}');
     debugPrint('Additional photos count: ${_additionalPhotos.length}');
 
@@ -370,17 +360,10 @@ class _VisitReportPageState extends State<VisitReportPage> {
 
       // Use GeotaggedPhoto objects directly for cross-platform API submission
       debugPrint('Preparing photos for upload...');
-      debugPrint('_facadePhotos: ${_facadePhotos.length} photos');
       debugPrint('_shelfPhotos: ${_shelfPhotos.length} photos');
       debugPrint('_additionalPhotos: ${_additionalPhotos.length} photos');
 
       // Verify all photos have bytes
-      for (var p in _facadePhotos) {
-        debugPrint('  Facade photo: ${p.effectiveFileName}, has bytes: ${p.hasBytes}');
-        if (!p.hasBytes) {
-          throw Exception('Facade photo missing bytes data');
-        }
-      }
       for (var p in _shelfPhotos) {
         debugPrint('  Shelf photo: ${p.effectiveFileName}, has bytes: ${p.hasBytes}');
         if (!p.hasBytes) {
@@ -424,7 +407,6 @@ class _VisitReportPageState extends State<VisitReportPage> {
         visitId: visitId,
         latitude: position.latitude,
         longitude: position.longitude,
-        facadePhotos: _facadePhotos,
         shelfPhotos: _shelfPhotos,
         additionalPhotos: _additionalPhotos,
         managerPresent: _gerantPresent,
@@ -456,7 +438,6 @@ class _VisitReportPageState extends State<VisitReportPage> {
         validationLatitude: position.latitude,
         validationLongitude: position.longitude,
         validationTime: DateTime.now(),
-        facadePhotos: _facadePhotos,
         shelfPhotos: _shelfPhotos,
         additionalPhotos: _additionalPhotos,
         gerantPresent: _gerantPresent,
@@ -681,16 +662,6 @@ class _VisitReportPageState extends State<VisitReportPage> {
                   style: TextStyle(color: Colors.red, fontSize: 16),
                 ),
               ],
-            ),
-            const SizedBox(height: 16),
-
-            // Photos façade (multiple)
-            _buildMultiPhotoSection(
-              title: 'Photos Façade',
-              photos: _facadePhotos,
-              type: PhotoType.facade,
-              required: true,
-              subtitle: 'Extérieur de la boutique',
             ),
             const SizedBox(height: 16),
 
@@ -1387,7 +1358,6 @@ class _VisitReportPageState extends State<VisitReportPage> {
         validationLatitude: null,
         validationLongitude: null,
         validationTime: null,
-        facadePhotos: _facadePhotos,
         shelfPhotos: _shelfPhotos,
         additionalPhotos: _additionalPhotos,
         gerantPresent: _gerantPresent,

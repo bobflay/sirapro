@@ -10,6 +10,8 @@ import 'package:sirapro/screens/orders_page.dart';
 import 'package:sirapro/screens/stock_commercial_page.dart';
 import 'package:sirapro/utils/app_colors.dart';
 import 'package:sirapro/services/auth_service.dart';
+import 'package:sirapro/services/home_service.dart';
+import 'package:sirapro/services/api_service.dart';
 import 'package:sirapro/widgets/session_aware_app_bar.dart';
 
 class HomePage extends StatefulWidget {
@@ -21,24 +23,76 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   final AuthService _authService = AuthService();
+  final HomeService _homeService = HomeService();
+
   String? _userName;
   String? _userPhoto;
   double _userBalance = 0.0;
+  int _clientsCount = 0;
+
+  bool _isLoading = true;
+  String? _errorMessage;
 
   @override
   void initState() {
     super.initState();
-    _loadUserData();
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    // Load user data and home data in parallel
+    await Future.wait([
+      _loadUserData(),
+      _loadHomeData(),
+    ]);
+
+    if (mounted) {
+      setState(() {
+        _isLoading = false;
+      });
+    }
   }
 
   Future<void> _loadUserData() async {
-    final user = await _authService.getCurrentUser();
-    if (mounted && user != null) {
-      setState(() {
-        _userName = user.name;
-        _userPhoto = user.photoUrl;
-        _userBalance = user.balance;
-      });
+    try {
+      final user = await _authService.getCurrentUser();
+      if (mounted && user != null) {
+        setState(() {
+          _userName = user.name;
+          _userPhoto = user.photoUrl;
+        });
+      }
+    } catch (e) {
+      // User data loading error is not critical, continue silently
+    }
+  }
+
+  Future<void> _loadHomeData() async {
+    try {
+      final homeData = await _homeService.getHomeData();
+      if (mounted) {
+        setState(() {
+          _clientsCount = homeData.clientsCount;
+          _userBalance = homeData.balance;
+        });
+      }
+    } on ApiException catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = e.message;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'Une erreur est survenue lors du chargement des données';
+        });
+      }
     }
   }
 
@@ -132,6 +186,563 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  Widget _buildErrorWidget() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.error_outline,
+              size: 64,
+              color: Colors.grey[400],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              _errorMessage ?? 'Une erreur est survenue',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.grey[600],
+              ),
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              onPressed: _loadData,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Réessayer'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildContent() {
+    return RefreshIndicator(
+      onRefresh: _loadData,
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Greeting & Balance Row
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Greeting Card (2/3 width)
+                Expanded(
+                  flex: 2,
+                  child: GestureDetector(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const UserProfilePage(),
+                        ),
+                      );
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.grey.withValues(alpha: 0.1),
+                            spreadRadius: 1,
+                            blurRadius: 5,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              // User Photo
+                              Container(
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: Theme.of(context).primaryColor,
+                                    width: 2,
+                                  ),
+                                ),
+                                child: _userPhoto != null && _userPhoto!.isNotEmpty
+                                    ? ClipOval(
+                                        child: Image.network(
+                                          _userPhoto!,
+                                          width: 44,
+                                          height: 44,
+                                          fit: BoxFit.cover,
+                                          loadingBuilder: (context, child, loadingProgress) {
+                                            if (loadingProgress == null) return child;
+                                            return Container(
+                                              width: 44,
+                                              height: 44,
+                                              color: Colors.grey[300],
+                                              child: const Center(
+                                                child: SizedBox(
+                                                  width: 16,
+                                                  height: 16,
+                                                  child: CircularProgressIndicator(
+                                                    strokeWidth: 2,
+                                                  ),
+                                                ),
+                                              ),
+                                            );
+                                          },
+                                          errorBuilder: (context, error, stackTrace) {
+                                            return CircleAvatar(
+                                              radius: 22,
+                                              backgroundColor: Colors.grey[300],
+                                              child: Icon(
+                                                Icons.person,
+                                                size: 22,
+                                                color: Colors.grey[600],
+                                              ),
+                                            );
+                                          },
+                                        ),
+                                      )
+                                    : CircleAvatar(
+                                        radius: 22,
+                                        backgroundColor: Colors.grey[300],
+                                        child: Icon(
+                                          Icons.person,
+                                          size: 22,
+                                          color: Colors.grey[600],
+                                        ),
+                                      ),
+                              ),
+                              const Spacer(),
+                              Icon(
+                                Icons.chevron_right,
+                                size: 24,
+                                color: Colors.grey[400],
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            '${_getGreeting()}${_userName != null ? ', $_userName' : ''}',
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.black87,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            _getFormattedDate(),
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                // Balance Card (1/3 width)
+                Expanded(
+                  flex: 1,
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          Theme.of(context).primaryColor,
+                          Theme.of(context).primaryColor.withValues(alpha: 0.8),
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Theme.of(context).primaryColor.withValues(alpha: 0.3),
+                          spreadRadius: 1,
+                          blurRadius: 8,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Icon(
+                            Icons.account_balance_wallet,
+                            size: 24,
+                            color: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        const Text(
+                          'Solde Actuel',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.white70,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _formatBalance(_userBalance),
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+
+            // Cards Section
+            SizedBox(
+              height: 160,
+              child: Row(
+                children: [
+                  // Tournee du Jour Card
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const TourneeDetailPage(),
+                          ),
+                        );
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.grey.withValues(alpha: 0.1),
+                              spreadRadius: 1,
+                              blurRadius: 5,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Stack(
+                          children: [
+                            Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.route,
+                                    size: 28,
+                                    color: Theme.of(context).primaryColor,
+                                  ),
+                                  const SizedBox(height: 4),
+                                  const Text(
+                                    'Tournée du Jour',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.black87,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  const Text(
+                                    '1/4',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.black87,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  const Text(
+                                    'visites',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.grey,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  // Progress Bar
+                                  Column(
+                                    children: [
+                                      ClipRRect(
+                                        borderRadius: BorderRadius.circular(10),
+                                        child: LinearProgressIndicator(
+                                          value: 0.25,
+                                          minHeight: 4,
+                                          backgroundColor: Colors.grey[200],
+                                          valueColor: AlwaysStoppedAnimation<Color>(
+                                            Theme.of(context).primaryColor,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      const Text(
+                                        '25%',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.black87,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Positioned(
+                              right: 8,
+                              top: 0,
+                              bottom: 0,
+                              child: Center(
+                                child: Icon(
+                                  Icons.chevron_right,
+                                  size: 24,
+                                  color: Colors.grey[400],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+
+                  // Clients Card
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const ClientsPage(),
+                          ),
+                        );
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.grey.withValues(alpha: 0.1),
+                              spreadRadius: 1,
+                              blurRadius: 5,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Stack(
+                          children: [
+                            Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.shopping_bag,
+                                    size: 28,
+                                    color: Theme.of(context).primaryColor,
+                                  ),
+                                  const SizedBox(height: 4),
+                                  const Text(
+                                    'Clients',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.black87,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    '$_clientsCount',
+                                    style: const TextStyle(
+                                      fontSize: 24,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.black87,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    'clients actifs',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.grey[600],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Positioned(
+                              right: 8,
+                              top: 0,
+                              bottom: 0,
+                              child: Center(
+                                child: Icon(
+                                  Icons.chevron_right,
+                                  size: 24,
+                                  color: Colors.grey[400],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            // Actions Rapides Section
+            const Text(
+              'Actions Rapides',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.grey.withValues(alpha: 0.1),
+                    spreadRadius: 1,
+                    blurRadius: 5,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: GridView.count(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                crossAxisCount: 3,
+                mainAxisSpacing: 16,
+                crossAxisSpacing: 16,
+                childAspectRatio: 1,
+                children: [
+                  _buildActionButton(
+                    context,
+                    icon: Icons.route,
+                    label: 'Ma Tournée',
+                    color: AppColors.primary,
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const TourneeDetailPage(),
+                        ),
+                      );
+                    },
+                  ),
+                  _buildActionButton(
+                    context,
+                    icon: Icons.inventory_2,
+                    label: 'Stock\nCommercial',
+                    color: AppColors.success,
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const StockCommercialPage(),
+                        ),
+                      );
+                    },
+                  ),
+                  _buildActionButton(
+                    context,
+                    icon: Icons.location_on,
+                    label: 'Visites',
+                    color: AppColors.secondary,
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const VisitsPage(),
+                        ),
+                      );
+                    },
+                  ),
+                  _buildActionButton(
+                    context,
+                    icon: Icons.warning_amber,
+                    label: 'Alertes',
+                    color: AppColors.primaryDark,
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const AlertesPage(),
+                        ),
+                      );
+                    },
+                  ),
+                  _buildActionButton(
+                    context,
+                    icon: Icons.shopping_cart,
+                    label: 'Commandes',
+                    color: AppColors.secondaryDark,
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const OrdersPage(),
+                        ),
+                      );
+                    },
+                  ),
+                  _buildActionButton(
+                    context,
+                    icon: Icons.map,
+                    label: 'Carte',
+                    color: AppColors.accent,
+                    onTap: () {
+                      // TODO: Navigate to Carte page
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -217,523 +828,11 @@ class _HomePageState extends State<HomePage> {
         ],
       ),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Greeting & Balance Row
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Greeting Card (2/3 width)
-                  Expanded(
-                    flex: 2,
-                    child: GestureDetector(
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => const UserProfilePage(),
-                          ),
-                        );
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.grey.withValues(alpha: 0.1),
-                              spreadRadius: 1,
-                              blurRadius: 5,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                // User Photo
-                                Container(
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
-                                      color: Theme.of(context).primaryColor,
-                                      width: 2,
-                                    ),
-                                  ),
-                                  child: _userPhoto != null && _userPhoto!.isNotEmpty
-                                      ? ClipOval(
-                                          child: Image.network(
-                                            _userPhoto!,
-                                            width: 44,
-                                            height: 44,
-                                            fit: BoxFit.cover,
-                                            loadingBuilder: (context, child, loadingProgress) {
-                                              if (loadingProgress == null) return child;
-                                              return Container(
-                                                width: 44,
-                                                height: 44,
-                                                color: Colors.grey[300],
-                                                child: const Center(
-                                                  child: SizedBox(
-                                                    width: 16,
-                                                    height: 16,
-                                                    child: CircularProgressIndicator(
-                                                      strokeWidth: 2,
-                                                    ),
-                                                  ),
-                                                ),
-                                              );
-                                            },
-                                            errorBuilder: (context, error, stackTrace) {
-                                              return CircleAvatar(
-                                                radius: 22,
-                                                backgroundColor: Colors.grey[300],
-                                                child: Icon(
-                                                  Icons.person,
-                                                  size: 22,
-                                                  color: Colors.grey[600],
-                                                ),
-                                              );
-                                            },
-                                          ),
-                                        )
-                                      : CircleAvatar(
-                                          radius: 22,
-                                          backgroundColor: Colors.grey[300],
-                                          child: Icon(
-                                            Icons.person,
-                                            size: 22,
-                                            color: Colors.grey[600],
-                                          ),
-                                        ),
-                                ),
-                                const Spacer(),
-                                Icon(
-                                  Icons.chevron_right,
-                                  size: 24,
-                                  color: Colors.grey[400],
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                              '${_getGreeting()}${_userName != null ? ', $_userName' : ''}',
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.black87,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              _getFormattedDate(),
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: Colors.grey[600],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  // Balance Card (1/3 width)
-                  Expanded(
-                    flex: 1,
-                    child: Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [
-                            Theme.of(context).primaryColor,
-                            Theme.of(context).primaryColor.withValues(alpha: 0.8),
-                          ],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                        borderRadius: BorderRadius.circular(12),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Theme.of(context).primaryColor.withValues(alpha: 0.3),
-                            spreadRadius: 1,
-                            blurRadius: 8,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.2),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: const Icon(
-                              Icons.account_balance_wallet,
-                              size: 24,
-                              color: Colors.white,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          const Text(
-                            'Solde Actuel',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.white70,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            _formatBalance(_userBalance),
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-
-              // Cards Section
-              SizedBox(
-                height: 160,
-                child: Row(
-                  children: [
-                    // Tournee du Jour Card
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => const TourneeDetailPage(),
-                            ),
-                          );
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(12),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.grey.withValues(alpha: 0.1),
-                                spreadRadius: 1,
-                                blurRadius: 5,
-                                offset: const Offset(0, 2),
-                              ),
-                            ],
-                          ),
-                          child: Stack(
-                            children: [
-                              Center(
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(
-                                      Icons.route,
-                                      size: 28,
-                                      color: Theme.of(context).primaryColor,
-                                    ),
-                                    const SizedBox(height: 4),
-                                    const Text(
-                                      'Tournée du Jour',
-                                      textAlign: TextAlign.center,
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.black87,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    const Text(
-                                      '1/4',
-                                      style: TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.black87,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 2),
-                                    const Text(
-                                      'visites',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        color: Colors.grey,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    // Progress Bar
-                                    Column(
-                                      children: [
-                                        ClipRRect(
-                                          borderRadius: BorderRadius.circular(10),
-                                          child: LinearProgressIndicator(
-                                            value: 0.25,
-                                            minHeight: 4,
-                                            backgroundColor: Colors.grey[200],
-                                            valueColor: AlwaysStoppedAnimation<Color>(
-                                              Theme.of(context).primaryColor,
-                                            ),
-                                          ),
-                                        ),
-                                        const SizedBox(height: 2),
-                                        const Text(
-                                          '25%',
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.bold,
-                                            color: Colors.black87,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              Positioned(
-                                right: 8,
-                                top: 0,
-                                bottom: 0,
-                                child: Center(
-                                  child: Icon(
-                                    Icons.chevron_right,
-                                    size: 24,
-                                    color: Colors.grey[400],
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-
-                    // Clients Card
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => const ClientsPage(),
-                            ),
-                          );
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(12),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.grey.withValues(alpha: 0.1),
-                                spreadRadius: 1,
-                                blurRadius: 5,
-                                offset: const Offset(0, 2),
-                              ),
-                            ],
-                          ),
-                          child: Stack(
-                            children: [
-                              Center(
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(
-                                      Icons.shopping_bag,
-                                      size: 28,
-                                      color: Theme.of(context).primaryColor,
-                                    ),
-                                    const SizedBox(height: 4),
-                                    const Text(
-                                      'Clients',
-                                      textAlign: TextAlign.center,
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.black87,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    const Text(
-                                      '6',
-                                      style: TextStyle(
-                                        fontSize: 24,
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.black87,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      'clients actifs',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        color: Colors.grey[600],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              Positioned(
-                                right: 8,
-                                top: 0,
-                                bottom: 0,
-                                child: Center(
-                                  child: Icon(
-                                    Icons.chevron_right,
-                                    size: 24,
-                                    color: Colors.grey[400],
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 24),
-
-              // Actions Rapides Section
-              const Text(
-                'Actions Rapides',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.grey.withValues(alpha: 0.1),
-                      spreadRadius: 1,
-                      blurRadius: 5,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: GridView.count(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  crossAxisCount: 3,
-                  mainAxisSpacing: 16,
-                  crossAxisSpacing: 16,
-                  childAspectRatio: 1,
-                  children: [
-                    _buildActionButton(
-                      context,
-                      icon: Icons.route,
-                      label: 'Ma Tournée',
-                      color: AppColors.primary,
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => const TourneeDetailPage(),
-                          ),
-                        );
-                      },
-                    ),
-                    _buildActionButton(
-                      context,
-                      icon: Icons.inventory_2,
-                      label: 'Stock\nCommercial',
-                      color: AppColors.success,
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => const StockCommercialPage(),
-                          ),
-                        );
-                      },
-                    ),
-                    _buildActionButton(
-                      context,
-                      icon: Icons.location_on,
-                      label: 'Visites',
-                      color: AppColors.secondary,
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => const VisitsPage(),
-                          ),
-                        );
-                      },
-                    ),
-                    _buildActionButton(
-                      context,
-                      icon: Icons.warning_amber,
-                      label: 'Alertes',
-                      color: AppColors.primaryDark,
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => const AlertesPage(),
-                          ),
-                        );
-                      },
-                    ),
-                    _buildActionButton(
-                      context,
-                      icon: Icons.shopping_cart,
-                      label: 'Commandes',
-                      color: AppColors.secondaryDark,
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => const OrdersPage(),
-                          ),
-                        );
-                      },
-                    ),
-                    _buildActionButton(
-                      context,
-                      icon: Icons.map,
-                      label: 'Carte',
-                      color: AppColors.accent,
-                      onTap: () {
-                        // TODO: Navigate to Carte page
-                      },
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
+        child: _isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : _errorMessage != null
+                ? _buildErrorWidget()
+                : _buildContent(),
       ),
     );
   }

@@ -7,6 +7,9 @@ import '../models/photo_upload_request.dart';
 import '../models/visit_report.dart';
 import 'api_service.dart';
 
+// Re-export UploadProgressCallback for convenience
+export 'api_service.dart' show UploadProgressCallback;
+
 /// Service for managing client-related API operations
 class ClientService {
   final ApiService _apiService;
@@ -293,12 +296,16 @@ class ClientService {
   ///
   /// [clientId] - The ID of the client
   /// [photos] - List of GeotaggedPhoto objects to upload
-  /// [type] - Optional photo type for all photos
+  /// [type] - Optional photo type: facade, shelves, stock, anomaly, other
+  /// [title] - Optional photo title (max 255 chars)
+  /// [description] - Optional photo description
   /// Returns [PhotoUploadResponse] with uploaded photo details
   Future<PhotoUploadResponse> uploadGeotaggedPhotos(
     int clientId,
     List<GeotaggedPhoto> photos, {
     String? type,
+    String? title,
+    String? description,
   }) async {
     if (photos.isEmpty) {
       throw ApiException('No photos to upload');
@@ -316,6 +323,12 @@ class ClientService {
     if (type != null) {
       fields['type'] = type;
     }
+    if (title != null) {
+      fields['title'] = title;
+    }
+    if (description != null) {
+      fields['description'] = description;
+    }
 
     // Use GPS from first photo if available
     final firstPhoto = photos.first;
@@ -331,6 +344,75 @@ class ClientService {
       photos: photos,
       fileFieldName: 'photos[]',
       fields: fields,
+    );
+
+    final data = response as Map<String, dynamic>;
+
+    // Check for API-level errors
+    if (data['status'] == false) {
+      final message = data['message'] as String? ?? 'Photo upload failed';
+      throw ApiException(message, statusCode: 422);
+    }
+
+    return PhotoUploadResponse.fromJson(data);
+  }
+
+  /// Upload GeotaggedPhoto objects for a client with progress tracking
+  /// Works on both web and mobile platforms
+  ///
+  /// [clientId] - The ID of the client
+  /// [photos] - List of GeotaggedPhoto objects to upload
+  /// [type] - Optional photo type: facade, shelves, stock, anomaly, other
+  /// [title] - Optional photo title (max 255 chars)
+  /// [description] - Optional photo description
+  /// [onProgress] - Callback for upload progress (sent bytes, total bytes)
+  /// Returns [PhotoUploadResponse] with uploaded photo details
+  Future<PhotoUploadResponse> uploadGeotaggedPhotosWithProgress(
+    int clientId,
+    List<GeotaggedPhoto> photos, {
+    String? type,
+    String? title,
+    String? description,
+    UploadProgressCallback? onProgress,
+  }) async {
+    if (photos.isEmpty) {
+      throw ApiException('No photos to upload');
+    }
+
+    // Validate all photos have bytes
+    for (var photo in photos) {
+      if (!photo.hasBytes) {
+        throw ApiException('Photo ${photo.effectiveFileName} has no bytes data');
+      }
+    }
+
+    // Build fields for the request
+    final fields = <String, String>{};
+    if (type != null) {
+      fields['type'] = type;
+    }
+    if (title != null) {
+      fields['title'] = title;
+    }
+    if (description != null) {
+      fields['description'] = description;
+    }
+
+    // Use GPS from first photo if available
+    final firstPhoto = photos.first;
+    if (firstPhoto.latitude != null) {
+      fields['latitude'] = firstPhoto.latitude.toString();
+    }
+    if (firstPhoto.longitude != null) {
+      fields['longitude'] = firstPhoto.longitude.toString();
+    }
+
+    final response = await _apiService.uploadGeotaggedPhotosWithProgress(
+      '/api/clients/$clientId/photos',
+      photos: photos,
+      fileFieldName: 'photos[]',
+      fields: fields,
+      onProgress: onProgress,
     );
 
     final data = response as Map<String, dynamic>;

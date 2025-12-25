@@ -485,12 +485,6 @@ class VisitDetailPage extends StatelessWidget {
                 color: Colors.teal,
                 children: [
                   _buildPhotoSection(
-                    'Photo de façade',
-                    report.facadePhoto?.path,
-                    report.facadePhoto?.timestamp,
-                  ),
-                  const SizedBox(height: 16),
-                  _buildPhotoSection(
                     'Photo des rayons',
                     report.shelfPhoto?.path,
                     report.shelfPhoto?.timestamp,

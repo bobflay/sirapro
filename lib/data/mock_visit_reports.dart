@@ -14,13 +14,6 @@ final List<VisitReport> mockVisitReports = [
     validationLatitude: 5.3600,
     validationLongitude: -4.0083,
     validationTime: DateTime.now().subtract(const Duration(days: 2, hours: 9, minutes: 20)),
-    facadePhoto: GeotaggedPhoto(
-      path: '/mock/photos/bonheur_facade_001.jpg',
-      timestamp: DateTime.now().subtract(const Duration(days: 2, hours: 10, minutes: 15)),
-      latitude: 5.3600,
-      longitude: -4.0083,
-      description: 'Façade principale Supermarché Bonheur',
-    ),
     shelfPhoto: GeotaggedPhoto(
       path: '/mock/photos/bonheur_shelf_001.jpg',
       timestamp: DateTime.now().subtract(const Duration(days: 2, hours: 9, minutes: 40)),
@@ -58,13 +51,6 @@ final List<VisitReport> mockVisitReports = [
     validationLatitude: 5.3600,
     validationLongitude: -4.0083,
     validationTime: DateTime.now().subtract(const Duration(days: 9, hours: 10, minutes: 10)),
-    facadePhoto: GeotaggedPhoto(
-      path: '/mock/photos/bonheur_facade_002.jpg',
-      timestamp: DateTime.now().subtract(const Duration(days: 9, hours: 11)),
-      latitude: 5.3600,
-      longitude: -4.0083,
-      description: 'Façade',
-    ),
     shelfPhoto: GeotaggedPhoto(
       path: '/mock/photos/bonheur_shelf_002.jpg',
       timestamp: DateTime.now().subtract(const Duration(days: 9, hours: 10, minutes: 30)),
@@ -93,13 +79,6 @@ final List<VisitReport> mockVisitReports = [
     validationLatitude: 5.3600,
     validationLongitude: -4.0083,
     validationTime: DateTime.now().subtract(const Duration(days: 16, hours: 9)),
-    facadePhoto: GeotaggedPhoto(
-      path: '/mock/photos/bonheur_facade_003.jpg',
-      timestamp: DateTime.now().subtract(const Duration(days: 16, hours: 9, minutes: 45)),
-      latitude: 5.3600,
-      longitude: -4.0083,
-      description: 'Façade',
-    ),
     shelfPhoto: GeotaggedPhoto(
       path: '/mock/photos/bonheur_shelf_003.jpg',
       timestamp: DateTime.now().subtract(const Duration(days: 16, hours: 9, minutes: 15)),
@@ -128,13 +107,6 @@ final List<VisitReport> mockVisitReports = [
     validationLatitude: 5.3600,
     validationLongitude: -4.0083,
     validationTime: DateTime.now().subtract(const Duration(days: 23, hours: 9, minutes: 45)),
-    facadePhoto: GeotaggedPhoto(
-      path: '/mock/photos/bonheur_facade_004.jpg',
-      timestamp: DateTime.now().subtract(const Duration(days: 23, hours: 10, minutes: 30)),
-      latitude: 5.3600,
-      longitude: -4.0083,
-      description: 'Façade',
-    ),
     shelfPhoto: GeotaggedPhoto(
       path: '/mock/photos/bonheur_shelf_004.jpg',
       timestamp: DateTime.now().subtract(const Duration(days: 23, hours: 10)),
@@ -164,13 +136,6 @@ final List<VisitReport> mockVisitReports = [
     validationLatitude: 5.3364,
     validationLongitude: -4.0742,
     validationTime: DateTime.now().subtract(const Duration(days: 4, hours: 13, minutes: 55)),
-    facadePhoto: GeotaggedPhoto(
-      path: '/mock/photos/adjoua_facade_001.jpg',
-      timestamp: DateTime.now().subtract(const Duration(days: 4, hours: 14, minutes: 30)),
-      latitude: 5.3364,
-      longitude: -4.0742,
-      description: 'Façade boutique Adjoua',
-    ),
     shelfPhoto: GeotaggedPhoto(
       path: '/mock/photos/adjoua_shelf_001.jpg',
       timestamp: DateTime.now().subtract(const Duration(days: 4, hours: 14, minutes: 10)),
@@ -208,13 +173,6 @@ final List<VisitReport> mockVisitReports = [
     validationLatitude: 5.3364,
     validationLongitude: -4.0742,
     validationTime: DateTime.now().subtract(const Duration(days: 18, hours: 14, minutes: 30)),
-    facadePhoto: GeotaggedPhoto(
-      path: '/mock/photos/adjoua_facade_002.jpg',
-      timestamp: DateTime.now().subtract(const Duration(days: 18, hours: 15)),
-      latitude: 5.3364,
-      longitude: -4.0742,
-      description: 'Façade',
-    ),
     shelfPhoto: GeotaggedPhoto(
       path: '/mock/photos/adjoua_shelf_002.jpg',
       timestamp: DateTime.now().subtract(const Duration(days: 18, hours: 14, minutes: 40)),
@@ -240,13 +198,6 @@ final List<VisitReport> mockVisitReports = [
     validationLatitude: 5.3364,
     validationLongitude: -4.0742,
     validationTime: DateTime.now().subtract(const Duration(days: 32, hours: 13, minutes: 10)),
-    facadePhoto: GeotaggedPhoto(
-      path: '/mock/photos/adjoua_facade_003.jpg',
-      timestamp: DateTime.now().subtract(const Duration(days: 32, hours: 13, minutes: 45)),
-      latitude: 5.3364,
-      longitude: -4.0742,
-      description: 'Façade boutique',
-    ),
     shelfPhoto: GeotaggedPhoto(
       path: '/mock/photos/adjoua_shelf_003.jpg',
       timestamp: DateTime.now().subtract(const Duration(days: 32, hours: 13, minutes: 25)),
@@ -278,13 +229,6 @@ final List<VisitReport> mockVisitReports = [
     validationLatitude: 5.3267,
     validationLongitude: -4.0305,
     validationTime: DateTime.now().subtract(const Duration(days: 1, hours: 7, minutes: 45)),
-    facadePhoto: GeotaggedPhoto(
-      path: '/mock/photos/akissi_facade_001.jpg',
-      timestamp: DateTime.now().subtract(const Duration(days: 1, hours: 9)),
-      latitude: 5.3267,
-      longitude: -4.0305,
-      description: 'Façade Demi-Gros Akissi',
-    ),
     shelfPhoto: GeotaggedPhoto(
       path: '/mock/photos/akissi_shelf_001.jpg',
       timestamp: DateTime.now().subtract(const Duration(days: 1, hours: 8, minutes: 20)),
@@ -329,13 +273,6 @@ final List<VisitReport> mockVisitReports = [
     validationLatitude: 5.3267,
     validationLongitude: -4.0305,
     validationTime: DateTime.now().subtract(const Duration(days: 8, hours: 7, minutes: 20)),
-    facadePhoto: GeotaggedPhoto(
-      path: '/mock/photos/akissi_facade_002.jpg',
-      timestamp: DateTime.now().subtract(const Duration(days: 8, hours: 8, minutes: 30)),
-      latitude: 5.3267,
-      longitude: -4.0305,
-      description: 'Façade',
-    ),
     shelfPhoto: GeotaggedPhoto(
       path: '/mock/photos/akissi_shelf_002.jpg',
       timestamp: DateTime.now().subtract(const Duration(days: 8, hours: 7, minutes: 50)),
@@ -362,13 +299,6 @@ final List<VisitReport> mockVisitReports = [
     validationLatitude: 5.3267,
     validationLongitude: -4.0305,
     validationTime: DateTime.now().subtract(const Duration(days: 15, hours: 8)),
-    facadePhoto: GeotaggedPhoto(
-      path: '/mock/photos/akissi_facade_003.jpg',
-      timestamp: DateTime.now().subtract(const Duration(days: 15, hours: 9, minutes: 15)),
-      latitude: 5.3267,
-      longitude: -4.0305,
-      description: 'Façade',
-    ),
     shelfPhoto: GeotaggedPhoto(
       path: '/mock/photos/akissi_shelf_003.jpg',
       timestamp: DateTime.now().subtract(const Duration(days: 15, hours: 8, minutes: 30)),
@@ -396,13 +326,6 @@ final List<VisitReport> mockVisitReports = [
     validationLatitude: 5.3267,
     validationLongitude: -4.0305,
     validationTime: DateTime.now().subtract(const Duration(days: 22, hours: 7, minutes: 35)),
-    facadePhoto: GeotaggedPhoto(
-      path: '/mock/photos/akissi_facade_004.jpg',
-      timestamp: DateTime.now().subtract(const Duration(days: 22, hours: 8, minutes: 45)),
-      latitude: 5.3267,
-      longitude: -4.0305,
-      description: 'Façade',
-    ),
     shelfPhoto: GeotaggedPhoto(
       path: '/mock/photos/akissi_shelf_004.jpg',
       timestamp: DateTime.now().subtract(const Duration(days: 22, hours: 8)),
@@ -429,13 +352,6 @@ final List<VisitReport> mockVisitReports = [
     validationLatitude: 5.3267,
     validationLongitude: -4.0305,
     validationTime: DateTime.now().subtract(const Duration(days: 29, hours: 7, minutes: 50)),
-    facadePhoto: GeotaggedPhoto(
-      path: '/mock/photos/akissi_facade_005.jpg',
-      timestamp: DateTime.now().subtract(const Duration(days: 29, hours: 9)),
-      latitude: 5.3267,
-      longitude: -4.0305,
-      description: 'Façade',
-    ),
     shelfPhoto: GeotaggedPhoto(
       path: '/mock/photos/akissi_shelf_005.jpg',
       timestamp: DateTime.now().subtract(const Duration(days: 29, hours: 8, minutes: 20)),
@@ -465,13 +381,6 @@ final List<VisitReport> mockVisitReports = [
     validationLatitude: 5.3515,
     validationLongitude: -4.0228,
     validationTime: DateTime.now().subtract(const Duration(days: 6, hours: 15, minutes: 35)),
-    facadePhoto: GeotaggedPhoto(
-      path: '/mock/photos/marche_facade_001.jpg',
-      timestamp: DateTime.now().subtract(const Duration(days: 6, hours: 16)),
-      latitude: 5.3515,
-      longitude: -4.0228,
-      description: 'Façade épicerie',
-    ),
     shelfPhoto: GeotaggedPhoto(
       path: '/mock/photos/marche_shelf_001.jpg',
       timestamp: DateTime.now().subtract(const Duration(days: 6, hours: 15, minutes: 45)),
@@ -500,13 +409,6 @@ final List<VisitReport> mockVisitReports = [
     validationLatitude: 5.3515,
     validationLongitude: -4.0228,
     validationTime: DateTime.now().subtract(const Duration(days: 20, hours: 15)),
-    facadePhoto: GeotaggedPhoto(
-      path: '/mock/photos/marche_facade_002.jpg',
-      timestamp: DateTime.now().subtract(const Duration(days: 20, hours: 15, minutes: 30)),
-      latitude: 5.3515,
-      longitude: -4.0228,
-      description: 'Façade',
-    ),
     shelfPhoto: GeotaggedPhoto(
       path: '/mock/photos/marche_shelf_002.jpg',
       timestamp: DateTime.now().subtract(const Duration(days: 20, hours: 15, minutes: 15)),
@@ -536,13 +438,6 @@ final List<VisitReport> mockVisitReports = [
     validationLatitude: 5.2789,
     validationLongitude: -3.9884,
     validationTime: DateTime.now().subtract(const Duration(days: 12, hours: 16, minutes: 40)),
-    facadePhoto: GeotaggedPhoto(
-      path: '/mock/photos/traore_facade_001.jpg',
-      timestamp: DateTime.now().subtract(const Duration(days: 12, hours: 17)),
-      latitude: 5.2789,
-      longitude: -3.9884,
-      description: 'Façade Mini Market',
-    ),
     shelfPhoto: GeotaggedPhoto(
       path: '/mock/photos/traore_shelf_001.jpg',
       timestamp: DateTime.now().subtract(const Duration(days: 12, hours: 16, minutes: 50)),
@@ -571,13 +466,6 @@ final List<VisitReport> mockVisitReports = [
     validationLatitude: 5.2789,
     validationLongitude: -3.9884,
     validationTime: DateTime.now().subtract(const Duration(days: 42, hours: 16, minutes: 25)),
-    facadePhoto: GeotaggedPhoto(
-      path: '/mock/photos/traore_facade_002.jpg',
-      timestamp: DateTime.now().subtract(const Duration(days: 42, hours: 16, minutes: 45)),
-      latitude: 5.2789,
-      longitude: -3.9884,
-      description: 'Façade',
-    ),
     shelfPhoto: GeotaggedPhoto(
       path: '/mock/photos/traore_shelf_002.jpg',
       timestamp: DateTime.now().subtract(const Duration(days: 42, hours: 16, minutes: 35)),
@@ -607,13 +495,6 @@ final List<VisitReport> mockVisitReports = [
     validationLatitude: 5.2832,
     validationLongitude: -4.0180,
     validationTime: DateTime.now().subtract(const Duration(days: 3, hours: 8, minutes: 30)),
-    facadePhoto: GeotaggedPhoto(
-      path: '/mock/photos/diallo_facade_001.jpg',
-      timestamp: DateTime.now().subtract(const Duration(days: 3, hours: 10)),
-      latitude: 5.2832,
-      longitude: -4.0180,
-      description: 'Façade Cash & Carry',
-    ),
     shelfPhoto: GeotaggedPhoto(
       path: '/mock/photos/diallo_shelf_001.jpg',
       timestamp: DateTime.now().subtract(const Duration(days: 3, hours: 9, minutes: 15)),
@@ -651,13 +532,6 @@ final List<VisitReport> mockVisitReports = [
     validationLatitude: 5.2832,
     validationLongitude: -4.0180,
     validationTime: DateTime.now().subtract(const Duration(days: 10, hours: 8)),
-    facadePhoto: GeotaggedPhoto(
-      path: '/mock/photos/diallo_facade_002.jpg',
-      timestamp: DateTime.now().subtract(const Duration(days: 10, hours: 9, minutes: 30)),
-      latitude: 5.2832,
-      longitude: -4.0180,
-      description: 'Façade',
-    ),
     shelfPhoto: GeotaggedPhoto(
       path: '/mock/photos/diallo_shelf_002.jpg',
       timestamp: DateTime.now().subtract(const Duration(days: 10, hours: 8, minutes: 45)),
@@ -684,13 +558,6 @@ final List<VisitReport> mockVisitReports = [
     validationLatitude: 5.2832,
     validationLongitude: -4.0180,
     validationTime: DateTime.now().subtract(const Duration(days: 17, hours: 8, minutes: 45)),
-    facadePhoto: GeotaggedPhoto(
-      path: '/mock/photos/diallo_facade_003.jpg',
-      timestamp: DateTime.now().subtract(const Duration(days: 17, hours: 10, minutes: 15)),
-      latitude: 5.2832,
-      longitude: -4.0180,
-      description: 'Façade',
-    ),
     shelfPhoto: GeotaggedPhoto(
       path: '/mock/photos/diallo_shelf_003.jpg',
       timestamp: DateTime.now().subtract(const Duration(days: 17, hours: 9, minutes: 30)),
@@ -717,13 +584,6 @@ final List<VisitReport> mockVisitReports = [
     validationLatitude: 5.2832,
     validationLongitude: -4.0180,
     validationTime: DateTime.now().subtract(const Duration(days: 24, hours: 8, minutes: 20)),
-    facadePhoto: GeotaggedPhoto(
-      path: '/mock/photos/diallo_facade_004.jpg',
-      timestamp: DateTime.now().subtract(const Duration(days: 24, hours: 9, minutes: 45)),
-      latitude: 5.2832,
-      longitude: -4.0180,
-      description: 'Façade',
-    ),
     shelfPhoto: GeotaggedPhoto(
       path: '/mock/photos/diallo_shelf_004.jpg',
       timestamp: DateTime.now().subtract(const Duration(days: 24, hours: 9)),

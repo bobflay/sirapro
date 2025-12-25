@@ -159,15 +159,12 @@ class VisitReport {
   final double? validationLongitude;
   final DateTime? validationTime;
 
-  // Photos de façade (multiples - obligatoire au moins une)
-  final List<GeotaggedPhoto> facadePhotos;
   // Photos des rayons / linéaires (multiples - obligatoire au moins une)
   final List<GeotaggedPhoto> shelfPhotos;
   // Photos supplémentaires optionnelles (stock, anomalies, etc.)
   final List<GeotaggedPhoto> additionalPhotos;
 
-  // Legacy single photo fields (for backwards compatibility)
-  final GeotaggedPhoto? facadePhoto;
+  // Legacy single photo field (for backwards compatibility)
   final GeotaggedPhoto? shelfPhoto;
 
   // Champs de compte rendu
@@ -200,10 +197,8 @@ class VisitReport {
     this.validationLatitude,
     this.validationLongitude,
     this.validationTime,
-    this.facadePhotos = const [],
     this.shelfPhotos = const [],
     this.additionalPhotos = const [],
-    this.facadePhoto,
     this.shelfPhoto,
     this.gerantPresent,
     this.orderPlaced,
@@ -232,16 +227,8 @@ class VisitReport {
   /// Vérifie si les photos obligatoires sont présentes
   /// Supports both legacy single photo and new multiple photos format
   bool get hasRequiredPhotos {
-    final hasFacade = facadePhotos.isNotEmpty || facadePhoto != null;
     final hasShelf = shelfPhotos.isNotEmpty || shelfPhoto != null;
-    return hasFacade && hasShelf;
-  }
-
-  /// Gets all facade photos (combines legacy and new format)
-  List<GeotaggedPhoto> get allFacadePhotos {
-    if (facadePhotos.isNotEmpty) return facadePhotos;
-    if (facadePhoto != null) return [facadePhoto!];
-    return [];
+    return hasShelf;
   }
 
   /// Gets all shelf photos (combines legacy and new format)
@@ -253,7 +240,7 @@ class VisitReport {
 
   /// Gets total photo count
   int get totalPhotoCount {
-    return allFacadePhotos.length + allShelfPhotos.length + additionalPhotos.length;
+    return allShelfPhotos.length + additionalPhotos.length;
   }
 
   /// Calcule la durée de la visite
@@ -275,10 +262,8 @@ class VisitReport {
       'validationLatitude': validationLatitude,
       'validationLongitude': validationLongitude,
       'validationTime': validationTime?.toIso8601String(),
-      'facadePhotos': facadePhotos.map((p) => p.toJson()).toList(),
       'shelfPhotos': shelfPhotos.map((p) => p.toJson()).toList(),
       'additionalPhotos': additionalPhotos.map((p) => p.toJson()).toList(),
-      'facadePhoto': facadePhoto?.toJson(),
       'shelfPhoto': shelfPhoto?.toJson(),
       'gerantPresent': gerantPresent,
       'orderPlaced': orderPlaced,
@@ -307,10 +292,6 @@ class VisitReport {
       validationLatitude: json['validationLatitude'] as double?,
       validationLongitude: json['validationLongitude'] as double?,
       validationTime: json['validationTime'] != null ? DateTime.parse(json['validationTime'] as String) : null,
-      facadePhotos: (json['facadePhotos'] as List<dynamic>?)
-              ?.map((p) => GeotaggedPhoto.fromJson(p))
-              .toList() ??
-          [],
       shelfPhotos: (json['shelfPhotos'] as List<dynamic>?)
               ?.map((p) => GeotaggedPhoto.fromJson(p))
               .toList() ??
@@ -319,7 +300,6 @@ class VisitReport {
               ?.map((p) => GeotaggedPhoto.fromJson(p))
               .toList() ??
           [],
-      facadePhoto: json['facadePhoto'] != null ? GeotaggedPhoto.fromJson(json['facadePhoto']) : null,
       shelfPhoto: json['shelfPhoto'] != null ? GeotaggedPhoto.fromJson(json['shelfPhoto']) : null,
       gerantPresent: json['gerantPresent'] as bool?,
       orderPlaced: json['orderPlaced'] as bool?,
@@ -350,10 +330,8 @@ class VisitReport {
     double? validationLatitude,
     double? validationLongitude,
     DateTime? validationTime,
-    List<GeotaggedPhoto>? facadePhotos,
     List<GeotaggedPhoto>? shelfPhotos,
     List<GeotaggedPhoto>? additionalPhotos,
-    GeotaggedPhoto? facadePhoto,
     GeotaggedPhoto? shelfPhoto,
     bool? gerantPresent,
     bool? orderPlaced,
@@ -379,10 +357,8 @@ class VisitReport {
       validationLatitude: validationLatitude ?? this.validationLatitude,
       validationLongitude: validationLongitude ?? this.validationLongitude,
       validationTime: validationTime ?? this.validationTime,
-      facadePhotos: facadePhotos ?? this.facadePhotos,
       shelfPhotos: shelfPhotos ?? this.shelfPhotos,
       additionalPhotos: additionalPhotos ?? this.additionalPhotos,
-      facadePhoto: facadePhoto ?? this.facadePhoto,
       shelfPhoto: shelfPhoto ?? this.shelfPhoto,
       gerantPresent: gerantPresent ?? this.gerantPresent,
       orderPlaced: orderPlaced ?? this.orderPlaced,

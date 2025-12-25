@@ -3,7 +3,13 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
+import 'package:dio/dio.dart' as dio;
 import '../models/visit_report.dart';
+
+/// Callback for tracking upload progress
+/// [sent] - bytes sent so far
+/// [total] - total bytes to send
+typedef UploadProgressCallback = void Function(int sent, int total);
 
 class ApiException implements Exception {
   final String message;
@@ -300,6 +306,120 @@ class ApiService {
         return 'image/webp';
       default:
         return 'application/octet-stream';
+    }
+  }
+
+  /// Upload photos using Dio with progress tracking
+  /// Works on both web and mobile platforms
+  ///
+  /// [endpoint] - The API endpoint to upload to
+  /// [photos] - List of GeotaggedPhoto objects to upload
+  /// [fileFieldName] - The form field name for files (default: 'photos[]')
+  /// [fields] - Additional form fields to include
+  /// [includeAuth] - Whether to include auth header (default: true)
+  /// [onProgress] - Callback for upload progress updates
+  Future<dynamic> uploadGeotaggedPhotosWithProgress(
+    String endpoint, {
+    required List<GeotaggedPhoto> photos,
+    String fileFieldName = 'photos[]',
+    Map<String, String>? fields,
+    bool includeAuth = true,
+    UploadProgressCallback? onProgress,
+  }) async {
+    try {
+      final dioClient = dio.Dio();
+
+      // Set up headers
+      final headers = <String, dynamic>{
+        'Accept': 'application/json',
+      };
+      if (includeAuth && _token != null) {
+        headers['Authorization'] = 'Bearer $_token';
+      }
+
+      // Build form data
+      final formData = dio.FormData();
+
+      // Add photos
+      for (int i = 0; i < photos.length; i++) {
+        final photo = photos[i];
+        final Uint8List? bytes = photo.bytes;
+
+        if (bytes == null) {
+          throw ApiException('Photo at index $i has no bytes data');
+        }
+
+        final actualFileName = photo.effectiveFileName;
+        final mimeType = photo.mimeType ?? _getMimeType(actualFileName);
+        final mimeTypeParts = mimeType.split('/');
+
+        formData.files.add(MapEntry(
+          fileFieldName,
+          dio.MultipartFile.fromBytes(
+            bytes,
+            filename: actualFileName,
+            contentType: dio.DioMediaType(
+              mimeTypeParts[0],
+              mimeTypeParts.length > 1 ? mimeTypeParts[1] : 'octet-stream',
+            ),
+          ),
+        ));
+      }
+
+      // Add additional fields
+      if (fields != null) {
+        fields.forEach((key, value) {
+          formData.fields.add(MapEntry(key, value));
+        });
+      }
+
+      // Perform upload with progress tracking
+      final response = await dioClient.post(
+        '$baseUrl$endpoint',
+        data: formData,
+        options: dio.Options(headers: headers),
+        onSendProgress: (sent, total) {
+          if (onProgress != null && total > 0) {
+            onProgress(sent, total);
+          }
+        },
+      );
+
+      // Handle response
+      if (response.statusCode != null &&
+          response.statusCode! >= 200 &&
+          response.statusCode! < 300) {
+        return response.data;
+      }
+
+      // Extract error message
+      String errorMessage = 'An error occurred';
+      if (response.data != null && response.data is Map<String, dynamic>) {
+        errorMessage = response.data['message'] as String? ?? errorMessage;
+      }
+
+      throw ApiException(
+        errorMessage,
+        statusCode: response.statusCode,
+      );
+    } on dio.DioException catch (e) {
+      if (e.type == dio.DioExceptionType.connectionError ||
+          e.type == dio.DioExceptionType.connectionTimeout) {
+        throw ApiException('Connection failed. Please check your internet.');
+      }
+
+      // Try to extract error message from response
+      if (e.response?.data != null && e.response?.data is Map<String, dynamic>) {
+        final message = e.response?.data['message'] as String?;
+        if (message != null) {
+          throw ApiException(message, statusCode: e.response?.statusCode);
+        }
+      }
+
+      throw ApiException('Upload failed: ${e.message}', statusCode: e.response?.statusCode);
+    } catch (e) {
+      if (e is ApiException) rethrow;
+      throw ApiException('An unexpected error occurred: $e');
     }
   }
 }

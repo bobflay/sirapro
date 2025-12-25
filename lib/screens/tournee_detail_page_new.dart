@@ -332,7 +332,6 @@ class _TourneeDetailPageNewState extends State<TourneeDetailPageNew> {
               if (report.comments != null)
                 _buildReportField('Commentaires', report.comments!),
               const SizedBox(height: 8),
-              _buildReportField('Photos façade', report.facadePhoto != null ? 'Oui' : 'Non'),
               _buildReportField('Photos rayons', report.shelfPhoto != null ? 'Oui' : 'Non'),
               _buildReportField('Photos supplémentaires', report.additionalPhotos.length.toString()),
             ],

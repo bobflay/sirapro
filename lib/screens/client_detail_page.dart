@@ -310,6 +310,8 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
           _client.id,
           [geotaggedPhoto],
           type: 'facade',
+          title: 'Façade',
+          description: 'Photo façade de ${_client.boutiqueName}',
         );
 
         // Hide loading snackbar
@@ -2691,12 +2693,12 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
                           : report.orderPlaced == false ? 'Non' : 'Non renseigné',
                       report.orderPlaced == true ? Colors.green : Colors.grey,
                     ),
-                    if (report.facadePhoto != null || report.shelfPhoto != null) ...[
+                    if (report.shelfPhoto != null || report.additionalPhotos.isNotEmpty) ...[
                       const SizedBox(height: 8),
                       _buildReportInfoRow(
                         Icons.photo_camera,
                         'Photos',
-                        '${[report.facadePhoto, report.shelfPhoto, ...report.additionalPhotos].where((p) => p != null).length} photo(s)',
+                        '${[report.shelfPhoto, ...report.additionalPhotos].where((p) => p != null).length} photo(s)',
                         Colors.blue,
                       ),
                     ],

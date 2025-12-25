@@ -355,7 +355,6 @@ class VisitApiService {
     required int visitId,
     required double latitude,
     required double longitude,
-    List<GeotaggedPhoto> facadePhotos = const [],
     List<GeotaggedPhoto> shelfPhotos = const [],
     List<GeotaggedPhoto> additionalPhotos = const [],
     bool? managerPresent,
@@ -372,7 +371,6 @@ class VisitApiService {
     debugPrint('=== submitVisitReport API call ===');
     debugPrint('visitId: $visitId');
     debugPrint('latitude: $latitude, longitude: $longitude');
-    debugPrint('facadePhotos count: ${facadePhotos.length}');
     debugPrint('shelfPhotos count: ${shelfPhotos.length}');
     debugPrint('additionalPhotos count: ${additionalPhotos.length}');
     debugPrint('managerPresent: $managerPresent');
@@ -443,16 +441,6 @@ class VisitApiService {
       }
       if (comments != null && comments.isNotEmpty) {
         request.fields['comments'] = comments;
-      }
-
-      // Add facade photos (backend expects 'photo_facade[]' array format)
-      // Using bytes-based upload for cross-platform support
-      debugPrint('Adding facade photos...');
-      for (int i = 0; i < facadePhotos.length; i++) {
-        final photo = facadePhotos[i];
-        debugPrint('  Facade photo $i: ${photo.effectiveFileName}, has bytes: ${photo.hasBytes}');
-        final multipartFile = _createMultipartFileFromPhoto(photo, 'photo_facade[]');
-        request.files.add(multipartFile);
       }
 
       // Add shelf photos (backend expects 'photo_shelves[]' array format)

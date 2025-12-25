@@ -80,12 +80,6 @@ class _VisitsPageState extends State<VisitsPage> {
           validationLatitude: 5.3599,
           validationLongitude: -4.0082,
           validationTime: today.add(const Duration(hours: 9, minutes: 45)),
-          facadePhoto: GeotaggedPhoto(
-            path: '/mock/photo1.jpg',
-            timestamp: today.add(const Duration(hours: 9, minutes: 10)),
-            latitude: 5.3599,
-            longitude: -4.0082,
-          ),
           shelfPhoto: GeotaggedPhoto(
             path: '/mock/photo2.jpg',
             timestamp: today.add(const Duration(hours: 9, minutes: 15)),
@@ -164,12 +158,6 @@ class _VisitsPageState extends State<VisitsPage> {
           validationLatitude: 5.2832,
           validationLongitude: -4.0180,
           validationTime: today.subtract(const Duration(days: 1, hours: -10, minutes: 30)),
-          facadePhoto: GeotaggedPhoto(
-            path: '/mock/photo7.jpg',
-            timestamp: today.subtract(const Duration(days: 1, hours: -10, minutes: -3)),
-            latitude: 5.2832,
-            longitude: -4.0180,
-          ),
           shelfPhoto: GeotaggedPhoto(
             path: '/mock/photo8.jpg',
             timestamp: today.subtract(const Duration(days: 1, hours: -10)),
@@ -212,12 +200,6 @@ class _VisitsPageState extends State<VisitsPage> {
           clientName: 'Épicerie du Marché',
           startTime: today.subtract(const Duration(days: 1, hours: -13, minutes: -15)),
           endTime: today.subtract(const Duration(days: 1, hours: -13, minutes: 10)),
-          facadePhoto: GeotaggedPhoto(
-            path: '/mock/photo9.jpg',
-            timestamp: today.subtract(const Duration(days: 1, hours: -13, minutes: -12)),
-            latitude: 5.3515,
-            longitude: -4.0228,
-          ),
           gerantPresent: false,
           orderPlaced: false,
           comments: 'Gérant absent, pas de commande',
