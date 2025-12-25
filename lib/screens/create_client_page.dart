@@ -62,7 +62,6 @@ class _CreateClientPageState extends State<CreateClientPage> {
   String? _selectedVille;
   String? _selectedQuartier;
   String? _gpsLocation;
-  String? _selectedZone;
 
   // GPS-first address auto-fill state
   bool _isLoadingAddress = false;
@@ -263,21 +262,6 @@ class _CreateClientPageState extends State<CreateClientPage> {
     ],
   };
 
-  // Zones/Secteurs (generic sectors available for all quartiers)
-  final List<String> _zones = [
-    'Secteur 1',
-    'Secteur 2',
-    'Secteur 3',
-    'Secteur 4',
-    'Secteur 5',
-    'Secteur 6',
-    'Secteur 7',
-    'Secteur 8',
-    'Secteur 9',
-    'Secteur 10',
-    'Autre',
-  ];
-
   // GPS Location picker state
   LatLng? _originalGpsPosition; // The position from GPS sensor
   LatLng? _adjustedGpsPosition; // The position after user adjustment
@@ -423,9 +407,6 @@ class _CreateClientPageState extends State<CreateClientPage> {
         }
         if (_addressController.text.trim().isEmpty) {
           _fieldErrors['address'] = 'Ce champ est requis';
-        }
-        if (_selectedZone == null) {
-          _fieldErrors['zone'] = 'Veuillez sélectionner une zone';
         }
         if (_gpsLocation == null) {
           _fieldErrors['gps'] = 'La position GPS est requise';
@@ -767,12 +748,10 @@ class _CreateClientPageState extends State<CreateClientPage> {
     // Get base_commerciale_id and zone_id
     final baseCommercialeId = _currentUser!.primaryBase?.id;
 
-    // Try to find matching zone from user's available zones, or use first available
+    // Use first available zone from user's zones
     int? zoneId;
     if (_availableZones.isNotEmpty) {
-      // Try to find a zone with matching name
-      final matchingZone = _availableZones.where((z) => z.name == _selectedZone).firstOrNull;
-      zoneId = matchingZone?.id ?? _availableZones.first.id;
+      zoneId = _availableZones.first.id;
     }
 
     if (baseCommercialeId == null) {
@@ -1486,24 +1465,6 @@ class _CreateClientPageState extends State<CreateClientPage> {
                 : (value) {
                     setState(() {
                       _selectedQuartier = value;
-                      // Reset zone when quartier changes
-                      _selectedZone = null;
-                    });
-                  },
-          ),
-          const SizedBox(height: 16),
-          _buildDropdownField(
-            value: _selectedZone,
-            label: 'Zone / Secteur',
-            icon: Icons.map,
-            items: _selectedQuartier != null ? _zones : [],
-            isRequired: true,
-            errorText: _getFieldError('zone'),
-            onChanged: _selectedQuartier == null
-                ? null
-                : (value) {
-                    setState(() {
-                      _selectedZone = value;
                     });
                   },
           ),
