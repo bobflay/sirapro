@@ -33,6 +33,10 @@ class ClientService {
   /// [city] - Filter by city
   /// [zoneId] - Filter by zone ID
   /// [hasAlert] - Filter clients with open alerts
+  /// [mapNorth] - Northern latitude boundary for map filtering (-90 to 90)
+  /// [mapSouth] - Southern latitude boundary for map filtering (-90 to 90)
+  /// [mapEast] - Eastern longitude boundary for map filtering (-180 to 180)
+  /// [mapWest] - Western longitude boundary for map filtering (-180 to 180)
   /// Returns [ClientsResponse] containing the list of clients and pagination info
   Future<ClientsResponse> getClients({
     int page = 1,
@@ -42,6 +46,10 @@ class ClientService {
     String? city,
     int? zoneId,
     bool? hasAlert,
+    double? mapNorth,
+    double? mapSouth,
+    double? mapEast,
+    double? mapWest,
   }) async {
     final queryParams = <String, String>{
       'page': page.toString(),
@@ -62,6 +70,13 @@ class ClientService {
     }
     if (hasAlert != null) {
       queryParams['has_alert'] = hasAlert.toString();
+    }
+    // Add map bounds filtering - all 4 parameters must be provided together
+    if (mapNorth != null && mapSouth != null && mapEast != null && mapWest != null) {
+      queryParams['map_north'] = mapNorth.toString();
+      queryParams['map_south'] = mapSouth.toString();
+      queryParams['map_east'] = mapEast.toString();
+      queryParams['map_west'] = mapWest.toString();
     }
 
     final queryString = queryParams.entries

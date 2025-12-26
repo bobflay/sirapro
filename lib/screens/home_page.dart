@@ -6,8 +6,10 @@ import 'package:sirapro/screens/user_profile_page.dart';
 import 'package:sirapro/screens/sync_page.dart';
 import 'package:sirapro/screens/alertes_page.dart';
 import 'package:sirapro/screens/visits_page.dart';
-import 'package:sirapro/screens/orders_page.dart';
+import 'package:sirapro/screens/orders_list_page.dart';
 import 'package:sirapro/screens/stock_commercial_page.dart';
+import 'package:sirapro/screens/carte_page.dart';
+import 'package:sirapro/screens/invoice_list_page.dart';
 import 'package:sirapro/utils/app_colors.dart';
 import 'package:sirapro/services/auth_service.dart';
 import 'package:sirapro/services/home_service.dart';
@@ -720,7 +722,7 @@ class _HomePageState extends State<HomePage> {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (context) => const OrdersPage(),
+                          builder: (context) => const OrdersListPage(),
                         ),
                       );
                     },
@@ -731,7 +733,26 @@ class _HomePageState extends State<HomePage> {
                     label: 'Carte',
                     color: AppColors.accent,
                     onTap: () {
-                      // TODO: Navigate to Carte page
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const CartePage(),
+                        ),
+                      );
+                    },
+                  ),
+                  _buildActionButton(
+                    context,
+                    icon: Icons.receipt_long,
+                    label: 'Factures',
+                    color: AppColors.primaryLight,
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const InvoiceListPage(),
+                        ),
+                      );
                     },
                   ),
                 ],
