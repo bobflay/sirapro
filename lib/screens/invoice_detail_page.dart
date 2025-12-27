@@ -220,6 +220,150 @@ class _InvoiceDetailPageState extends State<InvoiceDetailPage> {
     }
   }
 
+  void _showFullScreenPhoto(List<InvoicePhoto> photos, int initialIndex) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => _FullScreenPhotoViewer(
+          photos: photos,
+          initialIndex: initialIndex,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPhotosSection() {
+    // Photos are stored in reverse order, so we reverse them for display
+    final photos = widget.invoice.photos.reversed.toList();
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withValues(alpha: 0.1),
+            spreadRadius: 1,
+            blurRadius: 5,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                const Icon(Icons.photo_library, color: AppColors.primary, size: 20),
+                const SizedBox(width: 8),
+                Text(
+                  'Photos (${photos.length})',
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          SizedBox(
+            height: 120,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.all(12),
+              itemCount: photos.length,
+              itemBuilder: (context, index) {
+                final photo = photos[index];
+                return Padding(
+                  padding: EdgeInsets.only(right: index < photos.length - 1 ? 12 : 0),
+                  child: GestureDetector(
+                    onTap: () => _showFullScreenPhoto(photos, index),
+                    child: Container(
+                      width: 100,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.grey[300]!),
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          Image.network(
+                            photo.fullUrl,
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) {
+                              return Container(
+                                color: Colors.grey[200],
+                                child: const Icon(
+                                  Icons.broken_image,
+                                  color: Colors.grey,
+                                  size: 32,
+                                ),
+                              );
+                            },
+                            loadingBuilder: (context, child, loadingProgress) {
+                              if (loadingProgress == null) return child;
+                              return Center(
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  value: loadingProgress.expectedTotalBytes != null
+                                      ? loadingProgress.cumulativeBytesLoaded /
+                                          loadingProgress.expectedTotalBytes!
+                                      : null,
+                                ),
+                              );
+                            },
+                          ),
+                          Positioned(
+                            bottom: 4,
+                            left: 4,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.black54,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                'Page ${index + 1}',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ),
+                          Positioned(
+                            top: 4,
+                            right: 4,
+                            child: Container(
+                              padding: const EdgeInsets.all(4),
+                              decoration: BoxDecoration(
+                                color: Colors.black54,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: const Icon(
+                                Icons.zoom_in,
+                                color: Colors.white,
+                                size: 14,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   String _formatAmount(double amount) {
     return amount.toStringAsFixed(0).replaceAllMapped(
           RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
@@ -301,6 +445,12 @@ class _InvoiceDetailPageState extends State<InvoiceDetailPage> {
               ),
             ),
             const SizedBox(height: 16),
+
+            // Photos section
+            if (widget.invoice.photos.isNotEmpty) ...[
+              _buildPhotosSection(),
+              const SizedBox(height: 16),
+            ],
 
             // Error message
             if (_errorMessage != null)
@@ -731,6 +881,131 @@ class _InvoiceDetailPageState extends State<InvoiceDetailPage> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Full screen photo viewer with swipe navigation
+class _FullScreenPhotoViewer extends StatefulWidget {
+  final List<InvoicePhoto> photos;
+  final int initialIndex;
+
+  const _FullScreenPhotoViewer({
+    required this.photos,
+    required this.initialIndex,
+  });
+
+  @override
+  State<_FullScreenPhotoViewer> createState() => _FullScreenPhotoViewerState();
+}
+
+class _FullScreenPhotoViewerState extends State<_FullScreenPhotoViewer> {
+  late PageController _pageController;
+  late int _currentIndex;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentIndex = widget.initialIndex;
+    _pageController = PageController(initialPage: widget.initialIndex);
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        title: Text(
+          'Photo ${_currentIndex + 1} / ${widget.photos.length}',
+          style: const TextStyle(color: Colors.white),
+        ),
+        leading: IconButton(
+          icon: const Icon(Icons.close, color: Colors.white),
+          onPressed: () => Navigator.pop(context),
+        ),
+      ),
+      body: PageView.builder(
+        controller: _pageController,
+        itemCount: widget.photos.length,
+        onPageChanged: (index) {
+          setState(() {
+            _currentIndex = index;
+          });
+        },
+        itemBuilder: (context, index) {
+          final photo = widget.photos[index];
+          return InteractiveViewer(
+            minScale: 0.5,
+            maxScale: 4.0,
+            child: Center(
+              child: Image.network(
+                photo.fullUrl,
+                fit: BoxFit.contain,
+                errorBuilder: (context, error, stackTrace) {
+                  return Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(
+                        Icons.broken_image,
+                        color: Colors.grey,
+                        size: 64,
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Impossible de charger l\'image',
+                        style: TextStyle(color: Colors.grey[400]),
+                      ),
+                    ],
+                  );
+                },
+                loadingBuilder: (context, child, loadingProgress) {
+                  if (loadingProgress == null) return child;
+                  return Center(
+                    child: CircularProgressIndicator(
+                      value: loadingProgress.expectedTotalBytes != null
+                          ? loadingProgress.cumulativeBytesLoaded /
+                              loadingProgress.expectedTotalBytes!
+                          : null,
+                      color: Colors.white,
+                    ),
+                  );
+                },
+              ),
+            ),
+          );
+        },
+      ),
+      bottomNavigationBar: widget.photos.length > 1
+          ? Container(
+              color: Colors.black,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: List.generate(
+                  widget.photos.length,
+                  (index) => Container(
+                    width: 8,
+                    height: 8,
+                    margin: const EdgeInsets.symmetric(horizontal: 4),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: index == _currentIndex
+                          ? Colors.white
+                          : Colors.white.withValues(alpha: 0.4),
+                    ),
+                  ),
+                ),
+              ),
+            )
+          : null,
     );
   }
 }

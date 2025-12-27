@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:sirapro/models/stock_item.dart';
-import 'package:sirapro/data/mock_stock.dart';
+import 'package:sirapro/services/stock_service.dart';
 import 'package:sirapro/screens/stock_item_detail_page.dart';
 import 'package:sirapro/utils/app_colors.dart';
 import 'package:sirapro/widgets/session_aware_app_bar.dart';
@@ -13,12 +14,15 @@ class StockCommercialPage extends StatefulWidget {
 }
 
 class _StockCommercialPageState extends State<StockCommercialPage> {
+  final StockService _stockService = StockService();
   List<StockItem> _stockItems = [];
   List<StockItem> _filteredItems = [];
   String _selectedCategory = 'Tous';
   String _selectedFilter = 'Tous';
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
+  bool _isLoading = false;
+  String? _errorMessage;
 
   @override
   void initState() {
@@ -32,11 +36,25 @@ class _StockCommercialPageState extends State<StockCommercialPage> {
     super.dispose();
   }
 
-  void _loadStock() {
+  Future<void> _loadStock() async {
     setState(() {
-      _stockItems = MockStock.getStockItems();
-      _applyFilters();
+      _isLoading = true;
+      _errorMessage = null;
     });
+
+    try {
+      final response = await _stockService.listStock();
+      setState(() {
+        _stockItems = response.items;
+        _isLoading = false;
+        _applyFilters();
+      });
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+        _errorMessage = e.toString();
+      });
+    }
   }
 
   void _applyFilters() {
@@ -74,9 +92,17 @@ class _StockCommercialPageState extends State<StockCommercialPage> {
   }
 
   List<String> _getCategories() {
-    final categories = ['Tous', ...MockStock.getCategories()];
-    return categories;
+    final uniqueCategories = _stockItems.map((item) => item.category).toSet().toList();
+    uniqueCategories.sort();
+    return ['Tous', ...uniqueCategories];
   }
+
+  int get _lowStockCount => _stockItems.where((item) => item.isLowStock && !item.isOutOfStock).length;
+  int get _outOfStockCount => _stockItems.where((item) => item.isOutOfStock).length;
+  double get _totalStockValue => _stockItems.fold(0.0, (sum, item) => sum + item.totalValue);
+
+  static final _currencyFormat = NumberFormat('#,##0', 'fr_FR');
+  String _formatPrice(double value) => '${_currencyFormat.format(value.toInt())} FCFA';
 
   Color _getStockStatusColor(StockItem item) {
     if (item.isOutOfStock) return AppColors.error;
@@ -92,9 +118,69 @@ class _StockCommercialPageState extends State<StockCommercialPage> {
 
   @override
   Widget build(BuildContext context) {
-    final lowStockCount = MockStock.getLowStockCount();
-    final outOfStockCount = MockStock.getOutOfStockCount();
-    final totalValue = MockStock.getTotalStockValue();
+    if (_isLoading) {
+      return Scaffold(
+        backgroundColor: Colors.grey[100],
+        appBar: SessionAwareAppBar(
+          title: 'Stock Commercial',
+        ),
+        body: const Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+
+    if (_errorMessage != null) {
+      return Scaffold(
+        backgroundColor: Colors.grey[100],
+        appBar: SessionAwareAppBar(
+          title: 'Stock Commercial',
+        ),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.error_outline,
+                  size: 64,
+                  color: AppColors.error,
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Erreur de chargement',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.grey[800],
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _errorMessage!,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey[600],
+                  ),
+                ),
+                const SizedBox(height: 24),
+                ElevatedButton.icon(
+                  onPressed: _loadStock,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Réessayer'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
 
     return Scaffold(
       backgroundColor: Colors.grey[100],
@@ -128,7 +214,7 @@ class _StockCommercialPageState extends State<StockCommercialPage> {
                 Expanded(
                   child: _buildSummaryCard(
                     'Stock bas',
-                    '$lowStockCount',
+                    '$_lowStockCount',
                     'alertes',
                     AppColors.warning,
                   ),
@@ -137,7 +223,7 @@ class _StockCommercialPageState extends State<StockCommercialPage> {
                 Expanded(
                   child: _buildSummaryCard(
                     'Rupture',
-                    '$outOfStockCount',
+                    '$_outOfStockCount',
                     'articles',
                     AppColors.error,
                   ),
@@ -163,7 +249,7 @@ class _StockCommercialPageState extends State<StockCommercialPage> {
                   ),
                 ),
                 Text(
-                  '${totalValue.toStringAsFixed(0)} FCFA',
+                  _formatPrice(_totalStockValue),
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
@@ -480,7 +566,7 @@ class _StockCommercialPageState extends State<StockCommercialPage> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  item.formattedPrice,
+                  _formatPrice(item.unitPrice),
                   style: TextStyle(
                     fontSize: 12,
                     color: Colors.grey[600],

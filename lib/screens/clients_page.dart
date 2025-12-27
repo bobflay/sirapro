@@ -5,6 +5,7 @@ import 'package:sirapro/screens/client_detail_page.dart';
 import 'package:sirapro/models/client.dart';
 import 'package:sirapro/services/client_service.dart';
 import 'package:sirapro/services/api_service.dart';
+import 'package:sirapro/services/visit_service.dart';
 import 'package:sirapro/widgets/session_aware_app_bar.dart';
 
 const String _baseUrl = 'https://sira.xpertbot.online';
@@ -83,13 +84,26 @@ class _ClientsPageState extends State<ClientsPage> {
 
   void _applyLocalFilters() {
     setState(() {
+      List<Client> filtered;
       if (_selectedPotentielFilter == 'Tous') {
-        _filteredClients = List.from(_clients);
+        filtered = List.from(_clients);
       } else {
-        _filteredClients = _clients
+        filtered = _clients
             .where((client) => client.potentiel == _selectedPotentielFilter)
             .toList();
       }
+
+      // Sort to put active visit clients first
+      final visitService = VisitService();
+      filtered.sort((a, b) {
+        final aIsActive = visitService.isClientVisitActive(a.id);
+        final bIsActive = visitService.isClientVisitActive(b.id);
+        if (aIsActive && !bIsActive) return -1;
+        if (!aIsActive && bIsActive) return 1;
+        return 0;
+      });
+
+      _filteredClients = filtered;
     });
   }
 
@@ -674,16 +688,23 @@ class _ClientsPageState extends State<ClientsPage> {
   }
 
   Widget _buildClientCard(BuildContext context, Client client, int index) {
+    final isActiveVisit = VisitService().isClientVisitActive(client.id);
+
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
+        border: isActiveVisit
+            ? Border.all(color: Colors.green, width: 2.5)
+            : null,
         boxShadow: [
           BoxShadow(
-            color: Colors.grey.withValues(alpha: 0.1),
-            spreadRadius: 1,
-            blurRadius: 5,
+            color: isActiveVisit
+                ? Colors.green.withValues(alpha: 0.3)
+                : Colors.grey.withValues(alpha: 0.1),
+            spreadRadius: isActiveVisit ? 2 : 1,
+            blurRadius: isActiveVisit ? 8 : 5,
             offset: const Offset(0, 2),
           ),
         ],

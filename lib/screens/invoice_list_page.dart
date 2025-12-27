@@ -273,18 +273,7 @@ class _InvoiceListPageState extends State<InvoiceListPage> {
                 // Header row
                 Row(
                   children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: AppColors.primary.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Icon(
-                        Icons.receipt,
-                        color: AppColors.primary,
-                        size: 20,
-                      ),
-                    ),
+                    _buildInvoiceThumbnail(invoice),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Column(
@@ -371,6 +360,53 @@ class _InvoiceListPageState extends State<InvoiceListPage> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildInvoiceThumbnail(SavedInvoice invoice) {
+    final hasPhoto = invoice.photos.isNotEmpty;
+
+    return Container(
+      width: 48,
+      height: 48,
+      decoration: BoxDecoration(
+        color: AppColors.primary.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: hasPhoto
+          ? Image.network(
+              invoice.photos.first.fullUrl,
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stackTrace) {
+                return const Icon(
+                  Icons.receipt,
+                  color: AppColors.primary,
+                  size: 24,
+                );
+              },
+              loadingBuilder: (context, child, loadingProgress) {
+                if (loadingProgress == null) return child;
+                return Center(
+                  child: SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      value: loadingProgress.expectedTotalBytes != null
+                          ? loadingProgress.cumulativeBytesLoaded /
+                              loadingProgress.expectedTotalBytes!
+                          : null,
+                    ),
+                  ),
+                );
+              },
+            )
+          : const Icon(
+              Icons.receipt,
+              color: AppColors.primary,
+              size: 24,
+            ),
     );
   }
 

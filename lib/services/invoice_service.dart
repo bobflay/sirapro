@@ -10,12 +10,14 @@ class InvoiceOcrResponse {
   final bool status;
   final String message;
   final InvoiceData? data;
+  final List<int> photoIds; // Photo IDs from OCR upload
   final String? rawResponse; // For debugging
 
   InvoiceOcrResponse({
     required this.status,
     required this.message,
     this.data,
+    this.photoIds = const [],
     this.rawResponse,
   });
 
@@ -38,11 +40,22 @@ class InvoiceOcrResponse {
     debugPrint('[InvoiceOcrResponse] Parsed status: $statusValue');
 
     InvoiceData? invoiceData;
+    List<int> photoIds = [];
+
     if (json['data'] != null) {
       try {
         var dataMap = json['data'];
         if (dataMap is Map<String, dynamic>) {
           debugPrint('[InvoiceOcrResponse] data keys: ${dataMap.keys.toList()}');
+
+          // Extract photo_ids from the data
+          if (dataMap.containsKey('photo_ids') && dataMap['photo_ids'] is List) {
+            photoIds = (dataMap['photo_ids'] as List)
+                .map((id) => id is int ? id : int.tryParse(id.toString()) ?? 0)
+                .where((id) => id > 0)
+                .toList();
+            debugPrint('[InvoiceOcrResponse] Extracted photo_ids: $photoIds');
+          }
 
           // Check for ocr_data nested structure (API returns data.ocr_data with full invoice info)
           if (dataMap.containsKey('ocr_data') && dataMap['ocr_data'] is Map<String, dynamic>) {
@@ -81,11 +94,13 @@ class InvoiceOcrResponse {
     }
 
     debugPrint('[InvoiceOcrResponse] Final invoiceData is null: ${invoiceData == null}');
+    debugPrint('[InvoiceOcrResponse] Final photoIds: $photoIds');
 
     return InvoiceOcrResponse(
       status: statusValue,
       message: json['message'] as String? ?? '',
       data: invoiceData,
+      photoIds: photoIds,
       rawResponse: rawJson,
     );
   }
@@ -373,6 +388,7 @@ class CreateInvoiceRequest {
   final int packagesCount;
   final double totalWeight;
   final List<CreateInvoiceItemRequest> items;
+  final List<int> photoIds; // Photo IDs from OCR upload
 
   CreateInvoiceRequest({
     this.supplier,
@@ -388,10 +404,11 @@ class CreateInvoiceRequest {
     required this.packagesCount,
     required this.totalWeight,
     required this.items,
+    this.photoIds = const [],
   });
 
   Map<String, dynamic> toJson() {
-    return {
+    final json = <String, dynamic>{
       'supplier': supplier,
       'document_type': documentType,
       'invoice_number': invoiceNumber,
@@ -406,6 +423,10 @@ class CreateInvoiceRequest {
       'total_weight': totalWeight,
       'items': items.map((item) => item.toJson()).toList(),
     };
+    if (photoIds.isNotEmpty) {
+      json['photo_ids'] = photoIds;
+    }
+    return json;
   }
 }
 
@@ -568,6 +589,7 @@ class SavedInvoice {
   final double totalWeight;
   final String? createdAt;
   final List<SavedInvoiceItem> items;
+  final List<InvoicePhoto> photos;
 
   SavedInvoice({
     required this.id,
@@ -585,6 +607,7 @@ class SavedInvoice {
     required this.totalWeight,
     this.createdAt,
     required this.items,
+    required this.photos,
   });
 
   factory SavedInvoice.fromJson(Map<String, dynamic> json) {
@@ -594,6 +617,15 @@ class SavedInvoice {
       itemsList = itemsJson
           .whereType<Map<String, dynamic>>()
           .map((item) => SavedInvoiceItem.fromJson(item))
+          .toList();
+    }
+
+    List<InvoicePhoto> photosList = [];
+    final photosJson = json['photos'];
+    if (photosJson != null && photosJson is List) {
+      photosList = photosJson
+          .whereType<Map<String, dynamic>>()
+          .map((photo) => InvoicePhoto.fromJson(photo))
           .toList();
     }
 
@@ -613,6 +645,30 @@ class SavedInvoice {
       totalWeight: _parseDoubleSafe(json['total_weight']),
       createdAt: json['created_at'] as String?,
       items: itemsList,
+      photos: photosList,
+    );
+  }
+}
+
+class InvoicePhoto {
+  final int id;
+  final String filePath;
+  final String? fileName;
+
+  InvoicePhoto({
+    required this.id,
+    required this.filePath,
+    this.fileName,
+  });
+
+  /// Returns the full URL for the photo
+  String get fullUrl => '${ApiService.baseUrl}/storage/$filePath';
+
+  factory InvoicePhoto.fromJson(Map<String, dynamic> json) {
+    return InvoicePhoto(
+      id: _parseIntSafe(json['id']),
+      filePath: json['file_path'] as String? ?? '',
+      fileName: json['file_name'] as String?,
     );
   }
 }

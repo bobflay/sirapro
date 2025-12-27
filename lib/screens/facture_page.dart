@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:intl/intl.dart';
 import '../models/invoice.dart';
 import '../services/invoice_service.dart';
 import '../services/api_service.dart';
@@ -15,6 +16,22 @@ class FacturePage extends StatefulWidget {
 class _FacturePageState extends State<FacturePage> {
   final InvoiceService _invoiceService = InvoiceService();
   final ImagePicker _picker = ImagePicker();
+  static final _numberFormat = NumberFormat('#,##0', 'fr_FR');
+
+  String _formatNumber(double value) => _numberFormat.format(value.toInt());
+  String _formatInt(int value) => _numberFormat.format(value);
+
+  /// Parse a formatted number string back to double (removes thousand separators)
+  double _parseFormattedDouble(String text) {
+    // Remove spaces and non-breaking spaces used as thousand separators
+    final cleaned = text.replaceAll(RegExp(r'[\s\u00A0]'), '').replaceAll(',', '.');
+    return double.tryParse(cleaned) ?? 0;
+  }
+
+  /// Parse a formatted number string back to int (removes thousand separators)
+  int _parseFormattedInt(String text) {
+    return _parseFormattedDouble(text).toInt();
+  }
 
   // Multiple images support
   List<ImageData> _selectedImages = [];
@@ -25,6 +42,7 @@ class _FacturePageState extends State<FacturePage> {
 
   // Editable invoice data
   InvoiceData? _invoiceData;
+  List<int> _photoIds = []; // Photo IDs from OCR response
 
   // Controllers for invoice header
   final _supplierController = TextEditingController();
@@ -104,25 +122,25 @@ class _FacturePageState extends State<FacturePage> {
     _clientReferenceController.text = data.client.reference ?? '';
 
     // Totals
-    _totalHtController.text = data.totals.totalHt.toStringAsFixed(0);
-    _totalTaxController.text = data.totals.totalTax.toStringAsFixed(0);
-    _totalTtcController.text = data.totals.totalTtc.toStringAsFixed(0);
-    _portHtController.text = data.totals.portHt.toStringAsFixed(0);
-    _netToPayController.text = data.totals.netToPay.toStringAsFixed(0);
+    _totalHtController.text = _formatNumber(data.totals.totalHt);
+    _totalTaxController.text = _formatNumber(data.totals.totalTax);
+    _totalTtcController.text = _formatNumber(data.totals.totalTtc);
+    _portHtController.text = _formatNumber(data.totals.portHt);
+    _netToPayController.text = _formatNumber(data.totals.netToPay);
     _netToPayWordsController.text = data.totals.netToPayWords ?? '';
 
     // Logistics
-    _packagesCountController.text = data.logistics.packagesCount.toString();
-    _totalWeightController.text = data.logistics.totalWeight.toString();
+    _packagesCountController.text = _formatInt(data.logistics.packagesCount);
+    _totalWeightController.text = _formatNumber(data.logistics.totalWeight);
 
     // Items
     _itemControllers = data.items.map((item) {
       return {
         'reference': TextEditingController(text: item.reference ?? ''),
         'designation': TextEditingController(text: item.designation ?? ''),
-        'quantity': TextEditingController(text: item.quantity.toString()),
-        'unitPrice': TextEditingController(text: item.unitPriceTtc.toStringAsFixed(0)),
-        'totalTtc': TextEditingController(text: item.totalTtc.toStringAsFixed(0)),
+        'quantity': TextEditingController(text: _formatInt(item.quantity)),
+        'unitPrice': TextEditingController(text: _formatNumber(item.unitPriceTtc)),
+        'totalTtc': TextEditingController(text: _formatNumber(item.totalTtc)),
         'depot': TextEditingController(text: item.depot ?? ''),
       };
     }).toList();
@@ -131,9 +149,9 @@ class _FacturePageState extends State<FacturePage> {
     _taxControllers = data.taxes.map((tax) {
       return {
         'code': TextEditingController(text: tax.code ?? ''),
-        'base': TextEditingController(text: tax.base.toStringAsFixed(0)),
-        'rate': TextEditingController(text: tax.rate.toStringAsFixed(0)),
-        'taxAmount': TextEditingController(text: tax.taxAmount.toStringAsFixed(0)),
+        'base': TextEditingController(text: _formatNumber(tax.base)),
+        'rate': TextEditingController(text: _formatNumber(tax.rate)),
+        'taxAmount': TextEditingController(text: _formatNumber(tax.taxAmount)),
       };
     }).toList();
   }
@@ -358,9 +376,11 @@ class _FacturePageState extends State<FacturePage> {
       if (response.status && response.data != null) {
         debugPrint('[FacturePage] Invoice data parsed successfully');
         debugPrint('[FacturePage] Items count: ${response.data!.items.length}');
+        debugPrint('[FacturePage] Photo IDs: ${response.photoIds}');
         _populateControllers(response.data!);
         setState(() {
           _invoiceData = response.data;
+          _photoIds = response.photoIds;
           _isProcessing = false;
         });
       } else if (response.status && response.data == null) {
@@ -410,14 +430,14 @@ class _FacturePageState extends State<FacturePage> {
     });
 
     try {
-      // Build items from controllers
+      // Build items from controllers (parse formatted numbers)
       final items = _itemControllers.map((item) {
         return CreateInvoiceItemRequest(
           reference: item['reference']!.text.isNotEmpty ? item['reference']!.text : null,
           designation: item['designation']!.text.isNotEmpty ? item['designation']!.text : null,
-          quantity: int.tryParse(item['quantity']!.text) ?? 0,
-          unitPriceTtc: double.tryParse(item['unitPrice']!.text) ?? 0,
-          totalTtc: double.tryParse(item['totalTtc']!.text) ?? 0,
+          quantity: _parseFormattedInt(item['quantity']!.text),
+          unitPriceTtc: _parseFormattedDouble(item['unitPrice']!.text),
+          totalTtc: _parseFormattedDouble(item['totalTtc']!.text),
           depot: item['depot']?.text.isNotEmpty == true ? item['depot']!.text : null,
         );
       }).toList();
@@ -429,13 +449,14 @@ class _FacturePageState extends State<FacturePage> {
         invoiceDate: _dateController.text.isNotEmpty ? _dateController.text : null,
         clientName: _clientNameController.text.isNotEmpty ? _clientNameController.text : null,
         clientCode: _clientCodeController.text.isNotEmpty ? _clientCodeController.text : null,
-        totalHt: double.tryParse(_totalHtController.text) ?? 0,
-        totalTax: double.tryParse(_totalTaxController.text) ?? 0,
-        totalTtc: double.tryParse(_totalTtcController.text) ?? 0,
-        netToPay: double.tryParse(_netToPayController.text) ?? 0,
-        packagesCount: int.tryParse(_packagesCountController.text) ?? 0,
-        totalWeight: double.tryParse(_totalWeightController.text) ?? 0,
+        totalHt: _parseFormattedDouble(_totalHtController.text),
+        totalTax: _parseFormattedDouble(_totalTaxController.text),
+        totalTtc: _parseFormattedDouble(_totalTtcController.text),
+        netToPay: _parseFormattedDouble(_netToPayController.text),
+        packagesCount: _parseFormattedInt(_packagesCountController.text),
+        totalWeight: _parseFormattedDouble(_totalWeightController.text),
         items: items,
+        photoIds: _photoIds,
       );
 
       debugPrint('[FacturePage] Saving invoice...');
@@ -464,6 +485,8 @@ class _FacturePageState extends State<FacturePage> {
               duration: const Duration(seconds: 3),
             ),
           );
+          // Redirect back to the invoice list
+          Navigator.pop(context, true);
         }
       } else {
         setState(() {
@@ -493,6 +516,7 @@ class _FacturePageState extends State<FacturePage> {
     setState(() {
       _selectedImages.clear();
       _invoiceData = null;
+      _photoIds = [];
       _errorMessage = null;
       _successMessage = null;
 
@@ -917,6 +941,12 @@ class _FacturePageState extends State<FacturePage> {
             ),
           ),
           const SizedBox(height: 16),
+
+          // Photos section (display selected images)
+          if (_selectedImages.isNotEmpty) ...[
+            _buildSelectedPhotosSection(),
+            const SizedBox(height: 16),
+          ],
 
           // Invoice header info (editable)
           _buildEditableSection(
@@ -1466,6 +1496,222 @@ class _FacturePageState extends State<FacturePage> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildSelectedPhotosSection() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withValues(alpha: 0.1),
+            spreadRadius: 1,
+            blurRadius: 5,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                const Icon(Icons.photo_library, color: AppColors.primary, size: 20),
+                const SizedBox(width: 8),
+                Text(
+                  'Photos (${_selectedImages.length})',
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          SizedBox(
+            height: 120,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.all(12),
+              itemCount: _selectedImages.length,
+              itemBuilder: (context, index) {
+                final image = _selectedImages[index];
+                return Padding(
+                  padding: EdgeInsets.only(right: index < _selectedImages.length - 1 ? 12 : 0),
+                  child: GestureDetector(
+                    onTap: () => _showFullScreenSelectedPhoto(index),
+                    child: Container(
+                      width: 100,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.grey[300]!),
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          Image.memory(
+                            image.bytes,
+                            fit: BoxFit.cover,
+                          ),
+                          Positioned(
+                            bottom: 4,
+                            left: 4,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.black54,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                'Page ${index + 1}',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ),
+                          Positioned(
+                            top: 4,
+                            right: 4,
+                            child: Container(
+                              padding: const EdgeInsets.all(4),
+                              decoration: BoxDecoration(
+                                color: Colors.black54,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: const Icon(
+                                Icons.zoom_in,
+                                color: Colors.white,
+                                size: 14,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showFullScreenSelectedPhoto(int initialIndex) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => _FullScreenSelectedPhotoViewer(
+          images: _selectedImages,
+          initialIndex: initialIndex,
+        ),
+      ),
+    );
+  }
+}
+
+/// Full screen photo viewer for selected images (before saving)
+class _FullScreenSelectedPhotoViewer extends StatefulWidget {
+  final List<ImageData> images;
+  final int initialIndex;
+
+  const _FullScreenSelectedPhotoViewer({
+    required this.images,
+    required this.initialIndex,
+  });
+
+  @override
+  State<_FullScreenSelectedPhotoViewer> createState() => _FullScreenSelectedPhotoViewerState();
+}
+
+class _FullScreenSelectedPhotoViewerState extends State<_FullScreenSelectedPhotoViewer> {
+  late PageController _pageController;
+  late int _currentIndex;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentIndex = widget.initialIndex;
+    _pageController = PageController(initialPage: widget.initialIndex);
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        title: Text(
+          'Photo ${_currentIndex + 1} / ${widget.images.length}',
+          style: const TextStyle(color: Colors.white),
+        ),
+        leading: IconButton(
+          icon: const Icon(Icons.close, color: Colors.white),
+          onPressed: () => Navigator.pop(context),
+        ),
+      ),
+      body: PageView.builder(
+        controller: _pageController,
+        itemCount: widget.images.length,
+        onPageChanged: (index) {
+          setState(() {
+            _currentIndex = index;
+          });
+        },
+        itemBuilder: (context, index) {
+          final image = widget.images[index];
+          return InteractiveViewer(
+            minScale: 0.5,
+            maxScale: 4.0,
+            child: Center(
+              child: Image.memory(
+                image.bytes,
+                fit: BoxFit.contain,
+              ),
+            ),
+          );
+        },
+      ),
+      bottomNavigationBar: widget.images.length > 1
+          ? Container(
+              color: Colors.black,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: List.generate(
+                  widget.images.length,
+                  (index) => Container(
+                    width: 8,
+                    height: 8,
+                    margin: const EdgeInsets.symmetric(horizontal: 4),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: index == _currentIndex
+                          ? Colors.white
+                          : Colors.white.withValues(alpha: 0.4),
+                    ),
+                  ),
+                ),
+              ),
+            )
+          : null,
     );
   }
 }

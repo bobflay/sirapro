@@ -2,14 +2,14 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import '../models/visit.dart';
 import '../models/visit_report.dart';
-import '../models/order.dart';
 import '../models/client.dart';
 import '../services/photo_capture_service.dart';
+import '../services/product_service.dart';
 import '../services/visit_api_service.dart';
 import '../widgets/session_aware_app_bar.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'order_creation_page.dart';
+import 'create_order_page.dart';
 
 /// Page de rapport de visite obligatoire
 class VisitReportPage extends StatefulWidget {
@@ -526,27 +526,27 @@ class _VisitReportPageState extends State<VisitReportPage> {
       createdAt: DateTime.now(),
     );
 
-    // Navigate to order creation page
-    final Order? order = await Navigator.push<Order>(
+    // Navigate to order creation page with API integration
+    final orderData = await Navigator.push<CreateOrderData>(
       context,
       MaterialPageRoute(
-        builder: (context) => OrderCreationPage(
-          client: client,
-          visit: widget.visit,
+        builder: (context) => CreateOrderPage(
+          preselectedClient: client,
+          visitId: widget.apiVisitId,
         ),
       ),
     );
 
-    if (order != null && mounted) {
-      // Update order reference and amount
+    if (orderData != null && mounted) {
+      // Update order reference and amount from API response
       setState(() {
-        _orderReferenceController.text = order.id;
-        _orderAmountController.text = order.totalAmount.toStringAsFixed(0);
+        _orderReferenceController.text = orderData.reference ?? 'CMD-${orderData.id}';
+        _orderAmountController.text = orderData.totalAmount.toStringAsFixed(0);
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Commande créée: ${order.formattedTotal}'),
+          content: Text('Commande créée: ${orderData.totalAmount.toStringAsFixed(0)} ${orderData.currency}'),
           backgroundColor: Colors.green,
           duration: const Duration(seconds: 3),
         ),

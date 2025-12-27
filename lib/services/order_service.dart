@@ -224,4 +224,42 @@ class OrderService {
       throw ApiException('Une erreur inattendue est survenue: $e');
     }
   }
+
+  /// Get a single order by reference (e.g., ORD-20251226-ABC123)
+  Future<OrderDetailResponse> getOrderByReference(String reference) async {
+    try {
+      final uri = Uri.parse('${ApiService.baseUrl}/api/orders/reference/$reference');
+      final token = _apiService.token;
+
+      debugPrint('[OrderService] Fetching order by reference: $reference');
+
+      final response = await http.get(
+        uri,
+        headers: {
+          'Accept': 'application/json',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+      );
+
+      debugPrint('[OrderService] Get order by reference response status: ${response.statusCode}');
+
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+
+      if (response.statusCode == 200) {
+        return OrderDetailResponse.fromJson(body);
+      }
+
+      if (response.statusCode == 404) {
+        throw ApiException('Commande introuvable', statusCode: 404);
+      }
+
+      final errorMessage = body['message'] as String? ?? 'Erreur lors de la récupération de la commande';
+      throw ApiException(errorMessage, statusCode: response.statusCode);
+    } on http.ClientException {
+      throw ApiException('Erreur de connexion. Vérifiez votre connexion internet.');
+    } catch (e) {
+      if (e is ApiException) rethrow;
+      throw ApiException('Une erreur inattendue est survenue: $e');
+    }
+  }
 }

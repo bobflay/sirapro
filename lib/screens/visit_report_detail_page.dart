@@ -5,6 +5,7 @@ import 'package:share_plus/share_plus.dart';
 import '../models/visit_report.dart';
 import '../services/pdf_report_service.dart';
 import '../widgets/session_aware_app_bar.dart';
+import 'api_order_detail_page.dart';
 
 /// Page d'affichage détaillé d'un rapport de visite existant
 class VisitReportDetailPage extends StatelessWidget {
@@ -44,7 +45,7 @@ class VisitReportDetailPage extends StatelessWidget {
               Icons.store,
               [
                 _buildInfoRow('Client', report.clientName),
-                _buildInfoRow('Rapport ID', '#${report.id.substring(report.id.length - 6)}'),
+                _buildInfoRow('Rapport ID', '#${report.id.length > 6 ? report.id.substring(report.id.length - 6) : report.id}'),
               ],
             ),
 
@@ -97,7 +98,9 @@ class VisitReportDetailPage extends StatelessWidget {
                     valueStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                   ),
                 if (report.orderReference != null)
-                  _buildInfoRow('Référence commande', report.orderReference!),
+                  Builder(
+                    builder: (context) => _buildOrderReferenceRow(context, report.orderReference!),
+                  ),
               ],
             ),
 
@@ -300,6 +303,66 @@ class VisitReportDetailPage extends StatelessWidget {
     );
   }
 
+  Widget _buildOrderReferenceRow(BuildContext context, String orderReference) {
+    // Try to parse the order ID from the reference (for numeric IDs)
+    final orderId = int.tryParse(orderReference);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 140,
+            child: Text(
+              'Référence commande',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey[700],
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+          Expanded(
+            child: GestureDetector(
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => orderId != null
+                        ? ApiOrderDetailPage(orderId: orderId)
+                        : ApiOrderDetailPage(orderReference: orderReference),
+                  ),
+                );
+              },
+              child: Row(
+                children: [
+                  Flexible(
+                    child: Text(
+                      orderReference.startsWith('#') ? orderReference : '#$orderReference',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: Colors.blue,
+                        fontWeight: FontWeight.w600,
+                        decoration: TextDecoration.underline,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  const Icon(
+                    Icons.open_in_new,
+                    size: 14,
+                    color: Colors.blue,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildTextBlock(String title, String text, IconData icon, Color color) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -413,6 +476,9 @@ class VisitReportDetailPage extends StatelessWidget {
   }
 
   Widget _buildPhotoCard(GeotaggedPhoto photo) {
+    // Check if the path is a URL (from API) or a local file path
+    final isNetworkImage = photo.path.startsWith('http://') || photo.path.startsWith('https://');
+
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(12),
@@ -433,11 +499,38 @@ class VisitReportDetailPage extends StatelessWidget {
                   color: Colors.grey[300],
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: const Icon(
-                  Icons.photo,
-                  size: 40,
-                  color: Colors.grey,
-                ),
+                clipBehavior: Clip.antiAlias,
+                child: isNetworkImage
+                    ? Image.network(
+                        photo.path,
+                        fit: BoxFit.cover,
+                        width: 80,
+                        height: 80,
+                        loadingBuilder: (context, child, loadingProgress) {
+                          if (loadingProgress == null) return child;
+                          return Center(
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              value: loadingProgress.expectedTotalBytes != null
+                                  ? loadingProgress.cumulativeBytesLoaded /
+                                      loadingProgress.expectedTotalBytes!
+                                  : null,
+                            ),
+                          );
+                        },
+                        errorBuilder: (context, error, stackTrace) {
+                          return const Icon(
+                            Icons.broken_image,
+                            size: 40,
+                            color: Colors.grey,
+                          );
+                        },
+                      )
+                    : const Icon(
+                        Icons.photo,
+                        size: 40,
+                        color: Colors.grey,
+                      ),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -483,23 +576,148 @@ class VisitReportDetailPage extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              TextButton.icon(
-                onPressed: () {
-                  // TODO: Implement view full image
-                },
-                icon: const Icon(Icons.zoom_in, size: 16),
-                label: const Text('Agrandir'),
-                style: TextButton.styleFrom(
-                  foregroundColor: Colors.blue,
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          Builder(
+            builder: (context) => Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton.icon(
+                  onPressed: () => _showFullImage(context, photo),
+                  icon: const Icon(Icons.zoom_in, size: 16),
+                  label: const Text('Agrandir'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.blue,
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ],
+      ),
+    );
+  }
+
+  void _showFullImage(BuildContext context, GeotaggedPhoto photo) {
+    final isNetworkImage = photo.path.startsWith('http://') || photo.path.startsWith('https://');
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => Dialog(
+        backgroundColor: Colors.black,
+        insetPadding: const EdgeInsets.all(0),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            // Image - tap to close
+            GestureDetector(
+              onTap: () => Navigator.pop(dialogContext),
+              child: Center(
+                child: isNetworkImage
+                    ? Image.network(
+                        photo.path,
+                        fit: BoxFit.contain,
+                        loadingBuilder: (context, child, loadingProgress) {
+                          if (loadingProgress == null) return child;
+                          return Center(
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              value: loadingProgress.expectedTotalBytes != null
+                                  ? loadingProgress.cumulativeBytesLoaded /
+                                      loadingProgress.expectedTotalBytes!
+                                  : null,
+                            ),
+                          );
+                        },
+                        errorBuilder: (context, error, stackTrace) {
+                          return const Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.broken_image,
+                                size: 64,
+                                color: Colors.white54,
+                              ),
+                              SizedBox(height: 16),
+                              Text(
+                                'Impossible de charger l\'image',
+                                style: TextStyle(color: Colors.white54),
+                              ),
+                            ],
+                          );
+                        },
+                      )
+                    : const Icon(
+                        Icons.photo,
+                        size: 64,
+                        color: Colors.white54,
+                      ),
+              ),
+            ),
+            // Close button
+            Positioned(
+              top: 40,
+              right: 16,
+              child: IconButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                icon: const Icon(
+                  Icons.close,
+                  color: Colors.white,
+                  size: 30,
+                ),
+              ),
+            ),
+            // Photo info at bottom
+            Positioned(
+              bottom: 0,
+              left: 0,
+              right: 0,
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.bottomCenter,
+                    end: Alignment.topCenter,
+                    colors: [
+                      Colors.black.withValues(alpha: 0.8),
+                      Colors.transparent,
+                    ],
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (photo.description != null)
+                      Text(
+                        photo.description!,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    const SizedBox(height: 4),
+                    Text(
+                      DateFormat('dd/MM/yyyy HH:mm').format(photo.timestamp),
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 14,
+                      ),
+                    ),
+                    if (photo.latitude != null && photo.longitude != null)
+                      Text(
+                        '${photo.latitude!.toStringAsFixed(4)}, ${photo.longitude!.toStringAsFixed(4)}',
+                        style: const TextStyle(
+                          color: Colors.white54,
+                          fontSize: 12,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

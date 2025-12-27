@@ -87,11 +87,11 @@ class _LoginScreenState extends State<LoginScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // Shop Icon
-                  Icon(
-                    Icons.shopping_bag,
-                    size: 80,
-                    color: Theme.of(context).primaryColor,
+                  // App Icon
+                  Image.asset(
+                    'images/icon.png',
+                    width: 120,
+                    height: 120,
                   ),
                   const SizedBox(height: 24),
 

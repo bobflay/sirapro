@@ -5,9 +5,14 @@ import '../services/api_service.dart';
 import '../utils/app_colors.dart';
 
 class ApiOrderDetailPage extends StatefulWidget {
-  final int orderId;
+  final int? orderId;
+  final String? orderReference;
 
-  const ApiOrderDetailPage({super.key, required this.orderId});
+  const ApiOrderDetailPage({
+    super.key,
+    this.orderId,
+    this.orderReference,
+  }) : assert(orderId != null || orderReference != null, 'Either orderId or orderReference must be provided');
 
   @override
   State<ApiOrderDetailPage> createState() => _ApiOrderDetailPageState();
@@ -33,7 +38,19 @@ class _ApiOrderDetailPageState extends State<ApiOrderDetailPage> {
     });
 
     try {
-      final response = await _orderService.getOrder(widget.orderId);
+      OrderDetailResponse response;
+
+      if (widget.orderId != null) {
+        response = await _orderService.getOrder(widget.orderId!);
+      } else if (widget.orderReference != null) {
+        response = await _orderService.getOrderByReference(widget.orderReference!);
+      } else {
+        setState(() {
+          _errorMessage = 'Aucun identifiant de commande fourni';
+          _isLoading = false;
+        });
+        return;
+      }
 
       if (response.status && response.order != null) {
         setState(() {

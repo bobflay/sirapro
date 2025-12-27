@@ -17,19 +17,18 @@ import 'package:sirapro/models/terminate_visit_request.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/visit.dart';
 import '../models/visit_report.dart';
-import '../models/order.dart';
-import '../data/mock_visit_reports.dart';
-import '../data/mock_orders.dart';
 import '../services/api_service.dart';
 import '../services/client_service.dart';
 import '../services/visit_service.dart';
 import '../services/visit_api_service.dart';
+import '../services/order_service.dart';
+import '../models/order_api.dart';
 import '../widgets/session_aware_app_bar.dart';
 import 'visit_report_page.dart';
 import 'visit_report_detail_page.dart';
-import 'order_creation_page.dart';
-import 'order_detail_page.dart';
+import 'create_order_page.dart';
 import 'alert_creation_page.dart';
+import 'api_order_detail_page.dart';
 
 class ClientDetailPage extends StatefulWidget {
   final Client client;
@@ -51,6 +50,7 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
   final ClientService _clientService = ClientService();
   final VisitService _visitService = VisitService();
   final VisitApiService _visitApiService = VisitApiService();
+  final OrderService _orderService = OrderService();
   bool _isLoadingVisit = false;
 
   // Client photos - local files (newly added)
@@ -2471,367 +2471,25 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
   }
 
   void _createVisitReport() {
-    // Get previous reports for this client
-    final previousReports = getVisitReportsByClient(_client.id.toString());
-
+    // Show bottom sheet that fetches reports from API
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (context) => DraggableScrollableSheet(
-        initialChildSize: 0.7,
-        minChildSize: 0.5,
-        maxChildSize: 0.95,
-        expand: false,
-        builder: (context, scrollController) => Column(
-          children: [
-            // Handle
-            Container(
-              margin: const EdgeInsets.symmetric(vertical: 12),
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey[300],
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            // Header
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    'Rapports de visite',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.close),
-                  ),
-                ],
-              ),
-            ),
-            const Divider(),
-
-            // New Report Button
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-              child: SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: _isVisitActive
-                      ? () {
-                          Navigator.pop(context);
-                          _navigateToNewVisitReport();
-                        }
-                      : null,
-                  icon: const Icon(Icons.add),
-                  label: const Text('Nouveau Rapport de Visite'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _isVisitActive ? Colors.green : Colors.grey,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-
-            // Warning message if visit not active
-            if (!_isVisitActive)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.orange.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.info_outline, color: Colors.orange[700], size: 20),
-                      const SizedBox(width: 8),
-                      const Expanded(
-                        child: Text(
-                          'Démarrez la visite pour créer un nouveau rapport',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.black87,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
-            const Divider(),
-
-            // Previous Reports List
-            Expanded(
-              child: previousReports.isEmpty
-                  ? Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.assignment_outlined,
-                            size: 64,
-                            color: Colors.grey[400],
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            'Aucun rapport précédent',
-                            style: TextStyle(
-                              fontSize: 16,
-                              color: Colors.grey[600],
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Créez votre premier rapport',
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: Colors.grey[500],
-                            ),
-                          ),
-                        ],
-                      ),
-                    )
-                  : ListView.builder(
-                      controller: scrollController,
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      itemCount: previousReports.length,
-                      itemBuilder: (context, index) {
-                        final report = previousReports[index];
-                        return _buildVisitReportCard(report);
-                      },
-                    ),
-            ),
-          ],
-        ),
+      builder: (context) => _VisitReportsBottomSheet(
+        clientId: _client.id,
+        clientName: _client.boutiqueName,
+        isVisitActive: _isVisitActive,
+        visitApiService: _visitApiService,
+        onNewReport: () {
+          Navigator.pop(context);
+          _navigateToNewVisitReport();
+        },
+        onViewReport: (report) => _viewVisitReportDetails(report),
       ),
     );
-  }
-
-  Widget _buildVisitReportCard(VisitReport report) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: InkWell(
-        onTap: () => _viewVisitReportDetails(report),
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Header with date and status
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _formatReportDate(report.startTime),
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Durée: ${_calculateDuration(report.startTime, report.endTime)}',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  _buildReportStatusBadge(report.status),
-                ],
-              ),
-              const SizedBox(height: 12),
-
-              // Quick info
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.grey[50],
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Column(
-                  children: [
-                    _buildReportInfoRow(
-                      Icons.person,
-                      'Gérant présent',
-                      report.gerantPresent == true ? 'Oui' : report.gerantPresent == false ? 'Non' : 'Non renseigné',
-                      report.gerantPresent == true ? Colors.green : Colors.orange,
-                    ),
-                    const SizedBox(height: 8),
-                    _buildReportInfoRow(
-                      Icons.shopping_cart,
-                      'Commande',
-                      report.orderPlaced == true
-                          ? 'Oui${report.orderAmount != null ? ' (${report.orderAmount!.toStringAsFixed(0)} FCFA)' : ''}'
-                          : report.orderPlaced == false ? 'Non' : 'Non renseigné',
-                      report.orderPlaced == true ? Colors.green : Colors.grey,
-                    ),
-                    if (report.shelfPhoto != null || report.additionalPhotos.isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      _buildReportInfoRow(
-                        Icons.photo_camera,
-                        'Photos',
-                        '${[report.shelfPhoto, ...report.additionalPhotos].where((p) => p != null).length} photo(s)',
-                        Colors.blue,
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-
-              // Comments preview
-              if (report.comments != null) ...[
-                const SizedBox(height: 12),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(Icons.comment, size: 16, color: Colors.grey[600]),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        report.comments!,
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Colors.grey[700],
-                          fontStyle: FontStyle.italic,
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildReportStatusBadge(VisitReportStatus status) {
-    Color color;
-    IconData icon;
-    String label;
-
-    switch (status) {
-      case VisitReportStatus.incomplete:
-        color = Colors.orange;
-        icon = Icons.pending;
-        label = 'Incomplet';
-        break;
-      case VisitReportStatus.validated:
-        color = Colors.green;
-        icon = Icons.check_circle;
-        label = 'Validé';
-        break;
-    }
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color, width: 1),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 14, color: color),
-          const SizedBox(width: 4),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.bold,
-              color: color,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildReportInfoRow(IconData icon, String label, String value, Color color) {
-    return Row(
-      children: [
-        Icon(icon, size: 16, color: color),
-        const SizedBox(width: 8),
-        Text(
-          '$label: ',
-          style: const TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-        Expanded(
-          child: Text(
-            value,
-            style: TextStyle(
-              fontSize: 13,
-              color: Colors.grey[700],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  String _formatReportDate(DateTime date) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final yesterday = today.subtract(const Duration(days: 1));
-    final reportDate = DateTime(date.year, date.month, date.day);
-
-    if (reportDate == today) {
-      return 'Aujourd\'hui ${DateFormat('HH:mm').format(date)}';
-    } else if (reportDate == yesterday) {
-      return 'Hier ${DateFormat('HH:mm').format(date)}';
-    } else if (now.difference(date).inDays < 7) {
-      return DateFormat('EEEE HH:mm', 'fr_FR').format(date);
-    } else {
-      return DateFormat('dd/MM/yyyy HH:mm').format(date);
-    }
-  }
-
-  String _calculateDuration(DateTime start, DateTime? end) {
-    if (end == null) return 'En cours';
-    final duration = end.difference(start);
-    final hours = duration.inHours;
-    final minutes = duration.inMinutes % 60;
-
-    if (hours > 0) {
-      return '${hours}h ${minutes}min';
-    } else {
-      return '${minutes}min';
-    }
   }
 
   void _viewVisitReportDetails(VisitReport report) {
@@ -3026,383 +2684,45 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
   }
 
   Future<void> _createOrder() async {
-    // Navigate to order creation page
-    final Order? order = await Navigator.push<Order>(
+    // Navigate to order creation page with API integration
+    final orderData = await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => OrderCreationPage(
-          client: _client,
-          visit: null, // No visit context when creating from client detail
+        builder: (context) => CreateOrderPage(
+          preselectedClient: _client,
+          visitId: _visitService.activeVisitId,
         ),
       ),
     );
 
-    if (order != null && mounted) {
+    if (orderData != null && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Commande créée avec succès: ${order.formattedTotal}'),
+        const SnackBar(
+          content: Text('Commande créée avec succès'),
           backgroundColor: Colors.green,
-          duration: const Duration(seconds: 3),
+          duration: Duration(seconds: 3),
         ),
       );
     }
   }
 
   void _viewOrders() {
-    // Get orders for this client
-    final clientOrders = getOrdersByClient(_client.id.toString());
-
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (context) => DraggableScrollableSheet(
-        initialChildSize: 0.7,
-        minChildSize: 0.5,
-        maxChildSize: 0.95,
-        expand: false,
-        builder: (context, scrollController) => Column(
-          children: [
-            // Handle
-            Container(
-              margin: const EdgeInsets.symmetric(vertical: 12),
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey[300],
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            // Header
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    'Commandes',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.close),
-                  ),
-                ],
-              ),
-            ),
-            const Divider(),
-
-            // New Order Button
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-              child: SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: _isVisitActive
-                      ? () {
-                          Navigator.pop(context);
-                          _createOrder();
-                        }
-                      : null,
-                  icon: const Icon(Icons.add),
-                  label: const Text('Nouvelle Commande'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _isVisitActive ? Colors.green : Colors.grey,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-
-            // Warning message if visit not active
-            if (!_isVisitActive)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.orange.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.info_outline, color: Colors.orange[700], size: 20),
-                      const SizedBox(width: 8),
-                      const Expanded(
-                        child: Text(
-                          'Démarrez la visite pour créer une nouvelle commande',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.black87,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
-            const Divider(),
-
-            // Previous Orders List
-            Expanded(
-              child: clientOrders.isEmpty
-                  ? Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.shopping_cart_outlined,
-                            size: 64,
-                            color: Colors.grey[400],
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            'Aucune commande précédente',
-                            style: TextStyle(
-                              fontSize: 16,
-                              color: Colors.grey[600],
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Créez votre première commande',
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: Colors.grey[500],
-                            ),
-                          ),
-                        ],
-                      ),
-                    )
-                  : ListView.builder(
-                      controller: scrollController,
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      itemCount: clientOrders.length,
-                      itemBuilder: (context, index) {
-                        final order = clientOrders[index];
-                        return _buildOrderCard(order);
-                      },
-                    ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildOrderCard(Order order) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: InkWell(
-        onTap: () {
-          Navigator.pop(context); // Close the bottom sheet
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => OrderDetailPage(order: order),
-            ),
-          );
+      builder: (context) => _OrdersBottomSheet(
+        clientId: _client.id,
+        orderService: _orderService,
+        isVisitActive: _isVisitActive,
+        onCreateOrder: () {
+          Navigator.pop(context);
+          _createOrder();
         },
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Header
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Commande #${order.id.substring(order.id.length - 6)}',
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          _formatOrderDate(order.createdAt),
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  _buildOrderStatusBadge(order.status),
-                ],
-              ),
-              const SizedBox(height: 12),
-
-              // Summary
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.grey[50],
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.shopping_basket, size: 16, color: Colors.grey[700]),
-                        const SizedBox(width: 8),
-                        Text(
-                          '${order.totalItemsCount} article${order.totalItemsCount > 1 ? 's' : ''}',
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: Colors.grey[700],
-                          ),
-                        ),
-                      ],
-                    ),
-                    Text(
-                      order.formattedTotal,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.green,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              // Notes preview
-              if (order.notes != null) ...[
-                const SizedBox(height: 8),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(Icons.note, size: 14, color: Colors.grey[600]),
-                    const SizedBox(width: 4),
-                    Expanded(
-                      child: Text(
-                        order.notes!,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey[600],
-                          fontStyle: FontStyle.italic,
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ],
-          ),
-        ),
       ),
     );
-  }
-
-  Widget _buildOrderStatusBadge(OrderStatus status) {
-    Color color;
-    IconData icon;
-    String label;
-
-    switch (status) {
-      case OrderStatus.draft:
-        color = Colors.grey;
-        icon = Icons.edit;
-        label = 'Brouillon';
-        break;
-      case OrderStatus.pending:
-        color = Colors.orange;
-        icon = Icons.pending;
-        label = 'En attente';
-        break;
-      case OrderStatus.sent:
-        color = Colors.blue;
-        icon = Icons.send;
-        label = 'Envoyée';
-        break;
-      case OrderStatus.confirmed:
-        color = Colors.teal;
-        icon = Icons.check_circle_outline;
-        label = 'Confirmée';
-        break;
-      case OrderStatus.processing:
-        color = Colors.purple;
-        icon = Icons.autorenew;
-        label = 'En traitement';
-        break;
-      case OrderStatus.delivered:
-        color = Colors.green;
-        icon = Icons.check_circle;
-        label = 'Livrée';
-        break;
-      case OrderStatus.cancelled:
-        color = Colors.red;
-        icon = Icons.cancel;
-        label = 'Annulée';
-        break;
-    }
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color, width: 1),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 14, color: color),
-          const SizedBox(width: 4),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.bold,
-              color: color,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  String _formatOrderDate(DateTime date) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final yesterday = today.subtract(const Duration(days: 1));
-    final orderDate = DateTime(date.year, date.month, date.day);
-
-    if (orderDate == today) {
-      return 'Aujourd\'hui ${DateFormat('HH:mm').format(date)}';
-    } else if (orderDate == yesterday) {
-      return 'Hier ${DateFormat('HH:mm').format(date)}';
-    } else if (now.difference(date).inDays < 7) {
-      return DateFormat('EEEE HH:mm', 'fr_FR').format(date);
-    } else {
-      return DateFormat('dd/MM/yyyy HH:mm').format(date);
-    }
   }
 
   Future<void> _createAlert() async {
@@ -4166,5 +3486,858 @@ class _FullScreenPhotoViewerState extends State<_FullScreenPhotoViewer> {
         },
       ),
     );
+  }
+}
+
+/// Bottom sheet widget for displaying orders with API loading
+class _OrdersBottomSheet extends StatefulWidget {
+  final int clientId;
+  final OrderService orderService;
+  final bool isVisitActive;
+  final VoidCallback onCreateOrder;
+
+  const _OrdersBottomSheet({
+    required this.clientId,
+    required this.orderService,
+    required this.isVisitActive,
+    required this.onCreateOrder,
+  });
+
+  @override
+  State<_OrdersBottomSheet> createState() => _OrdersBottomSheetState();
+}
+
+class _OrdersBottomSheetState extends State<_OrdersBottomSheet> {
+  List<ApiOrder> _orders = [];
+  bool _isLoading = true;
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadOrders();
+  }
+
+  Future<void> _loadOrders() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final response = await widget.orderService.listOrders(
+        clientId: widget.clientId,
+      );
+
+      if (mounted) {
+        setState(() {
+          _orders = response.orders;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = e.toString();
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  String _formatOrderDate(String? dateStr) {
+    if (dateStr == null || dateStr.isEmpty) return '';
+
+    try {
+      final date = DateTime.parse(dateStr);
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final yesterday = today.subtract(const Duration(days: 1));
+      final orderDate = DateTime(date.year, date.month, date.day);
+
+      if (orderDate == today) {
+        return "Aujourd'hui";
+      } else if (orderDate == yesterday) {
+        return 'Hier';
+      } else {
+        return DateFormat('dd/MM/yyyy').format(date);
+      }
+    } catch (e) {
+      return dateStr;
+    }
+  }
+
+  Widget _buildApiOrderCard(ApiOrder order) {
+    Color statusColor;
+    String statusText;
+
+    switch (order.status.toLowerCase()) {
+      case 'pending':
+        statusColor = Colors.orange;
+        statusText = 'En attente';
+        break;
+      case 'confirmed':
+        statusColor = Colors.blue;
+        statusText = 'Confirmée';
+        break;
+      case 'processing':
+        statusColor = Colors.purple;
+        statusText = 'En cours';
+        break;
+      case 'delivered':
+        statusColor = Colors.green;
+        statusText = 'Livrée';
+        break;
+      case 'cancelled':
+        statusColor = Colors.red;
+        statusText = 'Annulée';
+        break;
+      default:
+        statusColor = Colors.grey;
+        statusText = order.status;
+    }
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () {
+          Navigator.pop(context); // Close the bottom sheet
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => ApiOrderDetailPage(orderId: order.id),
+            ),
+          );
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Commande #${order.id}',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _formatOrderDate(order.createdAt),
+                          style: TextStyle(
+                            color: Colors.grey[600],
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: statusColor.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: statusColor, width: 1),
+                    ),
+                    child: Text(
+                      statusText,
+                      style: TextStyle(
+                        color: statusColor,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey[100],
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      '${order.orderItems.length} article${order.orderItems.length > 1 ? 's' : ''}',
+                      style: TextStyle(
+                        color: Colors.grey[700],
+                        fontSize: 14,
+                      ),
+                    ),
+                    Text(
+                      '${NumberFormat('#,###', 'fr_FR').format(order.totalAmount)} ${order.currency}',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                        color: Colors.green,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (order.reference != null && order.reference!.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Réf: ${order.reference!}',
+                  style: TextStyle(
+                    color: Colors.grey[600],
+                    fontSize: 12,
+                    fontStyle: FontStyle.italic,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.7,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      expand: false,
+      builder: (context, scrollController) => Column(
+        children: [
+          // Handle
+          Container(
+            margin: const EdgeInsets.symmetric(vertical: 12),
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: Colors.grey[300],
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          // Header
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Commandes',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close),
+                ),
+              ],
+            ),
+          ),
+          const Divider(),
+
+          // New Order Button
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+            child: SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: widget.isVisitActive ? widget.onCreateOrder : null,
+                icon: const Icon(Icons.add),
+                label: const Text('Nouvelle Commande'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: widget.isVisitActive ? Colors.green : Colors.grey,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            ),
+          ),
+
+          // Warning message if visit not active
+          if (!widget.isVisitActive)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, color: Colors.orange[700], size: 20),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        'Démarrez la visite pour créer une nouvelle commande',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.black87,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+          const Divider(),
+
+          // Orders List
+          Expanded(
+            child: _isLoading
+                ? const Center(
+                    child: CircularProgressIndicator(),
+                  )
+                : _errorMessage != null
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.error_outline,
+                              size: 64,
+                              color: Colors.red[300],
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'Erreur de chargement',
+                              style: TextStyle(
+                                fontSize: 16,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            TextButton.icon(
+                              onPressed: _loadOrders,
+                              icon: const Icon(Icons.refresh),
+                              label: const Text('Réessayer'),
+                            ),
+                          ],
+                        ),
+                      )
+                    : _orders.isEmpty
+                        ? Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.shopping_cart_outlined,
+                                  size: 64,
+                                  color: Colors.grey[400],
+                                ),
+                                const SizedBox(height: 16),
+                                Text(
+                                  'Aucune commande précédente',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  'Créez votre première commande',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: Colors.grey[500],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )
+                        : ListView.builder(
+                            controller: scrollController,
+                            padding: const EdgeInsets.symmetric(horizontal: 20),
+                            itemCount: _orders.length,
+                            itemBuilder: (context, index) {
+                              final order = _orders[index];
+                              return _buildApiOrderCard(order);
+                            },
+                          ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Stateful bottom sheet widget that fetches visit reports from API
+class _VisitReportsBottomSheet extends StatefulWidget {
+  final int clientId;
+  final String clientName;
+  final bool isVisitActive;
+  final VisitApiService visitApiService;
+  final VoidCallback onNewReport;
+  final Function(VisitReport) onViewReport;
+
+  const _VisitReportsBottomSheet({
+    required this.clientId,
+    required this.clientName,
+    required this.isVisitActive,
+    required this.visitApiService,
+    required this.onNewReport,
+    required this.onViewReport,
+  });
+
+  @override
+  State<_VisitReportsBottomSheet> createState() => _VisitReportsBottomSheetState();
+}
+
+class _VisitReportsBottomSheetState extends State<_VisitReportsBottomSheet> {
+  List<VisitReport> _reports = [];
+  bool _isLoading = true;
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadReports();
+  }
+
+  Future<void> _loadReports() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final apiReports = await widget.visitApiService.getClientVisitReports(widget.clientId);
+      if (mounted) {
+        setState(() {
+          _reports = apiReports.map((r) => r.toVisitReport()).toList();
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = e.toString();
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.7,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      expand: false,
+      builder: (context, scrollController) => Column(
+        children: [
+          // Handle
+          Container(
+            margin: const EdgeInsets.symmetric(vertical: 12),
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: Colors.grey[300],
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          // Header
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Rapports de visite',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close),
+                ),
+              ],
+            ),
+          ),
+          const Divider(),
+
+          // New Report Button
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+            child: SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: widget.isVisitActive ? widget.onNewReport : null,
+                icon: const Icon(Icons.add),
+                label: const Text('Nouveau Rapport de Visite'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: widget.isVisitActive ? Colors.green : Colors.grey,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            ),
+          ),
+
+          // Warning message if visit not active
+          if (!widget.isVisitActive)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, color: Colors.orange[700], size: 20),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        'Démarrez la visite pour créer un nouveau rapport',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.black87,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+          const Divider(),
+
+          // Content area: Loading, Error, Empty, or Reports List
+          Expanded(
+            child: _isLoading
+                ? const Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        CircularProgressIndicator(),
+                        SizedBox(height: 16),
+                        Text('Chargement des rapports...'),
+                      ],
+                    ),
+                  )
+                : _errorMessage != null
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.error_outline,
+                              size: 64,
+                              color: Colors.red[400],
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'Erreur de chargement',
+                              style: TextStyle(
+                                fontSize: 16,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 32),
+                              child: Text(
+                                _errorMessage!,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.grey[500],
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            ElevatedButton.icon(
+                              onPressed: _loadReports,
+                              icon: const Icon(Icons.refresh),
+                              label: const Text('Réessayer'),
+                            ),
+                          ],
+                        ),
+                      )
+                    : _reports.isEmpty
+                        ? Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.assignment_outlined,
+                                  size: 64,
+                                  color: Colors.grey[400],
+                                ),
+                                const SizedBox(height: 16),
+                                Text(
+                                  'Aucun rapport précédent',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  'Créez votre premier rapport',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: Colors.grey[500],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )
+                        : RefreshIndicator(
+                            onRefresh: _loadReports,
+                            child: ListView.builder(
+                              controller: scrollController,
+                              padding: const EdgeInsets.symmetric(horizontal: 20),
+                              itemCount: _reports.length,
+                              itemBuilder: (context, index) {
+                                final report = _reports[index];
+                                return _buildVisitReportCard(report);
+                              },
+                            ),
+                          ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildVisitReportCard(VisitReport report) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: InkWell(
+        onTap: () => widget.onViewReport(report),
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header with date and status
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _formatReportDate(report.startTime),
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Durée: ${_calculateDuration(report.startTime, report.endTime)}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  _buildReportStatusBadge(report.status),
+                ],
+              ),
+              const SizedBox(height: 12),
+
+              // Quick info
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey[50],
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Column(
+                  children: [
+                    _buildReportInfoRow(
+                      Icons.person,
+                      'Gérant présent',
+                      report.gerantPresent == true ? 'Oui' : report.gerantPresent == false ? 'Non' : 'Non renseigné',
+                      report.gerantPresent == true ? Colors.green : Colors.orange,
+                    ),
+                    const SizedBox(height: 8),
+                    _buildReportInfoRow(
+                      Icons.shopping_cart,
+                      'Commande',
+                      report.orderPlaced == true
+                          ? 'Oui${report.orderAmount != null ? ' (${report.orderAmount!.toStringAsFixed(0)} FCFA)' : ''}'
+                          : report.orderPlaced == false ? 'Non' : 'Non renseigné',
+                      report.orderPlaced == true ? Colors.green : Colors.grey,
+                    ),
+                    if (report.shelfPhoto != null || report.additionalPhotos.isNotEmpty || report.shelfPhotos.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      _buildReportInfoRow(
+                        Icons.photo_camera,
+                        'Photos',
+                        '${report.totalPhotoCount} photo(s)',
+                        Colors.blue,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+
+              // Comments preview
+              if (report.comments != null) ...[
+                const SizedBox(height: 12),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.comment, size: 16, color: Colors.grey[600]),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        report.comments!,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.grey[700],
+                          fontStyle: FontStyle.italic,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildReportStatusBadge(VisitReportStatus status) {
+    Color color;
+    IconData icon;
+    String label;
+
+    switch (status) {
+      case VisitReportStatus.incomplete:
+        color = Colors.orange;
+        icon = Icons.pending;
+        label = 'Incomplet';
+        break;
+      case VisitReportStatus.validated:
+        color = Colors.green;
+        icon = Icons.check_circle;
+        label = 'Validé';
+        break;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color, width: 1),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReportInfoRow(IconData icon, String label, String value, Color color) {
+    return Row(
+      children: [
+        Icon(icon, size: 16, color: color),
+        const SizedBox(width: 8),
+        Text(
+          '$label: ',
+          style: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: TextStyle(
+              fontSize: 13,
+              color: Colors.grey[700],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _formatReportDate(DateTime date) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
+    final reportDate = DateTime(date.year, date.month, date.day);
+
+    if (reportDate == today) {
+      return 'Aujourd\'hui ${DateFormat('HH:mm').format(date)}';
+    } else if (reportDate == yesterday) {
+      return 'Hier ${DateFormat('HH:mm').format(date)}';
+    } else if (now.difference(date).inDays < 7) {
+      return DateFormat('EEEE HH:mm', 'fr_FR').format(date);
+    } else {
+      return DateFormat('dd/MM/yyyy HH:mm').format(date);
+    }
+  }
+
+  String _calculateDuration(DateTime start, DateTime? end) {
+    if (end == null) return 'En cours';
+    final duration = end.difference(start);
+    final hours = duration.inHours;
+    final minutes = duration.inMinutes % 60;
+
+    if (hours > 0) {
+      return '${hours}h ${minutes}min';
+    } else {
+      return '${minutes}min';
+    }
   }
 }

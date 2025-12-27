@@ -341,7 +341,7 @@ class _CreateOrderPageState extends State<CreateOrderPage> {
               backgroundColor: AppColors.success,
             ),
           );
-          Navigator.pop(context, true);
+          Navigator.pop(context, response.data);
         }
       } else {
         throw ApiException(response.message ?? 'Erreur lors de la création');

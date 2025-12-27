@@ -103,6 +103,61 @@ class StockItem {
     );
   }
 
+  /// Helper to parse double from various types (String, int, double, null)
+  static double _parseDouble(dynamic value) {
+    if (value == null) return 0.0;
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    if (value is String) {
+      return double.tryParse(value) ?? 0.0;
+    }
+    return 0.0;
+  }
+
+  /// Factory constructor for API response format
+  /// API response format:
+  /// {
+  ///   "id": 1,
+  ///   "product_id": 123,
+  ///   "product_name": "Coca Cola 1.5L",
+  ///   "product_sku": "COCA-1.5L",
+  ///   "quantity": 45.00,
+  ///   "updated_at": "2025-12-26T10:30:00.000000Z"
+  /// }
+  factory StockItem.fromApiJson(Map<String, dynamic> json) {
+    final quantity = json['quantity'];
+    final int parsedQuantity;
+    if (quantity is int) {
+      parsedQuantity = quantity;
+    } else if (quantity is double) {
+      parsedQuantity = quantity.toInt();
+    } else if (quantity is String) {
+      parsedQuantity = double.parse(quantity).toInt();
+    } else {
+      parsedQuantity = 0;
+    }
+
+    return StockItem(
+      id: json['id'].toString(),
+      productId: json['product_id'].toString(),
+      productName: json['product_name'] as String? ?? '',
+      category: json['category'] as String? ?? 'Non catégorisé',
+      packaging: json['product_sku'] as String? ?? '',
+      quantity: parsedQuantity,
+      minQuantity: json['min_quantity'] as int? ?? 10,
+      unitPrice: _parseDouble(json['price']),
+      currency: json['currency'] as String? ?? 'FCFA',
+      imageUrl: json['image_url'] as String?,
+      barcode: json['product_sku'] as String?,
+      lastUpdated: json['updated_at'] != null
+          ? DateTime.parse(json['updated_at'] as String)
+          : DateTime.now(),
+      expiryDate: json['expiry_date'] != null
+          ? DateTime.parse(json['expiry_date'] as String)
+          : null,
+    );
+  }
+
   StockItem copyWith({
     String? id,
     String? productId,

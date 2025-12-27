@@ -341,6 +341,41 @@ class VisitApiService {
     _instance = null;
   }
 
+  /// Get visit reports for a specific client
+  ///
+  /// Returns a list of visit reports for the given client ID.
+  /// Reports are sorted by most recent first.
+  ///
+  /// Throws [VisitApiException] on error:
+  /// - 403: Not authorized to view this client's reports
+  /// - 404: Client not found
+  Future<List<ApiClientVisitReport>> getClientVisitReports(int clientId) async {
+    try {
+      final response = await _apiService.get('/api/clients/$clientId/reports');
+
+      if (response == null) {
+        return [];
+      }
+
+      final data = response as Map<String, dynamic>;
+      final reportsList = data['data'] as List<dynamic>?;
+
+      if (reportsList == null || reportsList.isEmpty) {
+        return [];
+      }
+
+      return reportsList
+          .map((json) => ApiClientVisitReport.fromJson(json as Map<String, dynamic>))
+          .toList();
+    } on ApiException catch (e) {
+      // 404 means client not found or no reports, return empty list
+      if (e.statusCode == 404) {
+        return [];
+      }
+      throw _handleApiException(e);
+    }
+  }
+
   /// Submit a visit report with photos
   ///
   /// Sends the report data as multipart/form-data with photos.
@@ -675,6 +710,168 @@ class VisitReportData {
           [],
       createdAt: DateTime.parse(json['created_at'] as String),
       updatedAt: DateTime.parse(json['updated_at'] as String),
+    );
+  }
+}
+
+/// Model for a client's visit report from the API
+class ApiClientVisitReport {
+  final int id;
+  final int visitId;
+  final int clientId;
+  final String? clientName;
+  final double latitude;
+  final double longitude;
+  final bool? managerPresent;
+  final bool? orderMade;
+  final bool? needsOrder;
+  final String? orderReference;
+  final double? orderEstimatedAmount;
+  final bool? stockShortageObserved;
+  final String? stockIssues;
+  final bool? competitorActivityObserved;
+  final String? competitorActivity;
+  final String? comments;
+  final List<String> shelfPhotoUrls;
+  final List<String> additionalPhotoUrls;
+  final DateTime? visitStartedAt;
+  final DateTime? visitEndedAt;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+
+  ApiClientVisitReport({
+    required this.id,
+    required this.visitId,
+    required this.clientId,
+    this.clientName,
+    required this.latitude,
+    required this.longitude,
+    this.managerPresent,
+    this.orderMade,
+    this.needsOrder,
+    this.orderReference,
+    this.orderEstimatedAmount,
+    this.stockShortageObserved,
+    this.stockIssues,
+    this.competitorActivityObserved,
+    this.competitorActivity,
+    this.comments,
+    this.shelfPhotoUrls = const [],
+    this.additionalPhotoUrls = const [],
+    this.visitStartedAt,
+    this.visitEndedAt,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  factory ApiClientVisitReport.fromJson(Map<String, dynamic> json) {
+    // Parse visit data if available
+    final visitData = json['visit'] as Map<String, dynamic>?;
+    final clientData = visitData?['client'] as Map<String, dynamic>?;
+
+    // Parse photos array - can contain both shelf and other photos
+    final photos = json['photos'] as List<dynamic>? ?? [];
+    final shelfPhotos = <String>[];
+    final otherPhotos = <String>[];
+
+    for (final photo in photos) {
+      if (photo is Map<String, dynamic>) {
+        final url = photo['url'] as String? ?? photo['path'] as String?;
+        final type = photo['type'] as String?;
+        if (url != null) {
+          if (type == 'shelf' || type == 'photo_shelves') {
+            shelfPhotos.add(url);
+          } else {
+            otherPhotos.add(url);
+          }
+        }
+      } else if (photo is String) {
+        // If photos are just URLs
+        shelfPhotos.add(photo);
+      }
+    }
+
+    return ApiClientVisitReport(
+      id: json['id'] as int,
+      visitId: json['visit_id'] as int,
+      clientId: visitData?['client_id'] as int? ?? 0,
+      clientName: clientData?['name'] as String? ?? clientData?['boutique_name'] as String?,
+      latitude: (json['latitude'] as num?)?.toDouble() ?? 0.0,
+      longitude: (json['longitude'] as num?)?.toDouble() ?? 0.0,
+      managerPresent: json['manager_present'] as bool?,
+      orderMade: json['order_made'] as bool?,
+      needsOrder: json['needs_order'] as bool?,
+      orderReference: json['order_reference'] as String?,
+      orderEstimatedAmount: json['order_estimated_amount'] != null
+          ? (json['order_estimated_amount'] as num).toDouble()
+          : null,
+      stockShortageObserved: json['stock_shortage_observed'] as bool?,
+      stockIssues: json['stock_issues'] as String?,
+      competitorActivityObserved: json['competitor_activity_observed'] as bool?,
+      competitorActivity: json['competitor_activity'] as String?,
+      comments: json['comments'] as String?,
+      shelfPhotoUrls: shelfPhotos,
+      additionalPhotoUrls: otherPhotos,
+      visitStartedAt: visitData?['started_at'] != null
+          ? DateTime.tryParse(visitData!['started_at'] as String)
+          : null,
+      visitEndedAt: visitData?['ended_at'] != null
+          ? DateTime.tryParse(visitData!['ended_at'] as String)
+          : null,
+      createdAt: DateTime.parse(json['created_at'] as String),
+      updatedAt: DateTime.parse(json['updated_at'] as String),
+    );
+  }
+
+  /// Convert to local VisitReport model for UI compatibility
+  VisitReport toVisitReport() {
+    const baseUrl = 'https://sira.xpertbot.online';
+
+    // Helper to build full URL for photos
+    String buildPhotoUrl(String path) {
+      if (path.startsWith('http://') || path.startsWith('https://')) {
+        return path;
+      }
+      // Ensure path starts with /
+      final normalizedPath = path.startsWith('/') ? path : '/$path';
+      return '$baseUrl$normalizedPath';
+    }
+
+    return VisitReport(
+      id: id.toString(),
+      visitId: visitId.toString(),
+      clientId: clientId.toString(),
+      clientName: clientName ?? 'Client',
+      startTime: visitStartedAt ?? createdAt,
+      endTime: visitEndedAt,
+      validationLatitude: latitude,
+      validationLongitude: longitude,
+      validationTime: createdAt,
+      shelfPhotos: shelfPhotoUrls.map((url) => GeotaggedPhoto(
+        path: buildPhotoUrl(url),
+        timestamp: createdAt,
+        latitude: latitude,
+        longitude: longitude,
+      )).toList(),
+      additionalPhotos: additionalPhotoUrls.map((url) => GeotaggedPhoto(
+        path: buildPhotoUrl(url),
+        timestamp: createdAt,
+        latitude: latitude,
+        longitude: longitude,
+      )).toList(),
+      gerantPresent: managerPresent,
+      orderPlaced: orderMade,
+      needsOrder: needsOrder,
+      orderAmount: orderEstimatedAmount,
+      orderReference: orderReference,
+      stockShortageObserved: stockShortageObserved,
+      stockShortages: stockIssues,
+      competitorActivityObserved: competitorActivityObserved,
+      competitorActivity: competitorActivity,
+      comments: comments,
+      status: VisitReportStatus.validated,
+      createdAt: createdAt,
+      updatedAt: updatedAt,
     );
   }
 }
