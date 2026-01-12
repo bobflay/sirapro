@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:sirapro/screens/tournee_detail_page.dart';
+import 'package:sirapro/screens/tournee_detail_page_new.dart';
 import 'package:sirapro/screens/clients_page.dart';
 import 'package:sirapro/screens/notifications_page.dart';
 import 'package:sirapro/screens/user_profile_page.dart';
@@ -10,10 +10,13 @@ import 'package:sirapro/screens/orders_list_page.dart';
 import 'package:sirapro/screens/stock_commercial_page.dart';
 import 'package:sirapro/screens/carte_page.dart';
 import 'package:sirapro/screens/invoice_list_page.dart';
+import 'package:sirapro/screens/wallet_page.dart';
 import 'package:sirapro/utils/app_colors.dart';
 import 'package:sirapro/services/auth_service.dart';
 import 'package:sirapro/services/home_service.dart';
 import 'package:sirapro/services/api_service.dart';
+import 'package:sirapro/services/routing_api_service.dart';
+import 'package:sirapro/models/api_routing.dart';
 import 'package:sirapro/widgets/session_aware_app_bar.dart';
 
 class HomePage extends StatefulWidget {
@@ -26,11 +29,16 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   final AuthService _authService = AuthService();
   final HomeService _homeService = HomeService();
+  final RoutingApiService _routingApiService = RoutingApiService();
 
   String? _userName;
   String? _userPhoto;
   double _userBalance = 0.0;
   int _clientsCount = 0;
+
+  // Routing data
+  ApiRoutingSummary? _routingSummary;
+  bool _hasRouting = false;
 
   bool _isLoading = true;
   String? _errorMessage;
@@ -47,10 +55,11 @@ class _HomePageState extends State<HomePage> {
       _errorMessage = null;
     });
 
-    // Load user data and home data in parallel
+    // Load user data, home data, and routing data in parallel
     await Future.wait([
       _loadUserData(),
       _loadHomeData(),
+      _loadRoutingData(),
     ]);
 
     if (mounted) {
@@ -93,6 +102,34 @@ class _HomePageState extends State<HomePage> {
       if (mounted) {
         setState(() {
           _errorMessage = 'Une erreur est survenue lors du chargement des données';
+        });
+      }
+    }
+  }
+
+  Future<void> _loadRoutingData() async {
+    try {
+      final response = await _routingApiService.getTodayRouting();
+      if (mounted) {
+        setState(() {
+          _hasRouting = response.data.hasRouting;
+          _routingSummary = response.data.summary;
+        });
+      }
+    } on RoutingApiException {
+      // Routing data loading error is not critical, continue silently
+      if (mounted) {
+        setState(() {
+          _hasRouting = false;
+          _routingSummary = null;
+        });
+      }
+    } catch (e) {
+      // Routing data loading error is not critical, continue silently
+      if (mounted) {
+        setState(() {
+          _hasRouting = false;
+          _routingSummary = null;
         });
       }
     }
@@ -357,9 +394,18 @@ class _HomePageState extends State<HomePage> {
                 // Balance Card (1/3 width)
                 Expanded(
                   flex: 1,
-                  child: Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
+                  child: GestureDetector(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const WalletPage(),
+                        ),
+                      );
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
                       gradient: LinearGradient(
                         colors: [
                           Theme.of(context).primaryColor,
@@ -416,6 +462,7 @@ class _HomePageState extends State<HomePage> {
                       ],
                     ),
                   ),
+                  ),
                 ),
               ],
             ),
@@ -429,13 +476,17 @@ class _HomePageState extends State<HomePage> {
                   // Tournee du Jour Card
                   Expanded(
                     child: GestureDetector(
-                      onTap: () {
-                        Navigator.push(
+                      onTap: () async {
+                        await Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (context) => const TourneeDetailPage(),
+                            builder: (context) => const TourneeDetailPageNew(),
                           ),
                         );
+                        // Reload routing data when returning from tournee page
+                        if (mounted) {
+                          _loadRoutingData();
+                        }
                       },
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -473,18 +524,20 @@ class _HomePageState extends State<HomePage> {
                                     ),
                                   ),
                                   const SizedBox(height: 4),
-                                  const Text(
-                                    '1/4',
-                                    style: TextStyle(
+                                  Text(
+                                    _hasRouting && _routingSummary != null
+                                        ? '${_routingSummary!.completedClients}/${_routingSummary!.totalClients}'
+                                        : '-/-',
+                                    style: const TextStyle(
                                       fontSize: 16,
                                       fontWeight: FontWeight.bold,
                                       color: Colors.black87,
                                     ),
                                   ),
                                   const SizedBox(height: 2),
-                                  const Text(
-                                    'visites',
-                                    style: TextStyle(
+                                  Text(
+                                    _hasRouting ? 'visites' : 'Aucune tournée',
+                                    style: const TextStyle(
                                       fontSize: 11,
                                       color: Colors.grey,
                                     ),
@@ -496,7 +549,9 @@ class _HomePageState extends State<HomePage> {
                                       ClipRRect(
                                         borderRadius: BorderRadius.circular(10),
                                         child: LinearProgressIndicator(
-                                          value: 0.25,
+                                          value: _hasRouting && _routingSummary != null
+                                              ? _routingSummary!.progressPercentage / 100
+                                              : 0.0,
                                           minHeight: 4,
                                           backgroundColor: Colors.grey[200],
                                           valueColor: AlwaysStoppedAnimation<Color>(
@@ -505,9 +560,11 @@ class _HomePageState extends State<HomePage> {
                                         ),
                                       ),
                                       const SizedBox(height: 2),
-                                      const Text(
-                                        '25%',
-                                        style: TextStyle(
+                                      Text(
+                                        _hasRouting && _routingSummary != null
+                                            ? '${_routingSummary!.progressPercentage.toStringAsFixed(0)}%'
+                                            : '0%',
+                                        style: const TextStyle(
                                           fontSize: 11,
                                           fontWeight: FontWeight.bold,
                                           color: Colors.black87,
@@ -540,13 +597,17 @@ class _HomePageState extends State<HomePage> {
                   // Clients Card
                   Expanded(
                     child: GestureDetector(
-                      onTap: () {
-                        Navigator.push(
+                      onTap: () async {
+                        await Navigator.push(
                           context,
                           MaterialPageRoute(
                             builder: (context) => const ClientsPage(),
                           ),
                         );
+                        // Reload home data when returning from clients page
+                        if (mounted) {
+                          _loadHomeData();
+                        }
                       },
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -659,20 +720,6 @@ class _HomePageState extends State<HomePage> {
                 children: [
                   _buildActionButton(
                     context,
-                    icon: Icons.route,
-                    label: 'Ma Tournée',
-                    color: AppColors.primary,
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const TourneeDetailPage(),
-                        ),
-                      );
-                    },
-                  ),
-                  _buildActionButton(
-                    context,
                     icon: Icons.inventory_2,
                     label: 'Stock\nCommercial',
                     color: AppColors.success,
@@ -744,7 +791,7 @@ class _HomePageState extends State<HomePage> {
                   _buildActionButton(
                     context,
                     icon: Icons.receipt_long,
-                    label: 'Factures',
+                    label: 'Bon de livraisons',
                     color: AppColors.primaryLight,
                     onTap: () {
                       Navigator.push(

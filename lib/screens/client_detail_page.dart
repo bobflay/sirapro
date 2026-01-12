@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:sirapro/utils/phone_formatter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:image_picker/image_picker.dart';
@@ -9,12 +11,15 @@ import 'package:intl/intl.dart';
 import 'package:sirapro/models/client.dart';
 import 'package:sirapro/utils/app_colors.dart';
 import 'package:sirapro/models/client_photo.dart';
-import 'package:sirapro/models/alert.dart';
+import 'package:sirapro/models/api_alert.dart';
+import 'package:sirapro/services/alert_api_service.dart';
 import 'package:sirapro/models/update_client_request.dart';
 import 'package:sirapro/models/api_visit.dart';
 import 'package:sirapro/models/start_visit_request.dart';
 import 'package:sirapro/models/terminate_visit_request.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'dart:math' as math;
 import '../models/visit.dart';
 import '../models/visit_report.dart';
 import '../services/api_service.dart';
@@ -28,6 +33,7 @@ import 'visit_report_page.dart';
 import 'visit_report_detail_page.dart';
 import 'create_order_page.dart';
 import 'alert_creation_page.dart';
+import 'alert_detail_page.dart';
 import 'api_order_detail_page.dart';
 
 class ClientDetailPage extends StatefulWidget {
@@ -51,6 +57,7 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
   final VisitService _visitService = VisitService();
   final VisitApiService _visitApiService = VisitApiService();
   final OrderService _orderService = OrderService();
+  final AlertApiService _alertApiService = AlertApiService();
   bool _isLoadingVisit = false;
 
   // Client photos - local files (newly added)
@@ -83,8 +90,14 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
   String? _selectedZone;
   String? _selectedPotentiel;
   String? _selectedFrequence;
+  String? _selectedVisitDay;
 
   final _formKey = GlobalKey<FormState>();
+
+  // GPS Location state for editing
+  LatLng? _updatedGpsPosition;
+  bool _isCapturingGps = false;
+  static const double _maxAdjustmentRadius = 300.0;
 
   final List<String> _types = [
     'Boutique',
@@ -123,6 +136,16 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
     'Bimensuelle',
     'Mensuelle',
     'Autre',
+  ];
+
+  final List<String> _visitDays = [
+    'Lundi',
+    'Mardi',
+    'Mercredi',
+    'Jeudi',
+    'Vendredi',
+    'Samedi',
+    'Dimanche',
   ];
 
   @override
@@ -174,7 +197,11 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
     _selectedType = _client.type;
     _selectedZone = _client.zone;
     _selectedPotentiel = _client.potentiel;
-    _selectedFrequence = _client.frequenceVisite;
+    // Convert API value (english) to French label for dropdown
+    _selectedFrequence = _client.visitFrequency != null
+        ? UpdateClientRequest.apiValueToFrequency(_client.visitFrequency!)
+        : null;
+    _selectedVisitDay = UpdateClientRequest.apiValueToDay(_client.visitDay);
   }
 
   @override
@@ -536,8 +563,8 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
 
       final visit = await _visitApiService.startVisit(request);
 
-      // Save to local storage
-      await _visitService.startApiVisit(visit);
+      // Save to local storage with client for quick navigation
+      await _visitService.startApiVisit(visit, client: _client);
 
       if (mounted) Navigator.pop(context);
 
@@ -1439,11 +1466,176 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
   void _toggleEdit() {
     setState(() {
       if (_isEditing) {
-        // Cancel editing - reset controllers
+        // Cancel editing - reset controllers and GPS position
         _initControllers();
+        _updatedGpsPosition = null;
       }
       _isEditing = !_isEditing;
     });
+  }
+
+  /// Show location permission dialog when permanently denied
+  void _showLocationPermissionDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.warning, color: Colors.orange[700]),
+            const SizedBox(width: 8),
+            const Text('Permission requise'),
+          ],
+        ),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'La permission de localisation a été refusée de manière permanente.',
+              style: TextStyle(fontSize: 15),
+            ),
+            SizedBox(height: 16),
+            Text(
+              'Pour activer la permission sur iOS :',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            SizedBox(height: 8),
+            Text('1. Allez dans Réglages > Confidentialité et sécurité'),
+            Text('2. Choisissez "Services de localisation"'),
+            Text('3. Activez la permission pour SIRA PRO'),
+            Text('4. Revenez à l\'application'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Annuler'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () async {
+              Navigator.of(context).pop();
+              await openAppSettings();
+            },
+            icon: const Icon(Icons.settings),
+            label: const Text('Ouvrir les paramètres'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue,
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Show the location picker as a full screen page for adjusting GPS position
+  Future<LatLng?> _showLocationPickerDialog(LatLng initialPosition) async {
+    return Navigator.push<LatLng>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => _LocationPickerPage(
+          initialPosition: initialPosition,
+          maxRadius: _maxAdjustmentRadius,
+        ),
+      ),
+    );
+  }
+
+  /// Capture GPS position for updating client location
+  Future<void> _captureGpsPosition() async {
+    setState(() {
+      _isCapturingGps = true;
+    });
+
+    try {
+      // Check permissions
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+
+      if (permission == LocationPermission.denied) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('La permission de localisation est requise.'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+        setState(() => _isCapturingGps = false);
+        return;
+      }
+
+      if (permission == LocationPermission.deniedForever) {
+        if (mounted) {
+          _showLocationPermissionDialog();
+        }
+        setState(() => _isCapturingGps = false);
+        return;
+      }
+
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Veuillez activer le service de localisation.'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+        setState(() => _isCapturingGps = false);
+        return;
+      }
+
+      // Get current position
+      Position position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 10),
+      );
+
+      final gpsPosition = LatLng(position.latitude, position.longitude);
+
+      // Show map picker for fine-tuning
+      if (mounted) {
+        final adjustedPosition = await _showLocationPickerDialog(gpsPosition);
+        if (adjustedPosition != null) {
+          setState(() {
+            _updatedGpsPosition = adjustedPosition;
+            _isCapturingGps = false;
+          });
+
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: const Row(
+                  children: [
+                    Icon(Icons.check_circle, color: Colors.white),
+                    SizedBox(width: 12),
+                    Expanded(child: Text('Position GPS mise à jour')),
+                  ],
+                ),
+                backgroundColor: AppColors.success,
+                duration: const Duration(seconds: 2),
+              ),
+            );
+          }
+        } else {
+          setState(() => _isCapturingGps = false);
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        setState(() => _isCapturingGps = false);
+      }
+    }
   }
 
   Future<void> _saveChanges() async {
@@ -1480,9 +1672,9 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
         name: _boutiqueNameController.text.trim(),
         type: _selectedType,
         managerName: _gerantNameController.text.trim(),
-        phone: _phoneController.text.trim(),
+        phone: PhoneUtils.stripSpaces(_phoneController.text.trim()),
         whatsapp: _whatsappController.text.trim().isNotEmpty
-            ? _whatsappController.text.trim()
+            ? PhoneUtils.stripSpaces(_whatsappController.text.trim())
             : null,
         email: _emailController.text.trim().isNotEmpty
             ? _emailController.text.trim()
@@ -1496,6 +1688,10 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
         visitFrequency: _selectedFrequence != null
             ? UpdateClientRequest.frequencyToApiValue(_selectedFrequence!)
             : null,
+        visitDay: UpdateClientRequest.dayToApiValue(_selectedVisitDay),
+        // Include GPS coordinates if updated
+        latitude: _updatedGpsPosition?.latitude,
+        longitude: _updatedGpsPosition?.longitude,
       );
 
       // Call the API to update the client
@@ -1510,6 +1706,7 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
         _client = updatedClient;
         _isEditing = false;
         _isSaving = false;
+        _updatedGpsPosition = null; // Reset GPS position after successful save
       });
 
       // Reinitialize controllers with updated data
@@ -2143,6 +2340,12 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
                       'Fréquence de visite',
                       _client.frequenceVisite!,
                     ),
+                  if (_client.visitDay != null)
+                    _buildInfoRow(
+                      Icons.today,
+                      'Jour de visite',
+                      UpdateClientRequest.apiValueToDay(_client.visitDay) ?? _client.visitDay!,
+                    ),
                   _buildInfoRow(
                     Icons.calendar_today,
                     'Client depuis',
@@ -2204,11 +2407,10 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
               label: 'Téléphone *',
               keyboardType: TextInputType.phone,
               prefixIcon: Icons.phone,
+              hintText: '05 XX XX XX XX',
+              inputFormatters: [PhoneNumberFormatter()],
               validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return 'Veuillez entrer le numéro de téléphone';
-                }
-                return null;
+                return PhoneUtils.validate(value ?? '');
               },
             ),
             const SizedBox(height: 16),
@@ -2217,6 +2419,8 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
               label: 'WhatsApp',
               keyboardType: TextInputType.phone,
               prefixIcon: Icons.chat,
+              hintText: '05 XX XX XX XX',
+              inputFormatters: [PhoneNumberFormatter()],
             ),
             const SizedBox(height: 16),
             _buildTextField(
@@ -2270,6 +2474,9 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
               items: _zones,
               onChanged: (value) => setState(() => _selectedZone = value),
             ),
+            const SizedBox(height: 16),
+            // GPS Position capture button
+            _buildGpsCaptureButton(),
 
             const SizedBox(height: 24),
 
@@ -2322,6 +2529,13 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
               label: 'Fréquence de visite',
               items: _frequences,
               onChanged: (value) => setState(() => _selectedFrequence = value),
+            ),
+            const SizedBox(height: 16),
+            _buildDropdown(
+              value: _selectedVisitDay,
+              label: 'Jour de visite',
+              items: _visitDays,
+              onChanged: (value) => setState(() => _selectedVisitDay = value),
             ),
 
             const SizedBox(height: 32),
@@ -2400,9 +2614,9 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
               ),
               _buildQuickActionButton(
                 icon: Icons.warning_amber,
-                label: 'Créer\nalerte',
+                label: 'Alertes',
                 color: Colors.orange,
-                onTap: _isVisitActive ? _createAlert : null,
+                onTap: _viewAlerts, // Always enabled to view and create alerts
               ),
             ],
           ),
@@ -2725,18 +2939,37 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
     );
   }
 
-  Future<void> _createAlert() async {
-    final Alert? alert = await Navigator.push<Alert>(
+  void _viewAlerts() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => _AlertsBottomSheet(
+        clientId: _client.id,
+        alertApiService: _alertApiService,
+        isVisitActive: _isVisitActive,
+        onCreateAlert: () {
+          Navigator.pop(context);
+          _createNewAlert();
+        },
+      ),
+    );
+  }
+
+  Future<void> _createNewAlert() async {
+    final result = await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => AlertCreationPage(client: _client),
       ),
     );
 
-    if (alert != null && mounted) {
+    if (result == true && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Alerte "${alert.title}" créée avec succès'),
+        const SnackBar(
+          content: Text('Alerte créée avec succès'),
           backgroundColor: Colors.green,
         ),
       );
@@ -2837,18 +3070,133 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
     );
   }
 
+  /// Build the GPS capture button for edit mode
+  Widget _buildGpsCaptureButton() {
+    final hasUpdatedPosition = _updatedGpsPosition != null;
+    final hasExistingPosition = _client.hasLocation;
+
+    // Determine what to show
+    String currentLocationText;
+    if (hasUpdatedPosition) {
+      currentLocationText = '${_updatedGpsPosition!.latitude.toStringAsFixed(6)}, ${_updatedGpsPosition!.longitude.toStringAsFixed(6)}';
+    } else if (hasExistingPosition) {
+      currentLocationText = '${_client.latitude!.toStringAsFixed(6)}, ${_client.longitude!.toStringAsFixed(6)}';
+    } else {
+      currentLocationText = 'Non définie';
+    }
+
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        color: hasUpdatedPosition
+            ? AppColors.success.withValues(alpha: 0.1)
+            : Colors.white,
+        border: Border.all(
+          color: hasUpdatedPosition
+              ? AppColors.success
+              : Colors.grey[300]!,
+          width: hasUpdatedPosition ? 2 : 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withValues(alpha: 0.1),
+            spreadRadius: 1,
+            blurRadius: 5,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: _isCapturingGps ? null : _captureGpsPosition,
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: hasUpdatedPosition
+                        ? AppColors.success.withValues(alpha: 0.2)
+                        : AppColors.primary.withValues(alpha: 0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: _isCapturingGps
+                      ? SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              hasUpdatedPosition ? AppColors.success : AppColors.primary,
+                            ),
+                          ),
+                        )
+                      : Icon(
+                          hasUpdatedPosition ? Icons.check_circle : Icons.my_location,
+                          color: hasUpdatedPosition ? AppColors.success : AppColors.primary,
+                          size: 24,
+                        ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        hasUpdatedPosition
+                            ? 'Position GPS mise à jour'
+                            : 'Mettre à jour la position GPS',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: hasUpdatedPosition ? AppColors.success : Colors.black87,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        currentLocationText,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: hasUpdatedPosition
+                              ? AppColors.success.withValues(alpha: 0.8)
+                              : Colors.grey[600],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(
+                  hasUpdatedPosition ? Icons.edit : Icons.chevron_right,
+                  color: hasUpdatedPosition ? AppColors.success : Colors.grey[400],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildTextField({
     required TextEditingController controller,
     required String label,
     TextInputType? keyboardType,
     IconData? prefixIcon,
     String? Function(String?)? validator,
+    List<TextInputFormatter>? inputFormatters,
+    String? hintText,
   }) {
     return TextFormField(
       controller: controller,
       keyboardType: keyboardType,
+      inputFormatters: inputFormatters,
       decoration: InputDecoration(
         labelText: label,
+        hintText: hintText,
         prefixIcon: prefixIcon != null ? Icon(prefixIcon) : null,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
@@ -3881,6 +4229,426 @@ class _OrdersBottomSheetState extends State<_OrdersBottomSheet> {
   }
 }
 
+/// Stateful bottom sheet widget that fetches alerts from API
+class _AlertsBottomSheet extends StatefulWidget {
+  final int clientId;
+  final AlertApiService alertApiService;
+  final bool isVisitActive;
+  final VoidCallback onCreateAlert;
+
+  const _AlertsBottomSheet({
+    required this.clientId,
+    required this.alertApiService,
+    required this.isVisitActive,
+    required this.onCreateAlert,
+  });
+
+  @override
+  State<_AlertsBottomSheet> createState() => _AlertsBottomSheetState();
+}
+
+class _AlertsBottomSheetState extends State<_AlertsBottomSheet> {
+  List<ApiAlert> _alerts = [];
+  bool _isLoading = true;
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAlerts();
+  }
+
+  Future<void> _loadAlerts() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final response = await widget.alertApiService.getAlertsForClient(
+        widget.clientId,
+      );
+
+      if (mounted) {
+        setState(() {
+          _alerts = response.data;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = e.toString();
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  String _formatAlertDate(DateTime date) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
+    final alertDate = DateTime(date.year, date.month, date.day);
+
+    if (alertDate == today) {
+      return "Aujourd'hui ${DateFormat('HH:mm').format(date)}";
+    } else if (alertDate == yesterday) {
+      return 'Hier ${DateFormat('HH:mm').format(date)}';
+    } else {
+      return DateFormat('dd/MM/yyyy HH:mm').format(date);
+    }
+  }
+
+  Color _getStatusColor(String status) {
+    switch (status) {
+      case 'pending':
+        return Colors.orange;
+      case 'in_progress':
+        return Colors.blue;
+      case 'resolved':
+        return Colors.green;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  IconData _getTypeIcon(String type) {
+    switch (type) {
+      case 'rupture_grave':
+        return Icons.inventory_2;
+      case 'litige_probleme':
+        return Icons.payment;
+      case 'probleme_rayon':
+        return Icons.shelves;
+      case 'risque_perte':
+        return Icons.warning;
+      case 'demande_speciale':
+        return Icons.star;
+      case 'opportunite':
+        return Icons.lightbulb;
+      default:
+        return Icons.info;
+    }
+  }
+
+  Color _getTypeColor(String type) {
+    switch (type) {
+      case 'rupture_grave':
+        return AppColors.primary;
+      case 'litige_probleme':
+        return AppColors.primaryDark;
+      case 'probleme_rayon':
+        return AppColors.secondary;
+      case 'risque_perte':
+        return AppColors.primary;
+      case 'demande_speciale':
+        return AppColors.secondaryDark;
+      case 'opportunite':
+        return AppColors.secondary;
+      default:
+        return AppColors.accent;
+    }
+  }
+
+  Widget _buildAlertCard(ApiAlert alert) {
+    final statusColor = _getStatusColor(alert.status);
+    final typeIcon = _getTypeIcon(alert.type);
+    final typeColor = _getTypeColor(alert.type);
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () {
+          Navigator.pop(context); // Close the bottom sheet
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => AlertDetailPage(alert: alert),
+            ),
+          );
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: typeColor.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(
+                      typeIcon,
+                      color: typeColor,
+                      size: 24,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                alert.typeLabel,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                ),
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: statusColor.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: statusColor),
+                              ),
+                              child: Text(
+                                alert.statusLabel,
+                                style: TextStyle(
+                                  color: statusColor,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          alert.comment,
+                          style: TextStyle(
+                            color: Colors.grey[700],
+                            fontSize: 14,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Icon(Icons.access_time, size: 12, color: Colors.grey[400]),
+                            const SizedBox(width: 4),
+                            Text(
+                              _formatAlertDate(alert.createdAt),
+                              style: TextStyle(
+                                color: Colors.grey[500],
+                                fontSize: 11,
+                              ),
+                            ),
+                            if (alert.photos.isNotEmpty) ...[
+                              const SizedBox(width: 12),
+                              Icon(Icons.photo, size: 12, color: Colors.grey[400]),
+                              const SizedBox(width: 4),
+                              Text(
+                                '${alert.photos.length}',
+                                style: TextStyle(
+                                  color: Colors.grey[500],
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.7,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      expand: false,
+      builder: (context, scrollController) => Column(
+        children: [
+          // Handle
+          Container(
+            margin: const EdgeInsets.symmetric(vertical: 12),
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: Colors.grey[300],
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          // Header
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Alertes',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close),
+                ),
+              ],
+            ),
+          ),
+          const Divider(),
+
+          // New Alert Button
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+            child: SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: widget.isVisitActive ? widget.onCreateAlert : null,
+                icon: const Icon(Icons.add),
+                label: const Text('Nouvelle Alerte'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: widget.isVisitActive ? Colors.orange : Colors.grey,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            ),
+          ),
+
+          // Warning message if visit not active
+          if (!widget.isVisitActive)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, color: Colors.orange[700], size: 20),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        'Démarrez la visite pour créer une nouvelle alerte',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.black87,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+          const Divider(),
+
+          // Alerts List
+          Expanded(
+            child: _isLoading
+                ? const Center(
+                    child: CircularProgressIndicator(),
+                  )
+                : _errorMessage != null
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.error_outline,
+                              size: 64,
+                              color: Colors.red[300],
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'Erreur de chargement',
+                              style: TextStyle(
+                                fontSize: 16,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            TextButton.icon(
+                              onPressed: _loadAlerts,
+                              icon: const Icon(Icons.refresh),
+                              label: const Text('Réessayer'),
+                            ),
+                          ],
+                        ),
+                      )
+                    : _alerts.isEmpty
+                        ? Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.check_circle_outline,
+                                  size: 64,
+                                  color: Colors.grey[400],
+                                ),
+                                const SizedBox(height: 16),
+                                Text(
+                                  'Aucune alerte précédente',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  'Créez votre première alerte',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: Colors.grey[500],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )
+                        : ListView.builder(
+                            controller: scrollController,
+                            padding: const EdgeInsets.symmetric(horizontal: 20),
+                            itemCount: _alerts.length,
+                            itemBuilder: (context, index) {
+                              final alert = _alerts[index];
+                              return _buildAlertCard(alert);
+                            },
+                          ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// Stateful bottom sheet widget that fetches visit reports from API
 class _VisitReportsBottomSheet extends StatefulWidget {
   final int clientId;
@@ -4339,5 +5107,327 @@ class _VisitReportsBottomSheetState extends State<_VisitReportsBottomSheet> {
     } else {
       return '${minutes}min';
     }
+  }
+}
+
+/// Full screen location picker page for adjusting GPS position
+class _LocationPickerPage extends StatefulWidget {
+  final LatLng initialPosition;
+  final double maxRadius;
+
+  const _LocationPickerPage({
+    required this.initialPosition,
+    required this.maxRadius,
+  });
+
+  @override
+  State<_LocationPickerPage> createState() => _LocationPickerPageState();
+}
+
+class _LocationPickerPageState extends State<_LocationPickerPage> {
+  late LatLng _currentPosition;
+  GoogleMapController? _mapController;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentPosition = widget.initialPosition;
+  }
+
+  /// Calculate distance between two LatLng points in meters using Haversine formula
+  double _calculateDistance(LatLng from, LatLng to) {
+    const double earthRadius = 6371000; // Earth's radius in meters
+    final double lat1 = from.latitude * math.pi / 180;
+    final double lat2 = to.latitude * math.pi / 180;
+    final double deltaLat = (to.latitude - from.latitude) * math.pi / 180;
+    final double deltaLng = (to.longitude - from.longitude) * math.pi / 180;
+
+    final double a = math.sin(deltaLat / 2) * math.sin(deltaLat / 2) +
+        math.cos(lat1) * math.cos(lat2) * math.sin(deltaLng / 2) * math.sin(deltaLng / 2);
+    final double c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+
+    return earthRadius * c;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final distance = _calculateDistance(widget.initialPosition, _currentPosition);
+    final isWithinRadius = distance <= widget.maxRadius;
+
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        title: const Text('Ajuster la position'),
+        backgroundColor: AppColors.primary,
+        foregroundColor: Colors.white,
+        leading: IconButton(
+          icon: const Icon(Icons.close),
+          onPressed: () => Navigator.pop(context, null),
+        ),
+      ),
+      body: Column(
+        children: [
+          // Header with instructions
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            color: Colors.grey[100],
+            child: Column(
+              children: [
+                Text(
+                  'Déplacez la carte pour ajuster la position (max ${widget.maxRadius.toInt()}m)',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey[700],
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 12),
+                // Distance indicator
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: isWithinRadius
+                        ? AppColors.success.withValues(alpha: 0.1)
+                        : AppColors.error.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(25),
+                    border: Border.all(
+                      color: isWithinRadius ? AppColors.success : AppColors.error,
+                      width: 2,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        isWithinRadius ? Icons.check_circle : Icons.warning,
+                        size: 20,
+                        color: isWithinRadius ? AppColors.success : AppColors.error,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Distance: ${distance.toInt()}m / ${widget.maxRadius.toInt()}m',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                          color: isWithinRadius ? AppColors.success : AppColors.error,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // Map with fixed center marker
+          Expanded(
+            child: Stack(
+              children: [
+                GoogleMap(
+                  initialCameraPosition: CameraPosition(
+                    target: widget.initialPosition,
+                    zoom: 18,
+                  ),
+                  onMapCreated: (controller) {
+                    _mapController = controller;
+                  },
+                  onCameraMove: (CameraPosition position) {
+                    setState(() {
+                      _currentPosition = position.target;
+                    });
+                  },
+                  markers: {
+                    // Original GPS position marker (blue) - stays fixed on map
+                    Marker(
+                      markerId: const MarkerId('original_location'),
+                      position: widget.initialPosition,
+                      icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+                    ),
+                  },
+                  circles: {
+                    Circle(
+                      circleId: const CircleId('radius_limit'),
+                      center: widget.initialPosition,
+                      radius: widget.maxRadius,
+                      fillColor: AppColors.primary.withValues(alpha: 0.1),
+                      strokeColor: AppColors.primary.withValues(alpha: 0.5),
+                      strokeWidth: 2,
+                    ),
+                  },
+                  myLocationEnabled: true,
+                  myLocationButtonEnabled: false,
+                  zoomControlsEnabled: false,
+                  mapToolbarEnabled: false,
+                ),
+                // Fixed center marker (red pin icon)
+                Center(
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: 36),
+                    child: Icon(
+                      Icons.location_on,
+                      size: 48,
+                      color: isWithinRadius ? AppColors.error : Colors.grey,
+                    ),
+                  ),
+                ),
+                // Marker shadow/dot at the bottom of pin
+                Center(
+                  child: Container(
+                    width: 6,
+                    height: 6,
+                    decoration: const BoxDecoration(
+                      color: Colors.black45,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ),
+                // Zoom controls
+                Positioned(
+                  right: 16,
+                  bottom: 120,
+                  child: Column(
+                    children: [
+                      FloatingActionButton.small(
+                        heroTag: 'zoom_in',
+                        backgroundColor: Colors.white,
+                        onPressed: () {
+                          _mapController?.animateCamera(CameraUpdate.zoomIn());
+                        },
+                        child: const Icon(Icons.add, color: Colors.black87),
+                      ),
+                      const SizedBox(height: 8),
+                      FloatingActionButton.small(
+                        heroTag: 'zoom_out',
+                        backgroundColor: Colors.white,
+                        onPressed: () {
+                          _mapController?.animateCamera(CameraUpdate.zoomOut());
+                        },
+                        child: const Icon(Icons.remove, color: Colors.black87),
+                      ),
+                    ],
+                  ),
+                ),
+                // Reset to GPS position button
+                Positioned(
+                  left: 16,
+                  bottom: 16,
+                  child: FloatingActionButton.extended(
+                    heroTag: 'reset',
+                    backgroundColor: Colors.white,
+                    onPressed: () {
+                      _mapController?.animateCamera(
+                        CameraUpdate.newLatLng(widget.initialPosition),
+                      );
+                    },
+                    icon: const Icon(Icons.my_location, color: Colors.blue),
+                    label: const Text(
+                      'Position GPS',
+                      style: TextStyle(color: Colors.black87),
+                    ),
+                  ),
+                ),
+                // Warning when outside radius
+                if (!isWithinRadius)
+                  Positioned(
+                    top: 16,
+                    left: 16,
+                    right: 16,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: AppColors.error,
+                        borderRadius: BorderRadius.circular(8),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.2),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: const Row(
+                        children: [
+                          Icon(Icons.warning, color: Colors.white, size: 20),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Position trop éloignée du point GPS!',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          // Bottom buttons
+          Container(
+            padding: EdgeInsets.only(
+              left: 16,
+              right: 16,
+              top: 16,
+              bottom: MediaQuery.of(context).padding.bottom + 16,
+            ),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.1),
+                  blurRadius: 10,
+                  offset: const Offset(0, -5),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(context, null),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      side: BorderSide(color: Colors.grey[400]!),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: const Text('Annuler'),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  flex: 2,
+                  child: ElevatedButton(
+                    onPressed: isWithinRadius
+                        ? () => Navigator.pop(context, _currentPosition)
+                        : null,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.success,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      disabledBackgroundColor: Colors.grey[300],
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: const Text(
+                      'Confirmer la position',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

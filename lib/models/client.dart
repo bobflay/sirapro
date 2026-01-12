@@ -14,6 +14,7 @@ class Client {
   final int? commercialId;
   final String? potential;
   final String? visitFrequency;
+  final String? visitDay;
   final DateTime? lastVisitDate;
   final bool hasOpenAlert;
   final DateTime createdAt;
@@ -45,6 +46,7 @@ class Client {
     this.commercialId,
     this.potential,
     this.visitFrequency,
+    this.visitDay,
     this.lastVisitDate,
     required this.hasOpenAlert,
     required this.createdAt,
@@ -163,6 +165,7 @@ class Client {
       commercialId: json['commercial_id'] as int?,
       potential: json['potential'] as String?,
       visitFrequency: json['visit_frequency'] as String?,
+      visitDay: json['visit_day'] as String?,
       lastVisitDate: json['last_visit_date'] != null
           ? DateTime.parse(json['last_visit_date'] as String)
           : null,
@@ -199,6 +202,7 @@ class Client {
       'commercial_id': commercialId,
       'potential': potential,
       'visit_frequency': visitFrequency,
+      'visit_day': visitDay,
       'last_visit_date': lastVisitDate?.toIso8601String().split('T').first,
       'has_open_alert': hasOpenAlert,
       'created_at': createdAt.toIso8601String(),
@@ -220,6 +224,7 @@ class Client {
     int? commercialId,
     String? potential,
     String? visitFrequency,
+    String? visitDay,
     DateTime? lastVisitDate,
     bool? hasOpenAlert,
     DateTime? createdAt,
@@ -261,6 +266,7 @@ class Client {
       commercialId: commercialId ?? this.commercialId,
       potential: potentiel ?? potential ?? this.potential,
       visitFrequency: frequenceVisite ?? visitFrequency ?? this.visitFrequency,
+      visitDay: visitDay ?? this.visitDay,
       lastVisitDate: lastVisitDate ?? this.lastVisitDate,
       hasOpenAlert: hasOpenAlert ?? this.hasOpenAlert,
       createdAt: createdAt ?? this.createdAt,

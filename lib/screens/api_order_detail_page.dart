@@ -25,6 +25,9 @@ class _ApiOrderDetailPageState extends State<ApiOrderDetailPage> {
   bool _isLoading = true;
   String? _errorMessage;
 
+  // Track item statuses locally for immediate UI feedback
+  late List<String> _itemStatuses;
+
   @override
   void initState() {
     super.initState();
@@ -55,6 +58,10 @@ class _ApiOrderDetailPageState extends State<ApiOrderDetailPage> {
       if (response.status && response.order != null) {
         setState(() {
           _order = response.order;
+          // Initialize item statuses from order data
+          _itemStatuses = response.order!.orderItems
+              .map((item) => item.status)
+              .toList();
           _isLoading = false;
         });
       } else {
@@ -121,6 +128,107 @@ class _ApiOrderDetailPageState extends State<ApiOrderDetailPage> {
         return AppColors.error;
       default:
         return Colors.grey;
+    }
+  }
+
+  void _onItemStatusChanged(int index, bool delivered) {
+    final currentStatus = _itemStatuses[index];
+    final newStatus = delivered ? ApiOrderItem.statusDelivered : ApiOrderItem.statusNotDelivered;
+
+    // Toggle off if same status is swiped again
+    final finalStatus = currentStatus == newStatus ? ApiOrderItem.statusPending : newStatus;
+
+    setState(() {
+      _itemStatuses[index] = finalStatus;
+    });
+
+    // Only call API if status changed to delivered or not_delivered
+    if (finalStatus != ApiOrderItem.statusPending) {
+      _updateItemStatusApi(index, finalStatus == ApiOrderItem.statusDelivered);
+    }
+
+    debugPrint('[ApiOrderDetailPage] Item $index status: $finalStatus');
+  }
+
+  Future<void> _updateItemStatusApi(int index, bool delivered) async {
+    final item = _order!.orderItems[index];
+
+    try {
+      final statusUpdate = OrderItemStatusUpdate.fromBool(item.id, delivered);
+      final response = await _orderService.updateItemsStatus([statusUpdate]);
+
+      if (response.status) {
+        debugPrint('[ApiOrderDetailPage] Item status updated successfully');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  Icon(
+                    delivered ? Icons.check_circle : Icons.cancel,
+                    color: Colors.white,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      delivered ? 'Article marqué comme livré' : 'Article marqué comme non livré',
+                    ),
+                  ),
+                ],
+              ),
+              backgroundColor: delivered ? Colors.green : Colors.red,
+              duration: const Duration(seconds: 2),
+              behavior: SnackBarBehavior.floating,
+              margin: const EdgeInsets.all(16),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+          );
+        }
+      } else {
+        // Revert status on failure
+        setState(() {
+          _itemStatuses[index] = ApiOrderItem.statusPending;
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(response.message.isNotEmpty
+                  ? response.message
+                  : 'Erreur lors de la mise à jour'),
+              backgroundColor: AppColors.error,
+            ),
+          );
+        }
+      }
+    } on ApiException catch (e) {
+      debugPrint('[ApiOrderDetailPage] API Error: ${e.message}');
+      // Revert status on error
+      setState(() {
+        _itemStatuses[index] = ApiOrderItem.statusPending;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.message),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('[ApiOrderDetailPage] Error updating status: $e');
+      // Revert status on error
+      setState(() {
+        _itemStatuses[index] = ApiOrderItem.statusPending;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
     }
   }
 
@@ -393,6 +501,11 @@ class _ApiOrderDetailPageState extends State<ApiOrderDetailPage> {
   }
 
   Widget _buildItemsSection(ApiOrder order) {
+    // Count statuses
+    final deliveredCount = _itemStatuses.where((s) => s == ApiOrderItem.statusDelivered).length;
+    final notDeliveredCount = _itemStatuses.where((s) => s == ApiOrderItem.statusNotDelivered).length;
+    final pendingCount = _itemStatuses.where((s) => s == ApiOrderItem.statusPending).length;
+
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
@@ -425,15 +538,118 @@ class _ApiOrderDetailPageState extends State<ApiOrderDetailPage> {
               ],
             ),
           ),
+          // Status summary bar
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 16),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: Colors.grey[50],
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              children: [
+                _buildStatusCount(Icons.check_circle, deliveredCount, 'Livré', Colors.green),
+                const SizedBox(width: 16),
+                _buildStatusCount(Icons.schedule, pendingCount, 'En attente', Colors.orange),
+                const SizedBox(width: 16),
+                _buildStatusCount(Icons.cancel, notDeliveredCount, 'Non livré', Colors.red),
+              ],
+            ),
+          ),
+          // Swipe hint
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.arrow_back, color: Colors.red[300], size: 16),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Non livré',
+                      style: TextStyle(color: Colors.red[400], fontSize: 12),
+                    ),
+                  ],
+                ),
+                Row(
+                  children: [
+                    Text(
+                      'Livré',
+                      style: TextStyle(color: Colors.green[400], fontSize: 12),
+                    ),
+                    const SizedBox(width: 4),
+                    Icon(Icons.arrow_forward, color: Colors.green[300], size: 16),
+                  ],
+                ),
+              ],
+            ),
+          ),
           const Divider(height: 1),
-          ListView.separated(
+          ListView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             itemCount: order.orderItems.length,
-            separatorBuilder: (_, __) => const Divider(height: 1),
             itemBuilder: (context, index) {
               final item = order.orderItems[index];
-              return _buildItemRow(item, order.currency);
+              final status = _itemStatuses[index];
+              return Dismissible(
+                key: Key('order_item_${item.id}_$index'),
+                confirmDismiss: (direction) async {
+                  if (direction == DismissDirection.startToEnd) {
+                    // Swipe right = Delivered
+                    _onItemStatusChanged(index, true);
+                  } else if (direction == DismissDirection.endToStart) {
+                    // Swipe left = Not delivered
+                    _onItemStatusChanged(index, false);
+                  }
+                  return false; // Don't actually dismiss the item
+                },
+                background: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.green,
+                  ),
+                  alignment: Alignment.centerLeft,
+                  padding: const EdgeInsets.only(left: 20),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.check_circle, color: Colors.white, size: 28),
+                      SizedBox(width: 8),
+                      Text(
+                        'Livré',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                secondaryBackground: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.red,
+                  ),
+                  alignment: Alignment.centerRight,
+                  padding: const EdgeInsets.only(right: 20),
+                  child: const Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      Text(
+                        'Non livré',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
+                      SizedBox(width: 8),
+                      Icon(Icons.cancel, color: Colors.white, size: 28),
+                    ],
+                  ),
+                ),
+                child: _buildItemRow(item, order.currency, status),
+              );
             },
           ),
           if (order.orderItems.isEmpty)
@@ -451,90 +667,158 @@ class _ApiOrderDetailPageState extends State<ApiOrderDetailPage> {
     );
   }
 
-  Widget _buildItemRow(ApiOrderItem item, String currency) {
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: Colors.grey[100],
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: const Icon(
-              Icons.inventory,
-              color: Colors.grey,
-              size: 20,
-            ),
+  Widget _buildStatusCount(IconData icon, int count, String label, Color color) {
+    return Row(
+      children: [
+        Icon(icon, color: color, size: 16),
+        const SizedBox(width: 4),
+        Text(
+          '$count',
+          style: TextStyle(
+            color: color,
+            fontWeight: FontWeight.bold,
+            fontSize: 14,
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  item.displayName,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 14,
+        ),
+        const SizedBox(width: 4),
+        Text(
+          label,
+          style: TextStyle(
+            color: Colors.grey[600],
+            fontSize: 11,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildItemRow(ApiOrderItem item, String currency, String status) {
+    // Determine colors based on status
+    Color borderColor;
+    Color? backgroundColor;
+    IconData? statusIcon;
+    Color? statusColor;
+
+    if (status == ApiOrderItem.statusDelivered) {
+      borderColor = Colors.green;
+      backgroundColor = Colors.green.withValues(alpha: 0.05);
+      statusIcon = Icons.check_circle;
+      statusColor = Colors.green;
+    } else if (status == ApiOrderItem.statusNotDelivered) {
+      borderColor = Colors.red;
+      backgroundColor = Colors.red.withValues(alpha: 0.05);
+      statusIcon = Icons.cancel;
+      statusColor = Colors.red;
+    } else {
+      borderColor = Colors.transparent;
+      backgroundColor = Colors.white;
+      statusIcon = null;
+      statusColor = null;
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        border: Border(
+          left: BorderSide(
+            color: borderColor,
+            width: status != ApiOrderItem.statusPending ? 4 : 0,
+          ),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.grey[100],
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(
+                Icons.inventory,
+                color: Colors.grey,
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    item.displayName,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 4),
-                Row(
-                  children: [
-                    if (item.skuSnapshot != null && item.skuSnapshot!.isNotEmpty)
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        margin: const EdgeInsets.only(right: 8),
-                        decoration: BoxDecoration(
-                          color: Colors.grey[200],
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          item.skuSnapshot!,
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: Colors.grey[700],
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      if (item.skuSnapshot != null && item.skuSnapshot!.isNotEmpty)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          margin: const EdgeInsets.only(right: 8),
+                          decoration: BoxDecoration(
+                            color: Colors.grey[200],
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            item.skuSnapshot!,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.grey[700],
+                            ),
                           ),
                         ),
-                      ),
-                    if (item.packagingSnapshot != null && item.packagingSnapshot!.isNotEmpty)
+                      if (item.packagingSnapshot != null && item.packagingSnapshot!.isNotEmpty)
+                        Text(
+                          item.packagingSnapshot!,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
                       Text(
-                        item.packagingSnapshot!,
+                        '${_formatAmount(item.unitPriceSnapshot)} $currency × ${item.quantity}',
                         style: TextStyle(
-                          fontSize: 12,
+                          fontSize: 13,
                           color: Colors.grey[600],
                         ),
                       ),
-                  ],
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  '${_formatAmount(item.lineTotal)} $currency',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                    color: AppColors.primary,
+                  ),
                 ),
-                const SizedBox(height: 6),
-                Row(
-                  children: [
-                    Text(
-                      '${_formatAmount(item.unitPriceSnapshot)} $currency × ${item.quantity}',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: Colors.grey[600],
-                      ),
-                    ),
-                  ],
-                ),
+                if (statusIcon != null) ...[
+                  const SizedBox(height: 4),
+                  Icon(statusIcon, color: statusColor, size: 20),
+                ],
               ],
             ),
-          ),
-          const SizedBox(width: 12),
-          Text(
-            '${_formatAmount(item.lineTotal)} $currency',
-            style: const TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 14,
-              color: AppColors.primary,
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

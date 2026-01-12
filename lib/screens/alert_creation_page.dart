@@ -1,11 +1,11 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
-import '../models/alert.dart';
 import '../models/client.dart';
+import '../models/create_alert_request.dart';
 import '../models/visit_report.dart'; // For GeotaggedPhoto
-import '../services/alert_service.dart';
+import '../services/alert_api_service.dart' show AlertApiService, AlertApiException, AlertPhotoData;
 import '../services/photo_capture_service.dart';
 import '../utils/app_colors.dart';
 import '../widgets/session_aware_app_bar.dart';
@@ -13,12 +13,14 @@ import '../widgets/session_aware_app_bar.dart';
 /// Page de création d'une alerte - pleine page
 class AlertCreationPage extends StatefulWidget {
   final Client? client; // Si création depuis une fiche client
-  final Alert? existingAlert; // Si modification d'une alerte existante
+  final int? visitId; // Si création depuis une visite
+  final int? visitReportId; // Si création depuis un rapport de visite
 
   const AlertCreationPage({
     super.key,
     this.client,
-    this.existingAlert,
+    this.visitId,
+    this.visitReportId,
   });
 
   @override
@@ -26,63 +28,30 @@ class AlertCreationPage extends StatefulWidget {
 }
 
 class _AlertCreationPageState extends State<AlertCreationPage> {
-  final AlertService _alertService = AlertService();
+  final AlertApiService _alertApiService = AlertApiService();
   final PhotoCaptureService _photoService = PhotoCaptureService();
   final _formKey = GlobalKey<FormState>();
 
   // Form controllers
-  final TextEditingController _titleController = TextEditingController();
-  final TextEditingController _descriptionController = TextEditingController();
-  final TextEditingController _clientNameController = TextEditingController();
   final TextEditingController _commentController = TextEditingController();
+  final TextEditingController _customTypeController = TextEditingController();
 
   // Form values
-  AlertType _selectedType = AlertType.other;
-  AlertPriority _selectedPriority = AlertPriority.medium;
+  String _selectedType = 'rupture_grave';
   final List<GeotaggedPhoto> _photos = [];
-  GpsLocation? _gpsLocation;
+  double? _latitude;
+  double? _longitude;
   bool _isSubmitting = false;
 
   @override
-  void initState() {
-    super.initState();
-    _loadExistingData();
-  }
-
-  @override
   void dispose() {
-    _titleController.dispose();
-    _descriptionController.dispose();
-    _clientNameController.dispose();
     _commentController.dispose();
+    _customTypeController.dispose();
     super.dispose();
-  }
-
-  void _loadExistingData() {
-    // Si création depuis une fiche client
-    if (widget.client != null) {
-      _clientNameController.text = widget.client!.boutiqueName;
-    }
-
-    // Si modification d'une alerte existante
-    if (widget.existingAlert != null) {
-      final alert = widget.existingAlert!;
-      setState(() {
-        _titleController.text = alert.title;
-        _descriptionController.text = alert.description;
-        _clientNameController.text = alert.clientName ?? '';
-        _commentController.text = alert.comment ?? '';
-        _selectedType = alert.type;
-        _selectedPriority = alert.priority;
-        _gpsLocation = alert.location;
-        // Note: photos would need to be reconstructed from URLs
-      });
-    }
   }
 
   Future<void> _capturePhoto() async {
     try {
-      // Vérifier les permissions
       final permissionResult = await _photoService.checkAndRequestPermissions();
 
       if (!permissionResult.isGranted) {
@@ -270,11 +239,8 @@ class _AlertCreationPageState extends State<AlertCreationPage> {
 
       if (position != null) {
         setState(() {
-          _gpsLocation = GpsLocation(
-            latitude: position.latitude,
-            longitude: position.longitude,
-            timestamp: DateTime.now(),
-          );
+          _latitude = position.latitude;
+          _longitude = position.longitude;
         });
 
         if (mounted) {
@@ -308,13 +274,18 @@ class _AlertCreationPageState extends State<AlertCreationPage> {
       return false;
     }
 
-    if (_titleController.text.trim().isEmpty) {
-      _showError('Veuillez saisir un titre');
+    if (_commentController.text.trim().isEmpty) {
+      _showError('Veuillez saisir un commentaire');
       return false;
     }
 
-    if (_descriptionController.text.trim().isEmpty) {
-      _showError('Veuillez saisir une description');
+    if (_latitude == null || _longitude == null) {
+      _showError('Veuillez capturer votre position GPS');
+      return false;
+    }
+
+    if (_selectedType == 'autre' && _customTypeController.text.trim().isEmpty) {
+      _showError('Veuillez préciser le type d\'alerte');
       return false;
     }
 
@@ -335,46 +306,70 @@ class _AlertCreationPageState extends State<AlertCreationPage> {
       return;
     }
 
+    if (widget.client == null) {
+      _showError('Client non spécifié');
+      return;
+    }
+
     setState(() {
       _isSubmitting = true;
     });
 
     try {
-      // Convertir les photos en URLs (paths)
-      final photoUrls = _photos.map((photo) => photo.path).toList();
-
-      // Créer l'alerte
-      final alert = Alert(
-        id: widget.existingAlert?.id ?? _alertService.generateAlertId(),
-        title: _titleController.text.trim(),
-        description: _descriptionController.text.trim(),
+      final request = CreateAlertRequest(
         type: _selectedType,
-        priority: _selectedPriority,
-        clientId: widget.client?.id.toString(),
-        clientName: _clientNameController.text.trim().isEmpty
-            ? null
-            : _clientNameController.text.trim(),
-        createdAt: widget.existingAlert?.createdAt ?? DateTime.now(),
-        photoUrls: photoUrls,
-        location: _gpsLocation,
-        status: AlertStatus.pending,
-        comment: _commentController.text.trim().isEmpty
-            ? null
-            : _commentController.text.trim(),
+        customType: _selectedType == 'autre' ? _customTypeController.text.trim() : null,
+        comment: _commentController.text.trim(),
+        latitude: _latitude!,
+        longitude: _longitude!,
+        visitId: widget.visitId,
+        visitReportId: widget.visitReportId,
       );
 
-      final success = await _alertService.createAlert(alert);
+      // Prepare photo data and titles for upload
+      final List<AlertPhotoData> photoDataList = [];
+      final List<String> photoTitles = [];
 
-      if (success && mounted) {
+      for (final photo in _photos) {
+        if (photo.bytes != null) {
+          photoDataList.add(AlertPhotoData(
+            bytes: photo.bytes!,
+            fileName: photo.effectiveFileName,
+            mimeType: photo.mimeType,
+          ));
+          photoTitles.add(photo.description ?? 'Photo d\'alerte');
+        }
+      }
+
+      final response = await _alertApiService.createAlertWithPhotos(
+        clientId: widget.client!.id,
+        request: request,
+        photos: photoDataList.isNotEmpty ? photoDataList : null,
+        photoTitles: photoTitles.isNotEmpty ? photoTitles : null,
+      );
+
+      if (response.status && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Alerte "${alert.title}" créée avec succès'),
+            content: Text(_photos.isNotEmpty
+              ? 'Alerte créée avec ${_photos.length} photo(s)'
+              : 'Alerte créée avec succès'),
             backgroundColor: Colors.green,
           ),
         );
-        Navigator.of(context).pop(alert);
+        Navigator.of(context).pop(true);
       } else if (mounted) {
-        throw Exception('Erreur lors de la création de l\'alerte');
+        throw Exception(response.message);
+      }
+    } on AlertApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.message),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -399,13 +394,16 @@ class _AlertCreationPageState extends State<AlertCreationPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: SessionAwareAppBar(
-        title: widget.existingAlert != null ? 'Modifier l\'alerte' : 'Créer une alerte',
+        title: 'Créer une alerte',
       ),
       body: Form(
         key: _formKey,
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
+            // Client info
+            if (widget.client != null) _buildClientInfo(),
+
             // Informations principales
             _buildMainInfoSection(),
             const SizedBox(height: 20),
@@ -416,15 +414,48 @@ class _AlertCreationPageState extends State<AlertCreationPage> {
 
             // Localisation GPS
             _buildGpsSection(),
-            const SizedBox(height: 20),
-
-            // Commentaires additionnels
-            _buildCommentsSection(),
             const SizedBox(height: 30),
 
             // Bouton de soumission
             _buildSubmitButton(),
             const SizedBox(height: 20),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildClientInfo() {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 16),
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            Icon(Icons.store, color: AppColors.primary),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Client',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey,
+                    ),
+                  ),
+                  Text(
+                    widget.client!.boutiqueName,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
       ),
@@ -454,27 +485,6 @@ class _AlertCreationPageState extends State<AlertCreationPage> {
             ),
             const SizedBox(height: 20),
 
-            // Nom du client (at the beginning)
-            const Text(
-              'Nom du client',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 8),
-            TextFormField(
-              controller: _clientNameController,
-              decoration: const InputDecoration(
-                hintText: 'Nom du client concerné',
-                border: OutlineInputBorder(),
-                contentPadding: EdgeInsets.all(12),
-                prefixIcon: Icon(Icons.store),
-              ),
-              enabled: widget.client == null,
-            ),
-            const SizedBox(height: 16),
-
             // Type d'alerte
             const Text(
               'Type d\'alerte *',
@@ -484,22 +494,22 @@ class _AlertCreationPageState extends State<AlertCreationPage> {
               ),
             ),
             const SizedBox(height: 8),
-            DropdownButtonFormField<AlertType>(
+            DropdownButtonFormField<String>(
               initialValue: _selectedType,
               decoration: const InputDecoration(
                 border: OutlineInputBorder(),
                 contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               ),
               isExpanded: true,
-              items: AlertType.values.map((type) {
-                return DropdownMenuItem(
-                  value: type,
-                  child: Text(
-                    _getAlertTypeLabel(type),
-                    style: const TextStyle(fontSize: 14),
-                  ),
-                );
-              }).toList(),
+              items: [
+                DropdownMenuItem(value: 'rupture_grave', child: Text('Rupture grave')),
+                DropdownMenuItem(value: 'litige_probleme', child: Text('Litige / problème de paiement')),
+                DropdownMenuItem(value: 'probleme_rayon', child: Text('Problème important au rayon')),
+                DropdownMenuItem(value: 'risque_perte', child: Text('Risque de perte du client')),
+                DropdownMenuItem(value: 'demande_speciale', child: Text('Demande spéciale du client')),
+                DropdownMenuItem(value: 'opportunite', child: Text('Nouvelle opportunité importante')),
+                DropdownMenuItem(value: 'autre', child: Text('Autre')),
+              ],
               onChanged: (value) {
                 if (value != null) {
                   setState(() {
@@ -514,58 +524,39 @@ class _AlertCreationPageState extends State<AlertCreationPage> {
                 return null;
               },
             ),
+
+            // Custom type field (only if 'autre' selected)
+            if (_selectedType == 'autre') ...[
+              const SizedBox(height: 16),
+              const Text(
+                'Précisez le type *',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: _customTypeController,
+                decoration: const InputDecoration(
+                  hintText: 'Décrivez le type d\'alerte',
+                  border: OutlineInputBorder(),
+                  contentPadding: EdgeInsets.all(12),
+                ),
+                validator: (value) {
+                  if (_selectedType == 'autre' && (value == null || value.trim().isEmpty)) {
+                    return 'Veuillez préciser le type';
+                  }
+                  return null;
+                },
+              ),
+            ],
+
             const SizedBox(height: 16),
 
-            // Priorité
+            // Commentaire
             const Text(
-              'Priorité *',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 8),
-            DropdownButtonFormField<AlertPriority>(
-              initialValue: _selectedPriority,
-              decoration: const InputDecoration(
-                border: OutlineInputBorder(),
-                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              ),
-              items: AlertPriority.values.map((priority) {
-                return DropdownMenuItem(
-                  value: priority,
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.circle,
-                        size: 12,
-                        color: _getPriorityColor(priority),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(_getAlertPriorityLabel(priority)),
-                    ],
-                  ),
-                );
-              }).toList(),
-              onChanged: (value) {
-                if (value != null) {
-                  setState(() {
-                    _selectedPriority = value;
-                  });
-                }
-              },
-              validator: (value) {
-                if (value == null) {
-                  return 'Veuillez sélectionner une priorité';
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 16),
-
-            // Titre
-            const Text(
-              'Titre *',
+              'Commentaire *',
               style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
@@ -573,32 +564,7 @@ class _AlertCreationPageState extends State<AlertCreationPage> {
             ),
             const SizedBox(height: 8),
             TextFormField(
-              controller: _titleController,
-              decoration: const InputDecoration(
-                hintText: 'Titre de l\'alerte',
-                border: OutlineInputBorder(),
-                contentPadding: EdgeInsets.all(12),
-              ),
-              validator: (value) {
-                if (value == null || value.trim().isEmpty) {
-                  return 'Veuillez saisir un titre';
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 16),
-
-            // Description
-            const Text(
-              'Description *',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 8),
-            TextFormField(
-              controller: _descriptionController,
+              controller: _commentController,
               maxLines: 5,
               minLines: 3,
               decoration: const InputDecoration(
@@ -608,7 +574,7 @@ class _AlertCreationPageState extends State<AlertCreationPage> {
               ),
               validator: (value) {
                 if (value == null || value.trim().isEmpty) {
-                  return 'Veuillez saisir une description';
+                  return 'Veuillez saisir un commentaire';
                 }
                 return null;
               },
@@ -732,12 +698,24 @@ class _AlertCreationPageState extends State<AlertCreationPage> {
           // Miniature de la photo
           ClipRRect(
             borderRadius: BorderRadius.circular(4),
-            child: Image.file(
-              File(photo.path),
-              height: 120,
-              width: double.infinity,
-              fit: BoxFit.cover,
-            ),
+            child: kIsWeb
+                ? Image.network(
+                    photo.path,
+                    height: 120,
+                    width: double.infinity,
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) => Container(
+                      height: 120,
+                      color: Colors.grey[200],
+                      child: const Icon(Icons.image_not_supported),
+                    ),
+                  )
+                : Image.file(
+                    File(photo.path),
+                    height: 120,
+                    width: double.infinity,
+                    fit: BoxFit.cover,
+                  ),
           ),
           const SizedBox(height: 8),
 
@@ -794,7 +772,7 @@ class _AlertCreationPageState extends State<AlertCreationPage> {
                 Icon(Icons.location_on, color: AppColors.primary),
                 const SizedBox(width: 8),
                 const Text(
-                  'Localisation GPS',
+                  'Localisation GPS *',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
@@ -804,7 +782,7 @@ class _AlertCreationPageState extends State<AlertCreationPage> {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Capturez votre position actuelle (optionnel)',
+              'La position GPS est requise pour créer une alerte',
               style: TextStyle(
                 fontSize: 13,
                 color: Colors.grey,
@@ -812,7 +790,7 @@ class _AlertCreationPageState extends State<AlertCreationPage> {
             ),
             const SizedBox(height: 16),
 
-            if (_gpsLocation == null)
+            if (_latitude == null || _longitude == null)
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
@@ -852,76 +830,31 @@ class _AlertCreationPageState extends State<AlertCreationPage> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Latitude: ${_gpsLocation!.latitude.toStringAsFixed(6)}',
+                      'Latitude: ${_latitude!.toStringAsFixed(6)}',
                       style: const TextStyle(fontSize: 13),
                     ),
                     Text(
-                      'Longitude: ${_gpsLocation!.longitude.toStringAsFixed(6)}',
+                      'Longitude: ${_longitude!.toStringAsFixed(6)}',
                       style: const TextStyle(fontSize: 13),
                     ),
                     const SizedBox(height: 8),
                     TextButton.icon(
                       onPressed: () {
                         setState(() {
-                          _gpsLocation = null;
+                          _latitude = null;
+                          _longitude = null;
                         });
                       },
-                      icon: const Icon(Icons.delete, size: 16),
-                      label: const Text('Supprimer'),
+                      icon: const Icon(Icons.refresh, size: 16),
+                      label: const Text('Recapturer'),
                       style: TextButton.styleFrom(
-                        foregroundColor: Colors.red,
+                        foregroundColor: AppColors.primary,
                         padding: EdgeInsets.zero,
                       ),
                     ),
                   ],
                 ),
               ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCommentsSection() {
-    return Card(
-      elevation: 2,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.comment, color: AppColors.primary),
-                const SizedBox(width: 8),
-                const Text(
-                  'Commentaires additionnels',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Ajoutez des informations complémentaires (optionnel)',
-              style: TextStyle(
-                fontSize: 13,
-                color: Colors.grey,
-              ),
-            ),
-            const SizedBox(height: 16),
-            TextFormField(
-              controller: _commentController,
-              maxLines: 4,
-              minLines: 2,
-              decoration: const InputDecoration(
-                hintText: 'Commentaires, contexte, actions prévues...',
-                border: OutlineInputBorder(),
-                contentPadding: EdgeInsets.all(12),
-              ),
-            ),
           ],
         ),
       ),
@@ -958,50 +891,5 @@ class _AlertCreationPageState extends State<AlertCreationPage> {
 
   String _formatTime(DateTime time) {
     return '${time.day.toString().padLeft(2, '0')}/${time.month.toString().padLeft(2, '0')}/${time.year} ${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
-  }
-
-  String _getAlertTypeLabel(AlertType type) {
-    switch (type) {
-      case AlertType.ruptureGrave:
-        return 'Rupture grave';
-      case AlertType.litigeProbleme:
-        return 'Litige / problème de paiement';
-      case AlertType.problemeRayon:
-        return 'Problème important au rayon';
-      case AlertType.risquePerte:
-        return 'Risque de perte du client';
-      case AlertType.demandeSpeciale:
-        return 'Demande spéciale du client';
-      case AlertType.opportunite:
-        return 'Nouvelle opportunité importante';
-      case AlertType.other:
-        return 'Autre';
-    }
-  }
-
-  String _getAlertPriorityLabel(AlertPriority priority) {
-    switch (priority) {
-      case AlertPriority.urgent:
-        return 'Urgente';
-      case AlertPriority.high:
-        return 'Haute';
-      case AlertPriority.medium:
-        return 'Moyenne';
-      case AlertPriority.low:
-        return 'Faible';
-    }
-  }
-
-  Color _getPriorityColor(AlertPriority priority) {
-    switch (priority) {
-      case AlertPriority.urgent:
-        return AppColors.urgent;
-      case AlertPriority.high:
-        return AppColors.high;
-      case AlertPriority.medium:
-        return AppColors.medium;
-      case AlertPriority.low:
-        return AppColors.low;
-    }
   }
 }

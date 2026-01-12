@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
@@ -99,6 +98,59 @@ class VisitApiResponse {
       data: json['data'] != null
           ? ApiVisit.fromJson(json['data'] as Map<String, dynamic>)
           : null,
+    );
+  }
+}
+
+/// Response wrapper for visits list API calls
+class VisitsListResponse {
+  final bool status;
+  final String message;
+  final List<ApiVisit> data;
+  final VisitsListMeta? meta;
+
+  VisitsListResponse({
+    required this.status,
+    required this.message,
+    required this.data,
+    this.meta,
+  });
+
+  factory VisitsListResponse.fromJson(Map<String, dynamic> json) {
+    return VisitsListResponse(
+      status: json['status'] as bool? ?? true,
+      message: json['message'] as String? ?? '',
+      data: (json['data'] as List<dynamic>?)
+              ?.map((e) => ApiVisit.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          [],
+      meta: json['meta'] != null
+          ? VisitsListMeta.fromJson(json['meta'] as Map<String, dynamic>)
+          : null,
+    );
+  }
+}
+
+/// Pagination metadata for visits list
+class VisitsListMeta {
+  final int currentPage;
+  final int lastPage;
+  final int perPage;
+  final int total;
+
+  VisitsListMeta({
+    required this.currentPage,
+    required this.lastPage,
+    required this.perPage,
+    required this.total,
+  });
+
+  factory VisitsListMeta.fromJson(Map<String, dynamic> json) {
+    return VisitsListMeta(
+      currentPage: json['current_page'] as int? ?? 1,
+      lastPage: json['last_page'] as int? ?? 1,
+      perPage: json['per_page'] as int? ?? 15,
+      total: json['total'] as int? ?? 0,
     );
   }
 }
@@ -333,6 +385,64 @@ class VisitApiService {
         return null;
       }
       rethrow;
+    }
+  }
+
+  /// Get list of visits with optional pagination
+  ///
+  /// Returns a [VisitsListResponse] containing the list of visits and pagination metadata.
+  ///
+  /// Parameters:
+  /// - [page]: Page number (default: 1)
+  /// - [perPage]: Number of items per page (default: 15)
+  ///
+  /// Throws [VisitApiException] on error:
+  /// - 401: Not authenticated
+  /// - 403: Not authorized to view visits
+  Future<VisitsListResponse> getVisits({
+    int page = 1,
+    int perPage = 15,
+  }) async {
+    try {
+      final queryParams = {
+        'page': page.toString(),
+        'per_page': perPage.toString(),
+      };
+
+      final uri = Uri.parse('${ApiService.baseUrl}/api/visits')
+          .replace(queryParameters: queryParams);
+
+      final token = _apiService.token;
+
+      final response = await http.get(
+        uri,
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+      );
+
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        final body = jsonDecode(response.body) as Map<String, dynamic>;
+        return VisitsListResponse.fromJson(body);
+      }
+
+      // Handle error response
+      final body = response.body.isNotEmpty
+          ? jsonDecode(response.body) as Map<String, dynamic>?
+          : null;
+      final errorMessage = body?['message'] as String? ?? 'Failed to fetch visits';
+
+      throw VisitApiException(
+        errorMessage,
+        statusCode: response.statusCode,
+      );
+    } on http.ClientException {
+      throw VisitApiException('Connection failed. Please check your internet.');
+    } catch (e) {
+      if (e is VisitApiException) rethrow;
+      throw VisitApiException('An unexpected error occurred: $e');
     }
   }
 

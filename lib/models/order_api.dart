@@ -71,6 +71,11 @@ class ApiBaseProduct {
 
 /// Order item from API
 class ApiOrderItem {
+  // Status constants
+  static const String statusPending = 'pending';
+  static const String statusDelivered = 'delivered';
+  static const String statusNotDelivered = 'not_delivered';
+
   final int id;
   final int orderId;
   final int? baseProductId;
@@ -81,6 +86,8 @@ class ApiOrderItem {
   final double unitPriceSnapshot;
   final int quantity;
   final double lineTotal;
+  final String status;
+  final String? deliveredAt;
   final ApiBaseProduct? baseProduct;
 
   ApiOrderItem({
@@ -94,6 +101,8 @@ class ApiOrderItem {
     required this.unitPriceSnapshot,
     required this.quantity,
     required this.lineTotal,
+    this.status = statusPending,
+    this.deliveredAt,
     this.baseProduct,
   });
 
@@ -109,6 +118,8 @@ class ApiOrderItem {
       unitPriceSnapshot: _parseDoubleSafe(json['unit_price_snapshot']),
       quantity: _parseIntSafe(json['quantity']),
       lineTotal: _parseDoubleSafe(json['line_total']),
+      status: json['status'] as String? ?? statusPending,
+      deliveredAt: json['delivered_at'] as String?,
       baseProduct: json['base_product'] != null && json['base_product'] is Map<String, dynamic>
           ? ApiBaseProduct.fromJson(json['base_product'] as Map<String, dynamic>)
           : null,
@@ -121,6 +132,35 @@ class ApiOrderItem {
       return productNameSnapshot!;
     }
     return baseProduct?.product?.name ?? 'Produit inconnu';
+  }
+
+  /// Check if item is pending
+  bool get isPending => status == statusPending;
+
+  /// Check if item is delivered
+  bool get isDelivered => status == statusDelivered;
+
+  /// Check if item is not delivered
+  bool get isNotDelivered => status == statusNotDelivered;
+
+  /// Get status as bool (null = pending, true = delivered, false = not_delivered)
+  bool? get statusAsBool {
+    if (status == statusDelivered) return true;
+    if (status == statusNotDelivered) return false;
+    return null;
+  }
+
+  /// Get status display text in French
+  String get statusDisplayText {
+    switch (status) {
+      case statusDelivered:
+        return 'Livré';
+      case statusNotDelivered:
+        return 'Non livré';
+      case statusPending:
+      default:
+        return 'En attente';
+    }
   }
 }
 

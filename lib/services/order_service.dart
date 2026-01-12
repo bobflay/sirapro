@@ -104,6 +104,70 @@ class OrderDetailResponse {
   }
 }
 
+/// Request model for updating order item status
+class OrderItemStatusUpdate {
+  final int id;
+  final String status;
+
+  OrderItemStatusUpdate({
+    required this.id,
+    required this.status,
+  });
+
+  /// Create from bool (true = delivered, false = not_delivered)
+  factory OrderItemStatusUpdate.fromBool(int id, bool delivered) {
+    return OrderItemStatusUpdate(
+      id: id,
+      status: delivered ? ApiOrderItem.statusDelivered : ApiOrderItem.statusNotDelivered,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'status': status,
+      };
+}
+
+/// Response from updating order items status
+class UpdateOrderItemsStatusResponse {
+  final bool status;
+  final String message;
+  final List<ApiOrderItem> updatedItems;
+
+  UpdateOrderItemsStatusResponse({
+    required this.status,
+    required this.message,
+    required this.updatedItems,
+  });
+
+  factory UpdateOrderItemsStatusResponse.fromJson(Map<String, dynamic> json) {
+    bool statusValue = false;
+    final rawStatus = json['status'];
+    if (rawStatus is bool) {
+      statusValue = rawStatus;
+    } else if (rawStatus is String) {
+      statusValue = rawStatus.toLowerCase() == 'true' || rawStatus == '1';
+    } else if (rawStatus is int) {
+      statusValue = rawStatus == 1;
+    }
+
+    List<ApiOrderItem> items = [];
+    final dataList = json['data'];
+    if (dataList != null && dataList is List) {
+      items = dataList
+          .whereType<Map<String, dynamic>>()
+          .map((item) => ApiOrderItem.fromJson(item))
+          .toList();
+    }
+
+    return UpdateOrderItemsStatusResponse(
+      status: statusValue,
+      message: json['message'] as String? ?? '',
+      updatedItems: items,
+    );
+  }
+}
+
 // Helper function for safe int parsing
 int _parseIntSafe(dynamic value) {
   if (value == null) return 0;
@@ -254,6 +318,49 @@ class OrderService {
       }
 
       final errorMessage = body['message'] as String? ?? 'Erreur lors de la récupération de la commande';
+      throw ApiException(errorMessage, statusCode: response.statusCode);
+    } on http.ClientException {
+      throw ApiException('Erreur de connexion. Vérifiez votre connexion internet.');
+    } catch (e) {
+      if (e is ApiException) rethrow;
+      throw ApiException('Une erreur inattendue est survenue: $e');
+    }
+  }
+
+  /// Update order items status (delivered/not_delivered)
+  ///
+  /// When an item is marked as delivered, the user's wallet is automatically credited
+  Future<UpdateOrderItemsStatusResponse> updateItemsStatus(List<OrderItemStatusUpdate> items) async {
+    try {
+      final uri = Uri.parse('${ApiService.baseUrl}/api/order-items/status');
+      final token = _apiService.token;
+
+      final requestBody = {
+        'items': items.map((item) => item.toJson()).toList(),
+      };
+
+      debugPrint('[OrderService] Updating order items status: ${jsonEncode(requestBody)}');
+
+      final response = await http.put(
+        uri,
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode(requestBody),
+      );
+
+      debugPrint('[OrderService] Update items status response: ${response.statusCode}');
+      debugPrint('[OrderService] Response body: ${response.body}');
+
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+
+      if (response.statusCode == 200) {
+        return UpdateOrderItemsStatusResponse.fromJson(body);
+      }
+
+      final errorMessage = body['message'] as String? ?? 'Erreur lors de la mise à jour du statut';
       throw ApiException(errorMessage, statusCode: response.statusCode);
     } on http.ClientException {
       throw ApiException('Erreur de connexion. Vérifiez votre connexion internet.');

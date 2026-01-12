@@ -1,15 +1,14 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
-import '../models/alert.dart';
-import '../services/alert_service.dart';
+import '../models/api_alert.dart';
+import '../services/api_service.dart';
 import '../utils/app_colors.dart';
 import '../widgets/session_aware_app_bar.dart';
 
 /// Page de détail d'une alerte
 class AlertDetailPage extends StatefulWidget {
-  final Alert alert;
+  final ApiAlert alert;
 
   const AlertDetailPage({
     super.key,
@@ -21,8 +20,7 @@ class AlertDetailPage extends StatefulWidget {
 }
 
 class _AlertDetailPageState extends State<AlertDetailPage> {
-  final AlertService _alertService = AlertService();
-  late Alert _alert;
+  late ApiAlert _alert;
 
   @override
   void initState() {
@@ -35,14 +33,6 @@ class _AlertDetailPageState extends State<AlertDetailPage> {
     return Scaffold(
       appBar: SessionAwareAppBar(
         title: 'Détails de l\'alerte',
-        actions: [
-          if (_alert.status != AlertStatus.resolved)
-            IconButton(
-              icon: const Icon(Icons.check_circle),
-              onPressed: _showResolveDialog,
-              tooltip: 'Résoudre',
-            ),
-        ],
       ),
       body: SingleChildScrollView(
         child: Column(
@@ -55,16 +45,17 @@ class _AlertDetailPageState extends State<AlertDetailPage> {
             _buildMainInfo(),
 
             // Client (si présent)
-            if (_alert.clientName != null) _buildClientInfo(),
+            if (_alert.client != null) _buildClientInfo(),
 
             // Photos (si présentes)
-            if (_alert.photoUrls.isNotEmpty) _buildPhotosSection(),
+            if (_alert.photos.isNotEmpty) _buildPhotosSection(),
 
             // Localisation (si présente)
-            if (_alert.location != null) _buildLocationSection(),
+            if (_alert.latitude != null && _alert.longitude != null)
+              _buildLocationSection(),
 
-            // Commentaire (si présent)
-            if (_alert.comment != null) _buildCommentSection(),
+            // Handler info (si présent)
+            if (_alert.handler != null) _buildHandlerSection(),
 
             // Historique
             _buildHistorySection(),
@@ -73,36 +64,11 @@ class _AlertDetailPageState extends State<AlertDetailPage> {
           ],
         ),
       ),
-      bottomNavigationBar: _alert.status != AlertStatus.resolved
-          ? _buildBottomBar()
-          : null,
     );
   }
 
   Widget _buildHeader() {
-    Color statusColor;
-    IconData statusIcon;
-    String statusLabel;
-
-    switch (_alert.status) {
-      case AlertStatus.pending:
-        statusColor = AppColors.secondary;
-        statusIcon = Icons.pending;
-        statusLabel = 'En attente';
-        break;
-      case AlertStatus.inProgress:
-        statusColor = AppColors.primary;
-        statusIcon = Icons.autorenew;
-        statusLabel = 'En cours';
-        break;
-      case AlertStatus.resolved:
-        statusColor = AppColors.success;
-        statusIcon = Icons.check_circle;
-        statusLabel = 'Résolue';
-        break;
-    }
-
-    Color priorityColor = _getPriorityColor(_alert.priority);
+    final statusInfo = _getStatusInfo(_alert.status);
 
     return Container(
       width: double.infinity,
@@ -117,50 +83,29 @@ class _AlertDetailPageState extends State<AlertDetailPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  _alert.title,
-                  style: const TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: priorityColor,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(
-                  _alert.priorityLabel,
-                  style: const TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-            ],
+          Text(
+            _alert.typeLabel,
+            style: const TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+            ),
           ),
           const SizedBox(height: 12),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
-              color: statusColor.withValues(alpha: 0.3),
+              color: (statusInfo['color'] as Color).withValues(alpha: 0.3),
               borderRadius: BorderRadius.circular(20),
               border: Border.all(color: Colors.white, width: 1.5),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(statusIcon, size: 16, color: Colors.white),
+                Icon(statusInfo['icon'] as IconData, size: 16, color: Colors.white),
                 const SizedBox(width: 6),
                 Text(
-                  statusLabel,
+                  _alert.statusLabel,
                   style: const TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.bold,
@@ -177,7 +122,7 @@ class _AlertDetailPageState extends State<AlertDetailPage> {
 
   Widget _buildMainInfo() {
     return Card(
-      margin: const EdgeInsets.all(16),
+      margin: const EdgeInsets.fromLTRB(16, 16, 16, 16),
       elevation: 2,
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -200,24 +145,32 @@ class _AlertDetailPageState extends State<AlertDetailPage> {
             const SizedBox(height: 16),
             _buildInfoRow('Type', _alert.typeLabel, Icons.category),
             const Divider(),
-            _buildInfoRow('Priorité', _alert.priorityLabel, Icons.priority_high),
+            _buildInfoRow('Statut', _alert.statusLabel, Icons.flag),
             const Divider(),
             _buildInfoRow(
               'Créée le',
               DateFormat('dd/MM/yyyy à HH:mm').format(_alert.createdAt),
               Icons.calendar_today,
             ),
-            if (_alert.resolvedAt != null) ...[
+            if (_alert.alertedAt != null) ...[
               const Divider(),
               _buildInfoRow(
-                'Résolue le',
-                DateFormat('dd/MM/yyyy à HH:mm').format(_alert.resolvedAt!),
+                'Alertée le',
+                DateFormat('dd/MM/yyyy à HH:mm').format(_alert.alertedAt!),
+                Icons.notifications,
+              ),
+            ],
+            if (_alert.handledAt != null) ...[
+              const Divider(),
+              _buildInfoRow(
+                'Traitée le',
+                DateFormat('dd/MM/yyyy à HH:mm').format(_alert.handledAt!),
                 Icons.check_circle_outline,
               ),
             ],
             const Divider(height: 24),
             const Text(
-              'Description',
+              'Commentaire',
               style: TextStyle(
                 fontWeight: FontWeight.w600,
                 fontSize: 14,
@@ -226,9 +179,25 @@ class _AlertDetailPageState extends State<AlertDetailPage> {
             ),
             const SizedBox(height: 8),
             Text(
-              _alert.description,
+              _alert.comment,
               style: const TextStyle(fontSize: 15),
             ),
+            if (_alert.handlingComment != null) ...[
+              const SizedBox(height: 16),
+              const Text(
+                'Commentaire de traitement',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                  color: Colors.grey,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _alert.handlingComment!,
+                style: const TextStyle(fontSize: 15),
+              ),
+            ],
           ],
         ),
       ),
@@ -236,8 +205,9 @@ class _AlertDetailPageState extends State<AlertDetailPage> {
   }
 
   Widget _buildClientInfo() {
+    final client = _alert.client!;
     return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       elevation: 2,
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -258,19 +228,49 @@ class _AlertDetailPageState extends State<AlertDetailPage> {
               ],
             ),
             const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    _alert.clientName!,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
+            Text(
+              client.name,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            if (client.code != null) ...[
+              const SizedBox(height: 4),
+              Text(
+                'Code: ${client.code}',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.grey[600],
+                ),
+              ),
+            ],
+            if (client.type != null) ...[
+              const SizedBox(height: 4),
+              Text(
+                'Type: ${client.type}',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.grey[600],
+                ),
+              ),
+            ],
+            if (client.city != null) ...[
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  Icon(Icons.location_city, size: 16, color: Colors.grey[600]),
+                  const SizedBox(width: 4),
+                  Text(
+                    client.city!,
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey[600],
                     ),
                   ),
-                ),
-              ],
-            ),
+                ],
+              ),
+            ],
           ],
         ),
       ),
@@ -279,7 +279,7 @@ class _AlertDetailPageState extends State<AlertDetailPage> {
 
   Widget _buildPhotosSection() {
     return Card(
-      margin: const EdgeInsets.all(16),
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       elevation: 2,
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -299,7 +299,7 @@ class _AlertDetailPageState extends State<AlertDetailPage> {
                 ),
                 const Spacer(),
                 Text(
-                  '${_alert.photoUrls.length} photo(s)',
+                  '${_alert.photos.length} photo(s)',
                   style: TextStyle(
                     fontSize: 12,
                     color: Colors.grey[600],
@@ -316,17 +316,39 @@ class _AlertDetailPageState extends State<AlertDetailPage> {
                 crossAxisSpacing: 12,
                 mainAxisSpacing: 12,
               ),
-              itemCount: _alert.photoUrls.length,
+              itemCount: _alert.photos.length,
               itemBuilder: (context, index) {
-                final photoPath = _alert.photoUrls[index];
+                final photo = _alert.photos[index];
+                final photoUrl = photo.url != null
+                    ? '${ApiService.baseUrl}${photo.url}'
+                    : null;
+
                 return GestureDetector(
-                  onTap: () => _showPhotoDialog(photoPath, index),
+                  onTap: () => _showPhotoDialog(photo, index),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(8),
-                    child: Image.file(
-                      File(photoPath),
-                      fit: BoxFit.cover,
-                    ),
+                    child: photoUrl != null
+                        ? Image.network(
+                            photoUrl,
+                            fit: BoxFit.cover,
+                            loadingBuilder: (context, child, loadingProgress) {
+                              if (loadingProgress == null) return child;
+                              return Container(
+                                color: Colors.grey[200],
+                                child: const Center(
+                                  child: CircularProgressIndicator(),
+                                ),
+                              );
+                            },
+                            errorBuilder: (context, error, stackTrace) => Container(
+                              color: Colors.grey[200],
+                              child: const Icon(Icons.error),
+                            ),
+                          )
+                        : Container(
+                            color: Colors.grey[200],
+                            child: const Icon(Icons.image_not_supported),
+                          ),
                   ),
                 );
               },
@@ -338,9 +360,8 @@ class _AlertDetailPageState extends State<AlertDetailPage> {
   }
 
   Widget _buildLocationSection() {
-    final location = _alert.location!;
     return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       elevation: 2,
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -363,20 +384,20 @@ class _AlertDetailPageState extends State<AlertDetailPage> {
             const SizedBox(height: 12),
             _buildInfoRow(
               'Latitude',
-              location.latitude.toStringAsFixed(6),
+              _alert.latitude!.toStringAsFixed(6),
               Icons.place,
             ),
             const SizedBox(height: 8),
             _buildInfoRow(
               'Longitude',
-              location.longitude.toStringAsFixed(6),
+              _alert.longitude!.toStringAsFixed(6),
               Icons.place,
             ),
             const SizedBox(height: 12),
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(
-                onPressed: () => _openInMaps(location.latitude, location.longitude),
+                onPressed: () => _openInMaps(_alert.latitude!, _alert.longitude!),
                 icon: const Icon(Icons.map),
                 label: const Text('Ouvrir dans Maps'),
                 style: OutlinedButton.styleFrom(
@@ -390,9 +411,10 @@ class _AlertDetailPageState extends State<AlertDetailPage> {
     );
   }
 
-  Widget _buildCommentSection() {
+  Widget _buildHandlerSection() {
+    final handler = _alert.handler!;
     return Card(
-      margin: const EdgeInsets.all(16),
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       elevation: 2,
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -401,10 +423,10 @@ class _AlertDetailPageState extends State<AlertDetailPage> {
           children: [
             Row(
               children: [
-                Icon(Icons.comment, color: AppColors.primary),
+                Icon(Icons.person, color: AppColors.primary),
                 const SizedBox(width: 8),
                 const Text(
-                  'Commentaires',
+                  'Traité par',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
@@ -414,9 +436,22 @@ class _AlertDetailPageState extends State<AlertDetailPage> {
             ),
             const SizedBox(height: 12),
             Text(
-              _alert.comment!,
-              style: const TextStyle(fontSize: 15),
+              handler.name,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w500,
+              ),
             ),
+            if (_alert.handledAt != null) ...[
+              const SizedBox(height: 4),
+              Text(
+                'Le ${DateFormat('dd/MM/yyyy à HH:mm').format(_alert.handledAt!)}',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.grey[600],
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -425,7 +460,7 @@ class _AlertDetailPageState extends State<AlertDetailPage> {
 
   Widget _buildHistorySection() {
     return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       elevation: 2,
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -452,20 +487,20 @@ class _AlertDetailPageState extends State<AlertDetailPage> {
               Icons.add_circle_outline,
               AppColors.accent,
             ),
-            if (_alert.status == AlertStatus.inProgress) ...[
+            if (_alert.status == 'in_progress') ...[
               const SizedBox(height: 12),
               _buildHistoryItem(
                 'En cours de traitement',
-                'En attente de résolution',
+                _alert.handler != null ? 'Par ${_alert.handler!.name}' : 'En attente de résolution',
                 Icons.autorenew,
                 AppColors.primary,
               ),
             ],
-            if (_alert.resolvedAt != null) ...[
+            if (_alert.handledAt != null) ...[
               const SizedBox(height: 12),
               _buildHistoryItem(
-                'Alerte résolue',
-                DateFormat('dd/MM/yyyy à HH:mm').format(_alert.resolvedAt!),
+                'Alerte traitée',
+                DateFormat('dd/MM/yyyy à HH:mm').format(_alert.handledAt!),
                 Icons.check_circle,
                 AppColors.success,
               ),
@@ -546,132 +581,38 @@ class _AlertDetailPageState extends State<AlertDetailPage> {
     );
   }
 
-  Widget _buildBottomBar() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withValues(alpha: 0.2),
-            spreadRadius: 1,
-            blurRadius: 5,
-            offset: const Offset(0, -2),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          if (_alert.status == AlertStatus.pending)
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: _markAsInProgress,
-                icon: const Icon(Icons.play_arrow),
-                label: const Text('Commencer'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppColors.primary,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                ),
-              ),
-            ),
-          if (_alert.status == AlertStatus.pending) const SizedBox(width: 12),
-          Expanded(
-            child: ElevatedButton.icon(
-              onPressed: _showResolveDialog,
-              icon: const Icon(Icons.check_circle),
-              label: const Text('Résoudre'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.success,
-                foregroundColor: AppColors.white,
-                padding: const EdgeInsets.symmetric(vertical: 12),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _markAsInProgress() async {
-    final success = await _alertService.markAlertInProgress(_alert.id);
-    if (success && mounted) {
-      final updatedAlert = await _alertService.getAlertById(_alert.id);
-      if (updatedAlert != null) {
-        setState(() {
-          _alert = updatedAlert;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Alerte marquée en cours'),
-            backgroundColor: Colors.blue,
-          ),
-        );
-      }
+  Map<String, dynamic> _getStatusInfo(String status) {
+    switch (status) {
+      case 'pending':
+        return {
+          'color': AppColors.secondary,
+          'icon': Icons.pending,
+        };
+      case 'in_progress':
+        return {
+          'color': AppColors.primary,
+          'icon': Icons.autorenew,
+        };
+      case 'resolved':
+        return {
+          'color': AppColors.success,
+          'icon': Icons.check_circle,
+        };
+      default:
+        return {
+          'color': Colors.grey,
+          'icon': Icons.help_outline,
+        };
     }
   }
 
-  Future<void> _showResolveDialog() async {
-    final TextEditingController commentController = TextEditingController();
+  void _showPhotoDialog(ApiAlertPhoto photo, int index) {
+    final photoUrl = photo.url != null
+        ? '${ApiService.baseUrl}${photo.url}'
+        : null;
 
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Résoudre l\'alerte'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Voulez-vous marquer cette alerte comme résolue ?'),
-            const SizedBox(height: 16),
-            TextField(
-              controller: commentController,
-              maxLines: 3,
-              decoration: const InputDecoration(
-                labelText: 'Commentaire de résolution (optionnel)',
-                hintText: 'Décrivez la solution apportée...',
-                border: OutlineInputBorder(),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Annuler'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.success,
-              foregroundColor: AppColors.white,
-            ),
-            child: const Text('Résoudre'),
-          ),
-        ],
-      ),
-    );
+    if (photoUrl == null) return;
 
-    if (result == true && mounted) {
-      final comment = commentController.text.trim().isEmpty
-          ? null
-          : commentController.text.trim();
-      final success = await _alertService.resolveAlert(_alert.id, comment: comment);
-
-      if (success && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Alerte marquée comme résolue'),
-            backgroundColor: Colors.green,
-          ),
-        );
-        Navigator.pop(context, true);
-      }
-    }
-
-    commentController.dispose();
-  }
-
-  void _showPhotoDialog(String photoPath, int index) {
     showDialog(
       context: context,
       builder: (context) => Dialog(
@@ -691,7 +632,7 @@ class _AlertDetailPageState extends State<AlertDetailPage> {
               child: Row(
                 children: [
                   Text(
-                    'Photo ${index + 1}/${_alert.photoUrls.length}',
+                    photo.title ?? 'Photo ${index + 1}/${_alert.photos.length}',
                     style: const TextStyle(color: Colors.white),
                   ),
                   const Spacer(),
@@ -702,10 +643,19 @@ class _AlertDetailPageState extends State<AlertDetailPage> {
                 ],
               ),
             ),
-            ClipRRect(
-              child: Image.file(
-                File(photoPath),
-                fit: BoxFit.contain,
+            Image.network(
+              photoUrl,
+              fit: BoxFit.contain,
+              loadingBuilder: (context, child, loadingProgress) {
+                if (loadingProgress == null) return child;
+                return const SizedBox(
+                  height: 200,
+                  child: Center(child: CircularProgressIndicator()),
+                );
+              },
+              errorBuilder: (context, error, stackTrace) => const SizedBox(
+                height: 200,
+                child: Center(child: Icon(Icons.error, size: 48)),
               ),
             ),
           ],
@@ -729,19 +679,6 @@ class _AlertDetailPageState extends State<AlertDetailPage> {
           ),
         );
       }
-    }
-  }
-
-  Color _getPriorityColor(AlertPriority priority) {
-    switch (priority) {
-      case AlertPriority.urgent:
-        return AppColors.urgent;
-      case AlertPriority.high:
-        return AppColors.high;
-      case AlertPriority.medium:
-        return AppColors.medium;
-      case AlertPriority.low:
-        return AppColors.low;
     }
   }
 }

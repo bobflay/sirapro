@@ -50,7 +50,7 @@ class _InvoiceListPageState extends State<InvoiceListPage> {
         });
       } else {
         setState(() {
-          _errorMessage = 'Impossible de charger les factures';
+          _errorMessage = 'Impossible de charger les bons de livraison';
           _isLoading = false;
         });
       }
@@ -102,7 +102,7 @@ class _InvoiceListPageState extends State<InvoiceListPage> {
     return Scaffold(
       backgroundColor: Colors.grey[100],
       appBar: AppBar(
-        title: const Text('Mes Factures'),
+        title: const Text('Mes Bons de livraison'),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
@@ -175,7 +175,7 @@ class _InvoiceListPageState extends State<InvoiceListPage> {
               ),
               const SizedBox(height: 16),
               Text(
-                'Aucune facture',
+                'Aucun bon de livraison',
                 style: TextStyle(
                   color: Colors.grey[600],
                   fontSize: 18,
@@ -184,7 +184,7 @@ class _InvoiceListPageState extends State<InvoiceListPage> {
               ),
               const SizedBox(height: 8),
               Text(
-                'Les factures scannées apparaîtront ici',
+                'Les bons de livraison scannés apparaîtront ici',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: Colors.grey[500],
@@ -195,7 +195,7 @@ class _InvoiceListPageState extends State<InvoiceListPage> {
               ElevatedButton.icon(
                 onPressed: _navigateToScanPage,
                 icon: const Icon(Icons.document_scanner),
-                label: const Text('Scanner une facture'),
+                label: const Text('Scanner un bon de livraison'),
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                 ),
@@ -219,7 +219,7 @@ class _InvoiceListPageState extends State<InvoiceListPage> {
                 Icon(Icons.receipt_long, color: Colors.grey[600], size: 20),
                 const SizedBox(width: 8),
                 Text(
-                  '$_total facture${_total > 1 ? 's' : ''}',
+                  '$_total bon${_total > 1 ? 's' : ''} de livraison',
                   style: TextStyle(
                     color: Colors.grey[700],
                     fontWeight: FontWeight.w500,

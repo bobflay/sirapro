@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:sirapro/models/alert.dart';
-import 'package:sirapro/services/alert_service.dart';
+import 'package:sirapro/models/api_alert.dart';
+import 'package:sirapro/services/alert_api_service.dart';
 import 'package:sirapro/utils/app_colors.dart';
 import 'package:sirapro/widgets/session_aware_app_bar.dart';
 import 'package:intl/intl.dart';
-import 'alert_creation_page.dart';
 import 'alert_detail_page.dart';
 
 class AlertesPage extends StatefulWidget {
@@ -15,11 +14,12 @@ class AlertesPage extends StatefulWidget {
 }
 
 class _AlertesPageState extends State<AlertesPage> with SingleTickerProviderStateMixin {
-  final AlertService _alertService = AlertService();
+  final AlertApiService _alertApiService = AlertApiService();
   late TabController _tabController;
-  List<Alert> _alerts = [];
+  List<ApiAlert> _alerts = [];
   bool _isLoading = true;
-  AlertPriority? _selectedPriority;
+  String? _errorMessage;
+  String? _selectedType;
 
   @override
   void initState() {
@@ -35,28 +35,44 @@ class _AlertesPageState extends State<AlertesPage> with SingleTickerProviderStat
   }
 
   Future<void> _loadAlerts() async {
-    setState(() => _isLoading = true);
-    final alerts = await _alertService.getAlerts();
     setState(() {
-      _alerts = alerts;
-      _isLoading = false;
+      _isLoading = true;
+      _errorMessage = null;
     });
+
+    try {
+      final response = await _alertApiService.getAlerts();
+      setState(() {
+        _alerts = response.data;
+        _isLoading = false;
+      });
+    } on AlertApiException catch (e) {
+      setState(() {
+        _errorMessage = e.message;
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Une erreur inattendue s\'est produite';
+        _isLoading = false;
+      });
+    }
   }
 
-  List<Alert> get _activeAlerts {
+  List<ApiAlert> get _activeAlerts {
     return _alerts.where((alert) =>
-      alert.status == AlertStatus.pending ||
-      alert.status == AlertStatus.inProgress
+      alert.status == 'pending' ||
+      alert.status == 'in_progress'
     ).toList();
   }
 
-  List<Alert> get _resolvedAlerts {
-    return _alerts.where((alert) => alert.status == AlertStatus.resolved).toList();
+  List<ApiAlert> get _resolvedAlerts {
+    return _alerts.where((alert) => alert.status == 'resolved').toList();
   }
 
-  List<Alert> _applyFilters(List<Alert> alerts) {
-    if (_selectedPriority != null) {
-      return alerts.where((alert) => alert.priority == _selectedPriority).toList();
+  List<ApiAlert> _applyFilters(List<ApiAlert> alerts) {
+    if (_selectedType != null) {
+      return alerts.where((alert) => alert.type == _selectedType).toList();
     }
     return alerts;
   }
@@ -97,30 +113,71 @@ class _AlertesPageState extends State<AlertesPage> with SingleTickerProviderStat
           ],
         ),
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
-              children: [
-                // Filters
-                _buildFiltersSection(),
+      body: _buildBody(),
+    );
+  }
 
-                // Tabs content
-                Expanded(
-                  child: TabBarView(
-                    controller: _tabController,
-                    children: [
-                      _buildAlertsList(_applyFilters(_alerts)),
-                      _buildAlertsList(_applyFilters(_activeAlerts)),
-                      _buildAlertsList(_applyFilters(_resolvedAlerts)),
-                    ],
-                  ),
-                ),
-              ],
+  Widget _buildBody() {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_errorMessage != null) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.error_outline, size: 64, color: Colors.grey[400]),
+            const SizedBox(height: 16),
+            Text(
+              _errorMessage!,
+              style: TextStyle(fontSize: 16, color: Colors.grey[600]),
+              textAlign: TextAlign.center,
             ),
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              onPressed: _loadAlerts,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Réessayer'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: AppColors.white,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Column(
+      children: [
+        _buildFiltersSection(),
+        Expanded(
+          child: TabBarView(
+            controller: _tabController,
+            children: [
+              _buildAlertsList(_applyFilters(_alerts)),
+              _buildAlertsList(_applyFilters(_activeAlerts)),
+              _buildAlertsList(_applyFilters(_resolvedAlerts)),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
   Widget _buildFiltersSection() {
+    final alertTypes = [
+      {'value': null, 'label': 'Tous'},
+      {'value': 'rupture_grave', 'label': 'Rupture grave'},
+      {'value': 'litige_paiement', 'label': 'Litige paiement'},
+      {'value': 'probleme_rayon', 'label': 'Problème rayon'},
+      {'value': 'risque_perte', 'label': 'Risque perte'},
+      {'value': 'demande_speciale', 'label': 'Demande spéciale'},
+      {'value': 'opportunite', 'label': 'Opportunité'},
+      {'value': 'autre', 'label': 'Autre'},
+    ];
+
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
       color: AppColors.white,
@@ -128,7 +185,7 @@ class _AlertesPageState extends State<AlertesPage> with SingleTickerProviderStat
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'Filtrer par priorité',
+            'Filtrer par type',
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w600,
@@ -139,33 +196,27 @@ class _AlertesPageState extends State<AlertesPage> with SingleTickerProviderStat
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
-              children: [
-                _buildFilterChip(
-                  label: 'Toutes',
-                  isSelected: _selectedPriority == null,
-                  onTap: () {
-                    setState(() {
-                      _selectedPriority = null;
-                    });
-                  },
-                ),
-                const SizedBox(width: 8),
-                ...AlertPriority.values.map((priority) {
-                  return Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: _buildFilterChip(
-                      label: _getAlertPriorityLabel(priority),
-                      isSelected: _selectedPriority == priority,
-                      onTap: () {
-                        setState(() {
-                          _selectedPriority = _selectedPriority == priority ? null : priority;
-                        });
-                      },
-                      color: _getPriorityColor(priority),
+              children: alertTypes.map((type) {
+                final isSelected = _selectedType == type['value'];
+                return Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: FilterChip(
+                    selected: isSelected,
+                    label: Text(type['label'] as String),
+                    onSelected: (_) {
+                      setState(() {
+                        _selectedType = type['value'] as String?;
+                      });
+                    },
+                    selectedColor: AppColors.primary,
+                    labelStyle: TextStyle(
+                      color: isSelected ? AppColors.white : AppColors.black,
+                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                      fontSize: 12,
                     ),
-                  );
-                }),
-              ],
+                  ),
+                );
+              }).toList(),
             ),
           ),
         ],
@@ -173,27 +224,7 @@ class _AlertesPageState extends State<AlertesPage> with SingleTickerProviderStat
     );
   }
 
-  Widget _buildFilterChip({
-    required String label,
-    required bool isSelected,
-    required VoidCallback onTap,
-    Color? color,
-  }) {
-    final chipColor = color ?? AppColors.primary;
-    return FilterChip(
-      selected: isSelected,
-      label: Text(label),
-      onSelected: (_) => onTap(),
-      selectedColor: chipColor,
-      labelStyle: TextStyle(
-        color: isSelected ? AppColors.white : AppColors.black,
-        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-        fontSize: 12,
-      ),
-    );
-  }
-
-  Widget _buildAlertsList(List<Alert> alerts) {
+  Widget _buildAlertsList(List<ApiAlert> alerts) {
     if (alerts.isEmpty) {
       return Center(
         child: Column(
@@ -212,17 +243,6 @@ class _AlertesPageState extends State<AlertesPage> with SingleTickerProviderStat
                 color: Colors.grey[600],
               ),
             ),
-            const SizedBox(height: 24),
-            ElevatedButton.icon(
-              onPressed: _navigateToCreateAlert,
-              icon: const Icon(Icons.add),
-              label: const Text('Créer une alerte'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primary,
-                foregroundColor: AppColors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-              ),
-            ),
           ],
         ),
       );
@@ -232,31 +252,8 @@ class _AlertesPageState extends State<AlertesPage> with SingleTickerProviderStat
       onRefresh: _loadAlerts,
       child: ListView.builder(
         padding: const EdgeInsets.all(16),
-        itemCount: alerts.length + 1, // +1 for the create button
+        itemCount: alerts.length,
         itemBuilder: (context, index) {
-          // Show create button at the end
-          if (index == alerts.length) {
-            return Padding(
-              padding: const EdgeInsets.only(top: 8, bottom: 24),
-              child: SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: ElevatedButton.icon(
-                  onPressed: _navigateToCreateAlert,
-                  icon: const Icon(Icons.add),
-                  label: const Text(
-                    'Créer une alerte',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    foregroundColor: AppColors.white,
-                  ),
-                ),
-              ),
-            );
-          }
-
           final alert = alerts[index];
           return _buildAlertCard(alert);
         },
@@ -264,60 +261,10 @@ class _AlertesPageState extends State<AlertesPage> with SingleTickerProviderStat
     );
   }
 
-  Widget _buildAlertCard(Alert alert) {
-    IconData icon;
-    Color iconColor;
-
-    switch (alert.type) {
-      case AlertType.ruptureGrave:
-        icon = Icons.inventory_2;
-        iconColor = AppColors.primary;
-        break;
-      case AlertType.litigeProbleme:
-        icon = Icons.payment;
-        iconColor = AppColors.primaryDark;
-        break;
-      case AlertType.problemeRayon:
-        icon = Icons.shelves;
-        iconColor = AppColors.secondary;
-        break;
-      case AlertType.risquePerte:
-        icon = Icons.warning;
-        iconColor = AppColors.primary;
-        break;
-      case AlertType.demandeSpeciale:
-        icon = Icons.star;
-        iconColor = AppColors.secondaryDark;
-        break;
-      case AlertType.opportunite:
-        icon = Icons.lightbulb;
-        iconColor = AppColors.secondary;
-        break;
-      case AlertType.other:
-        icon = Icons.info;
-        iconColor = AppColors.accent;
-        break;
-    }
-
-    Color priorityColor = _getPriorityColor(alert.priority);
-
-    Color statusColor;
-    IconData statusIcon;
-
-    switch (alert.status) {
-      case AlertStatus.pending:
-        statusColor = AppColors.secondary;
-        statusIcon = Icons.pending;
-        break;
-      case AlertStatus.inProgress:
-        statusColor = AppColors.primary;
-        statusIcon = Icons.autorenew;
-        break;
-      case AlertStatus.resolved:
-        statusColor = AppColors.success;
-        statusIcon = Icons.check_circle;
-        break;
-    }
+  Widget _buildAlertCard(ApiAlert alert) {
+    final iconData = _getIconForType(alert.type);
+    final iconColor = _getColorForType(alert.type);
+    final statusInfo = _getStatusInfo(alert.status);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -333,7 +280,6 @@ class _AlertesPageState extends State<AlertesPage> with SingleTickerProviderStat
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -344,7 +290,7 @@ class _AlertesPageState extends State<AlertesPage> with SingleTickerProviderStat
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Icon(
-                      icon,
+                      iconData,
                       color: iconColor,
                       size: 24,
                     ),
@@ -358,7 +304,7 @@ class _AlertesPageState extends State<AlertesPage> with SingleTickerProviderStat
                           children: [
                             Expanded(
                               child: Text(
-                                alert.title,
+                                alert.typeLabel,
                                 style: const TextStyle(
                                   fontWeight: FontWeight.bold,
                                   fontSize: 16,
@@ -371,47 +317,34 @@ class _AlertesPageState extends State<AlertesPage> with SingleTickerProviderStat
                                 vertical: 2,
                               ),
                               decoration: BoxDecoration(
-                                color: priorityColor.withValues(alpha: 0.1),
+                                color: statusInfo['color'].withValues(alpha: 0.1),
                                 borderRadius: BorderRadius.circular(10),
                               ),
-                              child: Text(
-                                alert.priorityLabel,
-                                style: TextStyle(
-                                  color: priorityColor,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 4),
-                        Row(
-                          children: [
-                            Text(
-                              alert.typeLabel,
-                              style: TextStyle(
-                                color: Colors.grey[600],
-                                fontSize: 12,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Icon(statusIcon, size: 12, color: statusColor),
-                            const SizedBox(width: 4),
-                            Text(
-                              _getStatusLabel(alert.status),
-                              style: TextStyle(
-                                color: statusColor,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    statusInfo['icon'] as IconData,
+                                    size: 12,
+                                    color: statusInfo['color'] as Color,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    alert.statusLabel,
+                                    style: TextStyle(
+                                      color: statusInfo['color'] as Color,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                           ],
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          alert.description,
+                          alert.comment,
                           style: TextStyle(
                             color: Colors.grey[700],
                             fontSize: 14,
@@ -419,7 +352,7 @@ class _AlertesPageState extends State<AlertesPage> with SingleTickerProviderStat
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                         ),
-                        if (alert.clientName != null) ...[
+                        if (alert.client != null) ...[
                           const SizedBox(height: 8),
                           Row(
                             children: [
@@ -431,7 +364,7 @@ class _AlertesPageState extends State<AlertesPage> with SingleTickerProviderStat
                               const SizedBox(width: 4),
                               Expanded(
                                 child: Text(
-                                  alert.clientName!,
+                                  alert.client!.name,
                                   style: TextStyle(
                                     color: Colors.grey[500],
                                     fontSize: 12,
@@ -452,21 +385,33 @@ class _AlertesPageState extends State<AlertesPage> with SingleTickerProviderStat
                                 fontSize: 11,
                               ),
                             ),
-                            if (alert.photoUrls.isNotEmpty) ...[
+                            if (alert.photos.isNotEmpty) ...[
                               const SizedBox(width: 12),
                               Icon(Icons.photo, size: 12, color: Colors.grey[400]),
                               const SizedBox(width: 4),
                               Text(
-                                '${alert.photoUrls.length}',
+                                '${alert.photos.length}',
                                 style: TextStyle(
                                   color: Colors.grey[400],
                                   fontSize: 11,
                                 ),
                               ),
                             ],
-                            if (alert.location != null) ...[
+                            if (alert.latitude != null) ...[
                               const SizedBox(width: 12),
                               Icon(Icons.location_on, size: 12, color: Colors.grey[400]),
+                            ],
+                            if (alert.handler != null) ...[
+                              const SizedBox(width: 12),
+                              Icon(Icons.person, size: 12, color: Colors.grey[400]),
+                              const SizedBox(width: 4),
+                              Text(
+                                alert.handler!.name,
+                                style: TextStyle(
+                                  color: Colors.grey[400],
+                                  fontSize: 11,
+                                ),
+                              ),
                             ],
                           ],
                         ),
@@ -480,6 +425,69 @@ class _AlertesPageState extends State<AlertesPage> with SingleTickerProviderStat
         ),
       ),
     );
+  }
+
+  IconData _getIconForType(String type) {
+    switch (type) {
+      case 'rupture_grave':
+        return Icons.inventory_2;
+      case 'litige_paiement':
+        return Icons.payment;
+      case 'probleme_rayon':
+        return Icons.shelves;
+      case 'risque_perte':
+        return Icons.warning;
+      case 'demande_speciale':
+        return Icons.star;
+      case 'opportunite':
+        return Icons.lightbulb;
+      default:
+        return Icons.info;
+    }
+  }
+
+  Color _getColorForType(String type) {
+    switch (type) {
+      case 'rupture_grave':
+        return AppColors.primary;
+      case 'litige_paiement':
+        return AppColors.primaryDark;
+      case 'probleme_rayon':
+        return AppColors.secondary;
+      case 'risque_perte':
+        return AppColors.primary;
+      case 'demande_speciale':
+        return AppColors.secondaryDark;
+      case 'opportunite':
+        return AppColors.secondary;
+      default:
+        return AppColors.accent;
+    }
+  }
+
+  Map<String, dynamic> _getStatusInfo(String status) {
+    switch (status) {
+      case 'pending':
+        return {
+          'color': AppColors.secondary,
+          'icon': Icons.pending,
+        };
+      case 'in_progress':
+        return {
+          'color': AppColors.primary,
+          'icon': Icons.autorenew,
+        };
+      case 'resolved':
+        return {
+          'color': AppColors.success,
+          'icon': Icons.check_circle,
+        };
+      default:
+        return {
+          'color': Colors.grey,
+          'icon': Icons.help_outline,
+        };
+    }
   }
 
   String _formatDate(DateTime date) {
@@ -499,7 +507,7 @@ class _AlertesPageState extends State<AlertesPage> with SingleTickerProviderStat
     }
   }
 
-  void _showAlertDetails(Alert alert) async {
+  void _showAlertDetails(ApiAlert alert) async {
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
@@ -507,65 +515,9 @@ class _AlertesPageState extends State<AlertesPage> with SingleTickerProviderStat
       ),
     );
 
-    // Reload if alert was resolved
     if (result == true && mounted) {
       _loadAlerts();
     }
   }
 
-  void _navigateToCreateAlert() async {
-    final Alert? alert = await Navigator.push<Alert>(
-      context,
-      MaterialPageRoute(
-        builder: (context) => const AlertCreationPage(),
-      ),
-    );
-
-    if (alert != null && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Alerte "${alert.title}" créée avec succès'),
-          backgroundColor: Colors.green,
-        ),
-      );
-      _loadAlerts();
-    }
-  }
-
-  String _getAlertPriorityLabel(AlertPriority priority) {
-    switch (priority) {
-      case AlertPriority.urgent:
-        return 'Urgente';
-      case AlertPriority.high:
-        return 'Haute';
-      case AlertPriority.medium:
-        return 'Moyenne';
-      case AlertPriority.low:
-        return 'Faible';
-    }
-  }
-
-  String _getStatusLabel(AlertStatus status) {
-    switch (status) {
-      case AlertStatus.pending:
-        return 'En attente';
-      case AlertStatus.inProgress:
-        return 'En cours';
-      case AlertStatus.resolved:
-        return 'Résolue';
-    }
-  }
-
-  Color _getPriorityColor(AlertPriority priority) {
-    switch (priority) {
-      case AlertPriority.urgent:
-        return AppColors.urgent;
-      case AlertPriority.high:
-        return AppColors.high;
-      case AlertPriority.medium:
-        return AppColors.medium;
-      case AlertPriority.low:
-        return AppColors.low;
-    }
-  }
 }

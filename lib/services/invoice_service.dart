@@ -236,7 +236,7 @@ class InvoiceService {
         return CreateInvoiceResponse.fromJson(body);
       }
 
-      final errorMessage = body['message'] as String? ?? 'Erreur lors de la création de la facture';
+      final errorMessage = body['message'] as String? ?? 'Erreur lors de la création du bon de livraison';
       throw ApiException(errorMessage, statusCode: response.statusCode);
     } on http.ClientException {
       throw ApiException('Erreur de connexion. Vérifiez votre connexion internet.');
@@ -271,7 +271,7 @@ class InvoiceService {
         return InvoiceListResponse.fromJson(body);
       }
 
-      final errorMessage = body['message'] as String? ?? 'Erreur lors de la récupération des factures';
+      final errorMessage = body['message'] as String? ?? 'Erreur lors de la récupération des bons de livraison';
       throw ApiException(errorMessage, statusCode: response.statusCode);
     } on http.ClientException {
       throw ApiException('Erreur de connexion. Vérifiez votre connexion internet.');
@@ -309,7 +309,49 @@ class InvoiceService {
         return CreateInvoiceResponse.fromJson(body);
       }
 
-      final errorMessage = body['message'] as String? ?? 'Erreur lors de la mise à jour de la facture';
+      final errorMessage = body['message'] as String? ?? 'Erreur lors de la mise à jour du bon de livraison';
+      throw ApiException(errorMessage, statusCode: response.statusCode);
+    } on http.ClientException {
+      throw ApiException('Erreur de connexion. Vérifiez votre connexion internet.');
+    } catch (e) {
+      if (e is ApiException) rethrow;
+      throw ApiException('Une erreur inattendue est survenue: $e');
+    }
+  }
+
+  /// Update invoice item statuses (delivered/not_delivered)
+  Future<UpdateItemStatusResponse> updateItemStatuses(List<ItemStatusUpdate> items) async {
+    try {
+      final uri = Uri.parse('${ApiService.baseUrl}/api/invoice-items/status');
+      final token = _apiService.token;
+
+      final requestBody = {
+        'items': items.map((item) => item.toJson()).toList(),
+      };
+
+      debugPrint('[InvoiceService] Updating item statuses...');
+      debugPrint('[InvoiceService] Request body: ${jsonEncode(requestBody)}');
+
+      final response = await http.put(
+        uri,
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode(requestBody),
+      );
+
+      debugPrint('[InvoiceService] Update status response: ${response.statusCode}');
+      debugPrint('[InvoiceService] Update status body: ${response.body}');
+
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return UpdateItemStatusResponse.fromJson(body);
+      }
+
+      final errorMessage = body['message'] as String? ?? 'Erreur lors de la mise à jour du statut';
       throw ApiException(errorMessage, statusCode: response.statusCode);
     } on http.ClientException {
       throw ApiException('Erreur de connexion. Vérifiez votre connexion internet.');
@@ -335,7 +377,9 @@ class UpdateInvoiceRequest {
   final double netToPay;
   final int packagesCount;
   final double totalWeight;
+  final double? shippingCost;
   final List<CreateInvoiceItemRequest> items;
+  final List<Map<String, dynamic>>? taxes;
 
   UpdateInvoiceRequest({
     required this.id,
@@ -351,11 +395,13 @@ class UpdateInvoiceRequest {
     required this.netToPay,
     required this.packagesCount,
     required this.totalWeight,
+    this.shippingCost,
     required this.items,
+    this.taxes,
   });
 
   Map<String, dynamic> toJson() {
-    return {
+    final json = <String, dynamic>{
       'supplier': supplier,
       'document_type': documentType,
       'invoice_number': invoiceNumber,
@@ -370,6 +416,13 @@ class UpdateInvoiceRequest {
       'total_weight': totalWeight,
       'items': items.map((item) => item.toJson()).toList(),
     };
+    if (shippingCost != null) {
+      json['shipping_cost'] = shippingCost;
+    }
+    if (taxes != null && taxes!.isNotEmpty) {
+      json['taxes'] = taxes;
+    }
+    return json;
   }
 }
 
@@ -387,8 +440,10 @@ class CreateInvoiceRequest {
   final double netToPay;
   final int packagesCount;
   final double totalWeight;
+  final double? shippingCost;
   final List<CreateInvoiceItemRequest> items;
   final List<int> photoIds; // Photo IDs from OCR upload
+  final List<Map<String, dynamic>>? taxes; // Tax breakdown (optional, total_tax is required)
 
   CreateInvoiceRequest({
     this.supplier,
@@ -403,8 +458,10 @@ class CreateInvoiceRequest {
     required this.netToPay,
     required this.packagesCount,
     required this.totalWeight,
+    this.shippingCost,
     required this.items,
     this.photoIds = const [],
+    this.taxes,
   });
 
   Map<String, dynamic> toJson() {
@@ -426,6 +483,12 @@ class CreateInvoiceRequest {
     if (photoIds.isNotEmpty) {
       json['photo_ids'] = photoIds;
     }
+    if (shippingCost != null) {
+      json['shipping_cost'] = shippingCost;
+    }
+    if (taxes != null && taxes!.isNotEmpty) {
+      json['taxes'] = taxes;
+    }
     return json;
   }
 }
@@ -438,6 +501,11 @@ class CreateInvoiceItemRequest {
   final double totalTtc;
   final String? depot;
 
+  // Pack/Unit support
+  final int? quantityPacks;
+  final int? quantityUnits;
+  final int? unitsPerPack;
+
   CreateInvoiceItemRequest({
     this.reference,
     this.designation,
@@ -445,10 +513,13 @@ class CreateInvoiceItemRequest {
     required this.unitPriceTtc,
     required this.totalTtc,
     this.depot,
+    this.quantityPacks,
+    this.quantityUnits,
+    this.unitsPerPack,
   });
 
   Map<String, dynamic> toJson() {
-    return {
+    final json = {
       'reference': reference,
       'designation': designation,
       'quantity': quantity,
@@ -456,6 +527,16 @@ class CreateInvoiceItemRequest {
       'total_ttc': totalTtc,
       'depot': depot,
     };
+    if (quantityPacks != null) {
+      json['quantity_packs'] = quantityPacks;
+    }
+    if (quantityUnits != null) {
+      json['quantity_units'] = quantityUnits;
+    }
+    if (unitsPerPack != null) {
+      json['units_per_pack'] = unitsPerPack;
+    }
+    return json;
   }
 }
 
@@ -681,6 +762,7 @@ class SavedInvoiceItem {
   final double unitPriceTtc;
   final double totalTtc;
   final String? depot;
+  final String? status; // 'delivered', 'not_delivered', or null (pending)
 
   SavedInvoiceItem({
     required this.id,
@@ -690,7 +772,15 @@ class SavedInvoiceItem {
     required this.unitPriceTtc,
     required this.totalTtc,
     this.depot,
+    this.status,
   });
+
+  /// Returns the status as a boolean: true = delivered, false = not_delivered, null = pending
+  bool? get statusAsBool {
+    if (status == 'delivered') return true;
+    if (status == 'not_delivered') return false;
+    return null;
+  }
 
   factory SavedInvoiceItem.fromJson(Map<String, dynamic> json) {
     return SavedInvoiceItem(
@@ -701,6 +791,7 @@ class SavedInvoiceItem {
       unitPriceTtc: _parseDoubleSafe(json['unit_price_ttc']),
       totalTtc: _parseDoubleSafe(json['total_ttc']),
       depot: json['depot'] as String?,
+      status: json['status'] as String?,
     );
   }
 }
@@ -718,4 +809,82 @@ int _parseIntSafe(dynamic value) {
   if (value is num) return value.toInt();
   if (value is String) return double.tryParse(value)?.toInt() ?? 0;
   return 0;
+}
+
+/// Model for a single item status update
+class ItemStatusUpdate {
+  final int id;
+  final String status; // 'charged', 'delivered', or 'not_delivered'
+
+  ItemStatusUpdate({
+    required this.id,
+    required this.status,
+  });
+
+  /// Create from a boolean status (true = delivered, false = not_delivered)
+  factory ItemStatusUpdate.fromBool(int id, bool delivered) {
+    return ItemStatusUpdate(
+      id: id,
+      status: delivered ? 'delivered' : 'not_delivered',
+    );
+  }
+
+  /// Create with charged status
+  factory ItemStatusUpdate.charged(int id) {
+    return ItemStatusUpdate(
+      id: id,
+      status: 'charged',
+    );
+  }
+
+  /// Create with delivered status
+  factory ItemStatusUpdate.delivered(int id) {
+    return ItemStatusUpdate(
+      id: id,
+      status: 'delivered',
+    );
+  }
+
+  /// Create with not_delivered status
+  factory ItemStatusUpdate.notDelivered(int id) {
+    return ItemStatusUpdate(
+      id: id,
+      status: 'not_delivered',
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'status': status,
+    };
+  }
+}
+
+/// Response from updating item statuses
+class UpdateItemStatusResponse {
+  final bool status;
+  final String message;
+
+  UpdateItemStatusResponse({
+    required this.status,
+    required this.message,
+  });
+
+  factory UpdateItemStatusResponse.fromJson(Map<String, dynamic> json) {
+    bool statusValue = false;
+    final rawStatus = json['status'];
+    if (rawStatus is bool) {
+      statusValue = rawStatus;
+    } else if (rawStatus is String) {
+      statusValue = rawStatus.toLowerCase() == 'true' || rawStatus == '1';
+    } else if (rawStatus is int) {
+      statusValue = rawStatus == 1;
+    }
+
+    return UpdateItemStatusResponse(
+      status: statusValue,
+      message: json['message'] as String? ?? '',
+    );
+  }
 }

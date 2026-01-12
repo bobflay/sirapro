@@ -68,6 +68,7 @@ class _FacturePageState extends State<FacturePage> {
   // Controllers for logistics
   final _packagesCountController = TextEditingController();
   final _totalWeightController = TextEditingController();
+  final _shippingCostController = TextEditingController();
 
   // Editable items list
   List<Map<String, TextEditingController>> _itemControllers = [];
@@ -94,6 +95,7 @@ class _FacturePageState extends State<FacturePage> {
     _netToPayWordsController.dispose();
     _packagesCountController.dispose();
     _totalWeightController.dispose();
+    _shippingCostController.dispose();
     for (final item in _itemControllers) {
       for (final c in item.values) {
         c.dispose();
@@ -132,6 +134,7 @@ class _FacturePageState extends State<FacturePage> {
     // Logistics
     _packagesCountController.text = _formatInt(data.logistics.packagesCount);
     _totalWeightController.text = _formatNumber(data.logistics.totalWeight);
+    _shippingCostController.text = data.logistics.shippingCost != null ? _formatNumber(data.logistics.shippingCost!) : '0';
 
     // Items
     _itemControllers = data.items.map((item) {
@@ -142,6 +145,9 @@ class _FacturePageState extends State<FacturePage> {
         'unitPrice': TextEditingController(text: _formatNumber(item.unitPriceTtc)),
         'totalTtc': TextEditingController(text: _formatNumber(item.totalTtc)),
         'depot': TextEditingController(text: item.depot ?? ''),
+        'quantityPacks': TextEditingController(text: item.quantityPacks != null ? _formatInt(item.quantityPacks!) : '0'),
+        'quantityUnits': TextEditingController(text: item.quantityUnits != null ? _formatInt(item.quantityUnits!) : '0'),
+        'unitsPerPack': TextEditingController(text: item.unitsPerPack != null ? _formatInt(item.unitsPerPack!) : '1'),
       };
     }).toList();
 
@@ -165,6 +171,9 @@ class _FacturePageState extends State<FacturePage> {
         'unitPrice': TextEditingController(text: '0'),
         'totalTtc': TextEditingController(text: '0'),
         'depot': TextEditingController(),
+        'quantityPacks': TextEditingController(text: '0'),
+        'quantityUnits': TextEditingController(text: '0'),
+        'unitsPerPack': TextEditingController(text: '1'),
       });
     });
   }
@@ -392,7 +401,7 @@ class _FacturePageState extends State<FacturePage> {
             : response.rawResponse ?? 'No raw response';
 
         setState(() {
-          _errorMessage = 'Facture traitée mais erreur d\'affichage.\n\nRéponse API:\n$rawPreview';
+          _errorMessage = 'Bon de livraison traité mais erreur d\'affichage.\n\nRéponse API:\n$rawPreview';
           _isProcessing = false;
         });
       } else {
@@ -402,7 +411,7 @@ class _FacturePageState extends State<FacturePage> {
         setState(() {
           _errorMessage = response.message.isNotEmpty
               ? response.message
-              : 'Impossible de traiter la facture';
+              : 'Impossible de traiter le bon de livraison';
           _isProcessing = false;
         });
       }
@@ -432,6 +441,10 @@ class _FacturePageState extends State<FacturePage> {
     try {
       // Build items from controllers (parse formatted numbers)
       final items = _itemControllers.map((item) {
+        final quantityPacks = item['quantityPacks'] != null ? _parseFormattedInt(item['quantityPacks']!.text) : null;
+        final quantityUnits = item['quantityUnits'] != null ? _parseFormattedInt(item['quantityUnits']!.text) : null;
+        final unitsPerPack = item['unitsPerPack'] != null ? _parseFormattedInt(item['unitsPerPack']!.text) : null;
+
         return CreateInvoiceItemRequest(
           reference: item['reference']!.text.isNotEmpty ? item['reference']!.text : null,
           designation: item['designation']!.text.isNotEmpty ? item['designation']!.text : null,
@@ -439,6 +452,9 @@ class _FacturePageState extends State<FacturePage> {
           unitPriceTtc: _parseFormattedDouble(item['unitPrice']!.text),
           totalTtc: _parseFormattedDouble(item['totalTtc']!.text),
           depot: item['depot']?.text.isNotEmpty == true ? item['depot']!.text : null,
+          quantityPacks: quantityPacks != null && quantityPacks > 0 ? quantityPacks : null,
+          quantityUnits: quantityUnits != null && quantityUnits > 0 ? quantityUnits : null,
+          unitsPerPack: unitsPerPack != null && unitsPerPack > 0 ? unitsPerPack : null,
         );
       }).toList();
 
@@ -455,6 +471,7 @@ class _FacturePageState extends State<FacturePage> {
         netToPay: _parseFormattedDouble(_netToPayController.text),
         packagesCount: _parseFormattedInt(_packagesCountController.text),
         totalWeight: _parseFormattedDouble(_totalWeightController.text),
+        shippingCost: _shippingCostController.text.isNotEmpty ? _parseFormattedDouble(_shippingCostController.text) : null,
         items: items,
         photoIds: _photoIds,
       );
@@ -468,7 +485,7 @@ class _FacturePageState extends State<FacturePage> {
           _isSaving = false;
           _successMessage = response.message.isNotEmpty
               ? response.message
-              : 'Facture enregistrée avec succès';
+              : 'Bon de livraison enregistré avec succès';
         });
 
         if (mounted) {
@@ -538,6 +555,7 @@ class _FacturePageState extends State<FacturePage> {
       _netToPayWordsController.clear();
       _packagesCountController.clear();
       _totalWeightController.clear();
+      _shippingCostController.clear();
 
       for (final item in _itemControllers) {
         for (final c in item.values) {
@@ -560,7 +578,7 @@ class _FacturePageState extends State<FacturePage> {
     return Scaffold(
       backgroundColor: Colors.grey[100],
       appBar: AppBar(
-        title: const Text('Scanner Facture'),
+        title: const Text('Scanner Bon de livraison'),
         actions: [
           if (_selectedImages.isNotEmpty || _invoiceData != null)
             IconButton(
@@ -607,7 +625,7 @@ class _FacturePageState extends State<FacturePage> {
                 ),
                 const SizedBox(height: 12),
                 const Text(
-                  'Scanner une Facture',
+                  'Scanner un Bon de livraison',
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
@@ -615,7 +633,7 @@ class _FacturePageState extends State<FacturePage> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Prenez des photos ou sélectionnez plusieurs images de facture pour extraire automatiquement les informations.',
+                  'Prenez des photos ou sélectionnez plusieurs images de bon de livraison pour extraire automatiquement les informations.',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: Colors.grey[600],
@@ -868,7 +886,7 @@ class _FacturePageState extends State<FacturePage> {
                         : const Icon(Icons.document_scanner),
                     label: Text(_isProcessing
                         ? 'Traitement de ${_selectedImages.length} image${_selectedImages.length > 1 ? 's' : ''}...'
-                        : 'Analyser ${_selectedImages.length > 1 ? 'les ${_selectedImages.length} images' : 'la facture'}'),
+                        : 'Analyser ${_selectedImages.length > 1 ? 'les ${_selectedImages.length} images' : 'le bon de livraison'}'),
                     style: ElevatedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 16),
                     ),
@@ -920,7 +938,7 @@ class _FacturePageState extends State<FacturePage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        'Facture analysée avec succès',
+                        'Bon de livraison analysé avec succès',
                         style: TextStyle(
                           fontWeight: FontWeight.bold,
                           fontSize: 16,
@@ -950,12 +968,12 @@ class _FacturePageState extends State<FacturePage> {
 
           // Invoice header info (editable)
           _buildEditableSection(
-            'Informations Facture',
+            'Informations Bon de livraison',
             Icons.receipt,
             [
               _buildEditableField('Fournisseur', _supplierController),
               _buildEditableField('Type', _documentTypeController),
-              _buildEditableField('N° Facture', _invoiceNumberController),
+              _buildEditableField('N° BL', _invoiceNumberController),
               _buildEditableField('Date', _dateController),
               _buildEditableField('Heure', _printTimeController),
               _buildEditableField('Opérateur', _operatorController),
@@ -994,6 +1012,7 @@ class _FacturePageState extends State<FacturePage> {
             [
               _buildEditableField('Nombre de colis', _packagesCountController, isNumber: true),
               _buildEditableField('Poids total (kg)', _totalWeightController, isNumber: true),
+              _buildEditableField('Frais de port (FCFA)', _shippingCostController, isNumber: true),
             ],
           ),
           const SizedBox(height: 16),
@@ -1037,7 +1056,7 @@ class _FacturePageState extends State<FacturePage> {
                       ),
                     )
                   : const Icon(Icons.save),
-              label: Text(_isSaving ? 'Enregistrement...' : 'Enregistrer la facture'),
+              label: Text(_isSaving ? 'Enregistrement...' : 'Enregistrer le bon de livraison'),
               style: ElevatedButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 backgroundColor: AppColors.success,
@@ -1048,7 +1067,7 @@ class _FacturePageState extends State<FacturePage> {
           OutlinedButton.icon(
             onPressed: _isSaving ? null : _reset,
             icon: const Icon(Icons.add_photo_alternate),
-            label: const Text('Scanner une autre facture'),
+            label: const Text('Scanner un autre bon de livraison'),
             style: OutlinedButton.styleFrom(
               padding: const EdgeInsets.symmetric(vertical: 16),
               foregroundColor: AppColors.primary,
@@ -1241,6 +1260,26 @@ class _FacturePageState extends State<FacturePage> {
                       ],
                     ),
                     _buildCompactField('Total TTC', item['totalTtc']!, isNumber: true),
+                    const SizedBox(height: 8),
+                    const Divider(),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Pack/Unit Details',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey[700],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(child: _buildCompactField('Qté Packs', item['quantityPacks']!, isNumber: true)),
+                        const SizedBox(width: 8),
+                        Expanded(child: _buildCompactField('Qté Units', item['quantityUnits']!, isNumber: true)),
+                      ],
+                    ),
+                    _buildCompactField('Units/Pack', item['unitsPerPack']!, isNumber: true),
                   ],
                 ),
               );

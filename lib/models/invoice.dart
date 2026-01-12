@@ -204,6 +204,14 @@ class InvoiceItem {
   final double totalTtc;
   final String? depot;
 
+  // Pack/Unit support
+  final int? quantityPacks;
+  final int? quantityUnits;
+  final int? unitsPerPack;
+
+  // Item status for delivery tracking
+  final String? status; // 'charged', 'delivered', 'not_delivered'
+
   InvoiceItem({
     this.reference,
     this.designation,
@@ -211,6 +219,10 @@ class InvoiceItem {
     required this.unitPriceTtc,
     required this.totalTtc,
     this.depot,
+    this.quantityPacks,
+    this.quantityUnits,
+    this.unitsPerPack,
+    this.status,
   });
 
   factory InvoiceItem.fromJson(Map<String, dynamic> json) {
@@ -221,6 +233,10 @@ class InvoiceItem {
       unitPriceTtc: _parseDouble(json['unit_price_ttc']),
       totalTtc: _parseDouble(json['total_ttc']),
       depot: json['depot'] as String?,
+      quantityPacks: json['quantity_packs'] != null ? _parseInt(json['quantity_packs']) : null,
+      quantityUnits: json['quantity_units'] != null ? _parseInt(json['quantity_units']) : null,
+      unitsPerPack: json['units_per_pack'] != null ? _parseInt(json['units_per_pack']) : null,
+      status: json['status'] as String?,
     );
   }
 
@@ -232,6 +248,10 @@ class InvoiceItem {
       'unit_price_ttc': unitPriceTtc,
       'total_ttc': totalTtc,
       'depot': depot,
+      if (quantityPacks != null) 'quantity_packs': quantityPacks,
+      if (quantityUnits != null) 'quantity_units': quantityUnits,
+      if (unitsPerPack != null) 'units_per_pack': unitsPerPack,
+      if (status != null) 'status': status,
     };
   }
 }
@@ -314,16 +334,19 @@ class InvoiceTotals {
 class InvoiceLogistics {
   final int packagesCount;
   final double totalWeight;
+  final double? shippingCost;
 
   InvoiceLogistics({
     required this.packagesCount,
     required this.totalWeight,
+    this.shippingCost,
   });
 
   factory InvoiceLogistics.fromJson(Map<String, dynamic> json) {
     return InvoiceLogistics(
       packagesCount: _parseInt(json['packages_count']),
       totalWeight: _parseDouble(json['total_weight']),
+      shippingCost: json['shipping_cost'] != null ? _parseDouble(json['shipping_cost']) : null,
     );
   }
 
@@ -331,6 +354,7 @@ class InvoiceLogistics {
     return {
       'packages_count': packagesCount,
       'total_weight': totalWeight,
+      if (shippingCost != null) 'shipping_cost': shippingCost,
     };
   }
 }

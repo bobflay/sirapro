@@ -276,6 +276,7 @@ class _CreateClientPageState extends State<CreateClientPage> {
   // Commercial Data
   String? _potentiel;
   String? _frequenceVisite;
+  String? _visitDay;
 
   // Validation state
   bool _showValidationErrors = false;
@@ -302,6 +303,16 @@ class _CreateClientPageState extends State<CreateClientPage> {
     'Bimensuelle',
     'Mensuelle',
     'Autre',
+  ];
+
+  final List<String> _visitDays = [
+    'Lundi',
+    'Mardi',
+    'Mercredi',
+    'Jeudi',
+    'Vendredi',
+    'Samedi',
+    'Dimanche',
   ];
 
   @override
@@ -794,6 +805,7 @@ class _CreateClientPageState extends State<CreateClientPage> {
         latitude: latitude,
         longitude: longitude,
         visitFrequency: CreateClientRequest.frequencyToApiValue(_frequenceVisite ?? 'Autre'),
+        visitDay: CreateClientRequest.dayToApiValue(_visitDay),
         isActive: true,
       );
 
@@ -2304,6 +2316,19 @@ class _CreateClientPageState extends State<CreateClientPage> {
             onChanged: (value) {
               setState(() {
                 _frequenceVisite = value;
+              });
+            },
+          ),
+          const SizedBox(height: 16),
+          _buildDropdownField(
+            value: _visitDay,
+            label: 'Jour de visite',
+            icon: Icons.today,
+            items: _visitDays,
+            isRequired: false,
+            onChanged: (value) {
+              setState(() {
+                _visitDay = value;
               });
             },
           ),

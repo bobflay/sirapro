@@ -52,6 +52,10 @@ class UpdateClientRequest {
   /// One of: weekly, biweekly, monthly, other
   final String? visitFrequency;
 
+  /// Visit day (optional)
+  /// One of: monday, tuesday, wednesday, thursday, friday, saturday, sunday
+  final String? visitDay;
+
   /// Whether the client is active (optional, nullable)
   final bool? isActive;
 
@@ -72,6 +76,7 @@ class UpdateClientRequest {
     this.latitude,
     this.longitude,
     this.visitFrequency,
+    this.visitDay,
     this.isActive,
   });
 
@@ -127,6 +132,9 @@ class UpdateClientRequest {
     }
     if (visitFrequency != null) {
       json['visit_frequency'] = visitFrequency;
+    }
+    if (visitDay != null) {
+      json['visit_day'] = visitDay;
     }
     if (isActive != null) {
       json['is_active'] = isActive;
@@ -215,6 +223,13 @@ class UpdateClientRequest {
       }
     }
 
+    if (visitDay != null) {
+      final validDays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+      if (!validDays.contains(visitDay)) {
+        errors.add('Jour de visite invalide');
+      }
+    }
+
     if (email != null && email!.isNotEmpty) {
       final emailRegex = RegExp(
         r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
@@ -256,6 +271,52 @@ class UpdateClientRequest {
         return 'Autre';
       default:
         return 'Autre';
+    }
+  }
+
+  /// Map French day labels to API values
+  static String? dayToApiValue(String? frenchLabel) {
+    if (frenchLabel == null) return null;
+    switch (frenchLabel) {
+      case 'Lundi':
+        return 'monday';
+      case 'Mardi':
+        return 'tuesday';
+      case 'Mercredi':
+        return 'wednesday';
+      case 'Jeudi':
+        return 'thursday';
+      case 'Vendredi':
+        return 'friday';
+      case 'Samedi':
+        return 'saturday';
+      case 'Dimanche':
+        return 'sunday';
+      default:
+        return null;
+    }
+  }
+
+  /// Map API values to French day labels
+  static String? apiValueToDay(String? apiValue) {
+    if (apiValue == null) return null;
+    switch (apiValue) {
+      case 'monday':
+        return 'Lundi';
+      case 'tuesday':
+        return 'Mardi';
+      case 'wednesday':
+        return 'Mercredi';
+      case 'thursday':
+        return 'Jeudi';
+      case 'friday':
+        return 'Vendredi';
+      case 'saturday':
+        return 'Samedi';
+      case 'sunday':
+        return 'Dimanche';
+      default:
+        return null;
     }
   }
 

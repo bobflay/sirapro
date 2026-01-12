@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sirapro/models/visit.dart';
 import 'package:sirapro/models/api_visit.dart';
+import 'package:sirapro/models/client.dart';
 import 'package:sirapro/services/visit_api_service.dart';
 
 /// Service pour gérer les visites actives et empêcher les visites multiples simultanées
@@ -14,6 +15,7 @@ class VisitService {
 
   static const String _activeVisitKey = 'active_visit';
   static const String _activeApiVisitKey = 'active_api_visit';
+  static const String _activeClientKey = 'active_client';
 
   // Visite actuellement active (legacy model for routing)
   Visit? _activeVisit;
@@ -21,11 +23,17 @@ class VisitService {
   // API visit actuellement active
   ApiVisit? _activeApiVisit;
 
+  // Client de la visite active (pour navigation rapide)
+  Client? _activeClient;
+
   /// Obtenir la visite active actuelle (legacy)
   Visit? get activeVisit => _activeVisit;
 
   /// Obtenir la visite API active actuelle
   ApiVisit? get activeApiVisit => _activeApiVisit;
+
+  /// Obtenir le client de la visite active
+  Client? get activeClient => _activeClient;
 
   /// Vérifier s'il y a une visite active (legacy or API)
   bool get hasActiveVisit => _activeVisit != null || _activeApiVisit != null;
@@ -52,7 +60,9 @@ class VisitService {
 
   /// Démarrer une nouvelle visite API
   /// Retourne true si la visite a été démarrée avec succès, false sinon
-  Future<bool> startApiVisit(ApiVisit visit) async {
+  /// [visit] - La visite API à démarrer
+  /// [client] - Le client associé à la visite (optionnel, pour navigation rapide)
+  Future<bool> startApiVisit(ApiVisit visit, {Client? client}) async {
     // Ne peut pas démarrer une nouvelle visite si une est déjà active
     if (_activeVisit != null || _activeApiVisit != null) {
       return false;
@@ -64,7 +74,11 @@ class VisitService {
     }
 
     _activeApiVisit = visit;
+    _activeClient = client;
     await _saveActiveApiVisit(visit);
+    if (client != null) {
+      await _saveActiveClient(client);
+    }
     return true;
   }
 
@@ -76,7 +90,9 @@ class VisitService {
   /// Terminer la visite API active
   Future<void> endApiVisit() async {
     _activeApiVisit = null;
+    _activeClient = null;
     await _clearActiveApiVisit();
+    await _clearActiveClient();
   }
 
   /// Mettre à jour la visite active (legacy)
@@ -140,11 +156,15 @@ class VisitService {
         // Verify the visit is still active
         if (!_activeApiVisit!.isActive) {
           await endApiVisit();
+        } else {
+          // Also load the client if available
+          await _loadActiveClient();
         }
       }
     } catch (e) {
       // If loading fails, clear the stored visit
       await _clearActiveApiVisit();
+      await _clearActiveClient();
     }
   }
 
@@ -168,11 +188,48 @@ class VisitService {
     }
   }
 
+  /// Save active client to persistent storage
+  Future<void> _saveActiveClient(Client client) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_activeClientKey, jsonEncode(client.toJson()));
+    } catch (e) {
+      // Silently fail - in-memory state is still valid
+    }
+  }
+
+  /// Load active client from persistent storage
+  Future<void> _loadActiveClient() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final clientJson = prefs.getString(_activeClientKey);
+      if (clientJson != null) {
+        final clientMap = jsonDecode(clientJson) as Map<String, dynamic>;
+        _activeClient = Client.fromJson(clientMap);
+      }
+    } catch (e) {
+      // If loading fails, clear stored client
+      await _clearActiveClient();
+    }
+  }
+
+  /// Clear active client from persistent storage
+  Future<void> _clearActiveClient() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_activeClientKey);
+    } catch (e) {
+      // Silently fail
+    }
+  }
+
   /// Réinitialiser le service (utile pour les tests et logout)
   Future<void> reset() async {
     _activeVisit = null;
     _activeApiVisit = null;
+    _activeClient = null;
     await _clearActiveApiVisit();
+    await _clearActiveClient();
   }
 
   /// Check if a specific client has an active visit

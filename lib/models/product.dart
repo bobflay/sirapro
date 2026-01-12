@@ -11,6 +11,12 @@ class Product {
   // Gestion des prix par segment client
   final Map<String, double>? priceBySegment; // Prix selon potentiel (A, B, C)
 
+  // Pack/Unit pricing support
+  final int? unitsPerPack; // Nombre d'unités par pack
+  final bool? canSellUnit; // Peut vendre à l'unité
+  final double? unitPrice; // Prix unitaire
+  final double? packPrice; // Prix du pack
+
   // Stock et disponibilité
   final bool isAvailable; // Disponible ou non
   final int? stockQuantity; // Quantité en stock (optionnel)
@@ -33,6 +39,10 @@ class Product {
     required this.basePrice,
     this.currency = 'FCFA',
     this.priceBySegment,
+    this.unitsPerPack,
+    this.canSellUnit,
+    this.unitPrice,
+    this.packPrice,
     this.isAvailable = true,
     this.stockQuantity,
     this.imageUrl,
@@ -73,6 +83,10 @@ class Product {
       'basePrice': basePrice,
       'currency': currency,
       'priceBySegment': priceBySegment,
+      'unitsPerPack': unitsPerPack,
+      'canSellUnit': canSellUnit,
+      'unitPrice': unitPrice,
+      'packPrice': packPrice,
       'isAvailable': isAvailable,
       'stockQuantity': stockQuantity,
       'imageUrl': imageUrl,
@@ -100,6 +114,10 @@ class Product {
               ),
             )
           : null,
+      unitsPerPack: json['unitsPerPack'] as int?,
+      canSellUnit: json['canSellUnit'] as bool?,
+      unitPrice: json['unitPrice'] != null ? (json['unitPrice'] as num).toDouble() : null,
+      packPrice: json['packPrice'] != null ? (json['packPrice'] as num).toDouble() : null,
       isAvailable: json['isAvailable'] as bool? ?? true,
       stockQuantity: json['stockQuantity'] as int?,
       imageUrl: json['imageUrl'] as String?,
@@ -120,6 +138,10 @@ class Product {
     double? basePrice,
     String? currency,
     Map<String, double>? priceBySegment,
+    int? unitsPerPack,
+    bool? canSellUnit,
+    double? unitPrice,
+    double? packPrice,
     bool? isAvailable,
     int? stockQuantity,
     String? imageUrl,
@@ -138,6 +160,10 @@ class Product {
       basePrice: basePrice ?? this.basePrice,
       currency: currency ?? this.currency,
       priceBySegment: priceBySegment ?? this.priceBySegment,
+      unitsPerPack: unitsPerPack ?? this.unitsPerPack,
+      canSellUnit: canSellUnit ?? this.canSellUnit,
+      unitPrice: unitPrice ?? this.unitPrice,
+      packPrice: packPrice ?? this.packPrice,
       isAvailable: isAvailable ?? this.isAvailable,
       stockQuantity: stockQuantity ?? this.stockQuantity,
       imageUrl: imageUrl ?? this.imageUrl,

@@ -66,6 +66,12 @@ class ApiProduct {
   final double? price;
   final DateTime? priceUpdatedAt;
   final bool isActive;
+
+  // Pack/Unit pricing support
+  final int? unitsPerPack;
+  final bool? canSellUnit;
+  final double? unitPrice;
+  final double? packPrice;
   final String? createdAt;
   final String? updatedAt;
   final ApiProductCategory? productCategory;
@@ -81,6 +87,10 @@ class ApiProduct {
     this.price,
     this.priceUpdatedAt,
     this.isActive = true,
+    this.unitsPerPack,
+    this.canSellUnit,
+    this.unitPrice,
+    this.packPrice,
     this.createdAt,
     this.updatedAt,
     this.productCategory,
@@ -111,6 +121,10 @@ class ApiProduct {
             ? DateTime.tryParse(json['price_updated_at'] as String)
             : null,
         isActive: json['is_active'] == true || json['is_active'] == 1,
+        unitsPerPack: json['units_per_pack'] != null ? _parseIntSafe(json['units_per_pack']) : null,
+        canSellUnit: json['can_sell_unit'] as bool?,
+        unitPrice: _parseDoubleSafe(json['unit_price']),
+        packPrice: _parseDoubleSafe(json['pack_price']),
         createdAt: json['created_at'] as String?,
         updatedAt: json['updated_at'] as String?,
         productCategory: productData['product_category'] != null && productData['product_category'] is Map<String, dynamic>
@@ -137,6 +151,10 @@ class ApiProduct {
           ? DateTime.tryParse(json['price_updated_at'] as String)
           : null,
       isActive: json['is_active'] == true || json['is_active'] == 1,
+      unitsPerPack: json['units_per_pack'] != null ? _parseIntSafe(json['units_per_pack']) : null,
+      canSellUnit: json['can_sell_unit'] as bool?,
+      unitPrice: _parseDoubleSafe(json['unit_price']),
+      packPrice: _parseDoubleSafe(json['pack_price']),
       createdAt: json['created_at'] as String?,
       updatedAt: json['updated_at'] as String?,
       productCategory: json['product_category'] != null && json['product_category'] is Map<String, dynamic>

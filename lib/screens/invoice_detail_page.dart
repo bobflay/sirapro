@@ -15,9 +15,14 @@ class InvoiceDetailPage extends StatefulWidget {
 class _InvoiceDetailPageState extends State<InvoiceDetailPage> {
   final InvoiceService _invoiceService = InvoiceService();
 
+  bool _isEditMode = false;
   bool _isSaving = false;
   String? _errorMessage;
   String? _successMessage;
+
+  // Search
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
 
   // Controllers for invoice header
   late final TextEditingController _supplierController;
@@ -99,6 +104,7 @@ class _InvoiceDetailPageState extends State<InvoiceDetailPage> {
     _netToPayController.dispose();
     _packagesCountController.dispose();
     _totalWeightController.dispose();
+    _searchController.dispose();
     for (final item in _itemControllers) {
       for (final c in item.values) {
         c.dispose();
@@ -127,6 +133,12 @@ class _InvoiceDetailPageState extends State<InvoiceDetailPage> {
       for (final c in item.values) {
         c.dispose();
       }
+    });
+  }
+
+  void _toggleEditMode() {
+    setState(() {
+      _isEditMode = !_isEditMode;
     });
   }
 
@@ -176,7 +188,8 @@ class _InvoiceDetailPageState extends State<InvoiceDetailPage> {
           _isSaving = false;
           _successMessage = response.message.isNotEmpty
               ? response.message
-              : 'Facture mise à jour avec succès';
+              : 'Bon de livraison mis à jour avec succès';
+          _isEditMode = false;
         });
 
         if (mounted) {
@@ -228,6 +241,548 @@ class _InvoiceDetailPageState extends State<InvoiceDetailPage> {
           photos: photos,
           initialIndex: initialIndex,
         ),
+      ),
+    );
+  }
+
+  String _formatAmount(double amount) {
+    return amount.toStringAsFixed(0).replaceAllMapped(
+          RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+          (Match m) => '${m[1]} ',
+        );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.grey[100],
+      appBar: AppBar(
+        title: Text(widget.invoice.invoiceNumber ?? 'Détail Bon de livraison'),
+        actions: [
+          if (_isEditMode)
+            IconButton(
+              icon: _isSaving
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    )
+                  : const Icon(Icons.save),
+              onPressed: _isSaving ? null : _saveInvoice,
+              tooltip: 'Enregistrer',
+            )
+          else
+            IconButton(
+              icon: const Icon(Icons.edit),
+              onPressed: _toggleEditMode,
+              tooltip: 'Modifier',
+            ),
+        ],
+      ),
+      body: _isEditMode ? _buildEditModeBody() : _buildViewModeBody(),
+    );
+  }
+
+  Widget _buildViewModeBody() {
+    final invoice = widget.invoice;
+    return Column(
+      children: [
+        // Header with invoice info
+        Container(
+          width: double.infinity,
+          margin: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [AppColors.primary, AppColors.primary.withValues(alpha: 0.8)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.primary.withValues(alpha: 0.3),
+                spreadRadius: 2,
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      invoice.documentType ?? 'Bon de livraison',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    invoice.invoiceDate ?? '',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.9),
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                invoice.supplier ?? 'Fournisseur inconnu',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Client: ${invoice.clientName ?? "Non spécifié"}',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.9),
+                  fontSize: 14,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  _buildInfoColumn('Articles', '${invoice.items.length}'),
+                  _buildInfoColumn('Colis', '${invoice.packagesCount}'),
+                  Column(
+                    children: [
+                      Text(
+                        _formatAmount(invoice.totalTtc),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const Text(
+                        'FCFA',
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+
+        // Items list
+        Expanded(
+          child: _buildSwipeableItemsList(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildInfoColumn(String label, String value) {
+    return Column(
+      children: [
+        Text(
+          value,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        Text(
+          label,
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.8),
+            fontSize: 12,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSwipeableItemsList() {
+    final allItems = widget.invoice.items;
+
+    if (allItems.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.inbox_outlined, size: 64, color: Colors.grey[400]),
+            const SizedBox(height: 16),
+            Text(
+              'Aucun article dans ce bon de livraison',
+              style: TextStyle(color: Colors.grey[600], fontSize: 16),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Filter items based on search query
+    final List<MapEntry<int, SavedInvoiceItem>> filteredItems = [];
+    for (int i = 0; i < allItems.length; i++) {
+      final item = allItems[i];
+      if (_searchQuery.isEmpty ||
+          (item.designation?.toLowerCase().contains(_searchQuery.toLowerCase()) ?? false) ||
+          (item.reference?.toLowerCase().contains(_searchQuery.toLowerCase()) ?? false)) {
+        filteredItems.add(MapEntry(i, item));
+      }
+    }
+
+    return Column(
+      children: [
+        // Search bar
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: TextField(
+            controller: _searchController,
+            onChanged: (value) {
+              setState(() {
+                _searchQuery = value;
+              });
+            },
+            decoration: InputDecoration(
+              hintText: 'Rechercher un article...',
+              hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
+              prefixIcon: Icon(Icons.search, color: Colors.grey[500], size: 22),
+              suffixIcon: _searchQuery.isNotEmpty
+                  ? IconButton(
+                      icon: Icon(Icons.clear, color: Colors.grey[500], size: 20),
+                      onPressed: () {
+                        setState(() {
+                          _searchController.clear();
+                          _searchQuery = '';
+                        });
+                      },
+                    )
+                  : null,
+              filled: true,
+              fillColor: Colors.white,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: Colors.grey[300]!),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: Colors.grey[300]!),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: AppColors.primary, width: 2),
+              ),
+            ),
+          ),
+        ),
+
+        // Articles count
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          child: Text(
+            '${filteredItems.length}/${allItems.length} articles',
+            style: TextStyle(color: Colors.grey[500], fontSize: 12),
+          ),
+        ),
+
+        // Items list
+        Expanded(
+          child: filteredItems.isEmpty
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.search_off, size: 48, color: Colors.grey[400]),
+                      const SizedBox(height: 12),
+                      Text(
+                        'Aucun article trouvé',
+                        style: TextStyle(color: Colors.grey[600], fontSize: 15),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Essayez un autre terme de recherche',
+                        style: TextStyle(color: Colors.grey[400], fontSize: 13),
+                      ),
+                    ],
+                  ),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  itemCount: filteredItems.length,
+                  itemBuilder: (context, filteredIndex) {
+                    final item = filteredItems[filteredIndex].value;
+
+                    return _buildItemCard(item);
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildItemCard(SavedInvoiceItem item) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey[200]!, width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withValues(alpha: 0.1),
+            spreadRadius: 1,
+            blurRadius: 5,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header row with reference
+            if (item.reference != null && item.reference!.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Text(
+                  'Réf: ${item.reference}',
+                  style: TextStyle(
+                    color: Colors.grey[600],
+                    fontSize: 12,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+
+            // Designation
+            Text(
+              item.designation ?? 'Sans désignation',
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+              ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 10),
+
+            // Bottom row with quantity and price
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[100],
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.inventory_2_outlined, size: 16, color: Colors.grey[600]),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Qté: ${item.quantity}',
+                        style: TextStyle(
+                          color: Colors.grey[700],
+                          fontWeight: FontWeight.w500,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Text(
+                  '${_formatAmount(item.totalTtc)} FCFA',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
+                    color: AppColors.primary,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ============ EDIT MODE WIDGETS ============
+
+  Widget _buildEditModeBody() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Header info card
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.edit, color: Colors.white, size: 24),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Mode édition',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 18,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                      Text(
+                        'Modifiez les champs puis enregistrez',
+                        style: TextStyle(
+                          color: Colors.grey[600],
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close, color: AppColors.primary),
+                  onPressed: _toggleEditMode,
+                  tooltip: 'Annuler',
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Photos section
+          if (widget.invoice.photos.isNotEmpty) ...[
+            _buildPhotosSection(),
+            const SizedBox(height: 16),
+          ],
+
+          // Error message
+          if (_errorMessage != null)
+            Container(
+              padding: const EdgeInsets.all(12),
+              margin: const EdgeInsets.only(bottom: 16),
+              decoration: BoxDecoration(
+                color: AppColors.error.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AppColors.error.withValues(alpha: 0.3)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.error_outline, color: AppColors.error),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      _errorMessage!,
+                      style: const TextStyle(color: AppColors.error),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+          // Invoice header info
+          _buildEditableSection(
+            'Informations Bon de livraison',
+            Icons.receipt,
+            [
+              _buildEditableField('Fournisseur', _supplierController),
+              _buildEditableField('Type', _documentTypeController),
+              _buildEditableField('N° BL', _invoiceNumberController),
+              _buildEditableField('Date', _dateController),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // Client info
+          _buildEditableSection(
+            'Client',
+            Icons.person,
+            [
+              _buildEditableField('Nom', _clientNameController),
+              _buildEditableField('Code', _clientCodeController),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // Items
+          _buildEditableItemsSection(),
+          const SizedBox(height: 16),
+
+          // Totals
+          _buildEditableTotalsSection(),
+          const SizedBox(height: 16),
+
+          // Logistics
+          _buildEditableSection(
+            'Logistique',
+            Icons.local_shipping,
+            [
+              _buildEditableField('Nombre de colis', _packagesCountController, isNumber: true),
+              _buildEditableField('Poids total (kg)', _totalWeightController, isNumber: true),
+            ],
+          ),
+          const SizedBox(height: 24),
+
+          // Save button
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _isSaving ? null : _saveInvoice,
+              icon: _isSaving
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    )
+                  : const Icon(Icons.save),
+              label: Text(_isSaving ? 'Enregistrement...' : 'Enregistrer les modifications'),
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                backgroundColor: AppColors.success,
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+        ],
       ),
     );
   }
@@ -360,190 +915,6 @@ class _InvoiceDetailPageState extends State<InvoiceDetailPage> {
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  String _formatAmount(double amount) {
-    return amount.toStringAsFixed(0).replaceAllMapped(
-          RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
-          (Match m) => '${m[1]} ',
-        );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.grey[100],
-      appBar: AppBar(
-        title: Text(widget.invoice.invoiceNumber ?? 'Détail Facture'),
-        actions: [
-          IconButton(
-            icon: _isSaving
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                    ),
-                  )
-                : const Icon(Icons.save),
-            onPressed: _isSaving ? null : _saveInvoice,
-            tooltip: 'Enregistrer',
-          ),
-        ],
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Header info card
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: AppColors.primary.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: AppColors.primary,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Icon(Icons.receipt_long, color: Colors.white, size: 24),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '${_formatAmount(widget.invoice.totalTtc)} FCFA',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 20,
-                            color: AppColors.primary,
-                          ),
-                        ),
-                        Text(
-                          'Modifiez les champs puis enregistrez',
-                          style: TextStyle(
-                            color: Colors.grey[600],
-                            fontSize: 13,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const Icon(Icons.edit, color: AppColors.primary, size: 20),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // Photos section
-            if (widget.invoice.photos.isNotEmpty) ...[
-              _buildPhotosSection(),
-              const SizedBox(height: 16),
-            ],
-
-            // Error message
-            if (_errorMessage != null)
-              Container(
-                padding: const EdgeInsets.all(12),
-                margin: const EdgeInsets.only(bottom: 16),
-                decoration: BoxDecoration(
-                  color: AppColors.error.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: AppColors.error.withValues(alpha: 0.3)),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.error_outline, color: AppColors.error),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        _errorMessage!,
-                        style: const TextStyle(color: AppColors.error),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-            // Invoice header info
-            _buildEditableSection(
-              'Informations Facture',
-              Icons.receipt,
-              [
-                _buildEditableField('Fournisseur', _supplierController),
-                _buildEditableField('Type', _documentTypeController),
-                _buildEditableField('N° Facture', _invoiceNumberController),
-                _buildEditableField('Date', _dateController),
-              ],
-            ),
-            const SizedBox(height: 16),
-
-            // Client info
-            _buildEditableSection(
-              'Client',
-              Icons.person,
-              [
-                _buildEditableField('Nom', _clientNameController),
-                _buildEditableField('Code', _clientCodeController),
-              ],
-            ),
-            const SizedBox(height: 16),
-
-            // Items
-            _buildEditableItemsSection(),
-            const SizedBox(height: 16),
-
-            // Totals
-            _buildEditableTotalsSection(),
-            const SizedBox(height: 16),
-
-            // Logistics
-            _buildEditableSection(
-              'Logistique',
-              Icons.local_shipping,
-              [
-                _buildEditableField('Nombre de colis', _packagesCountController, isNumber: true),
-                _buildEditableField('Poids total (kg)', _totalWeightController, isNumber: true),
-              ],
-            ),
-            const SizedBox(height: 24),
-
-            // Save button
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: _isSaving ? null : _saveInvoice,
-                icon: _isSaving
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                        ),
-                      )
-                    : const Icon(Icons.save),
-                label: Text(_isSaving ? 'Enregistrement...' : 'Enregistrer les modifications'),
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  backgroundColor: AppColors.success,
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-          ],
-        ),
       ),
     );
   }

@@ -110,12 +110,15 @@ class _SessionAwareAppBarState extends State<SessionAwareAppBar> {
 
   Future<void> _navigateToActiveClient() async {
     final clientId = _visitService.activeClientId;
-    if (clientId == null) return;
+    if (clientId == null) {
+      debugPrint('SessionAwareAppBar: No active client ID');
+      return;
+    }
 
     try {
       final client = await _clientService.getClient(clientId);
       if (mounted) {
-        Navigator.push(
+        await Navigator.push(
           context,
           MaterialPageRoute(
             builder: (context) => ClientDetailPage(client: client),
@@ -123,7 +126,15 @@ class _SessionAwareAppBarState extends State<SessionAwareAppBar> {
         );
       }
     } catch (e) {
-      // Silently fail if client cannot be loaded
+      debugPrint('SessionAwareAppBar: Error loading client: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Impossible de charger les détails du client'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -148,15 +159,15 @@ class _SessionAwareAppBarState extends State<SessionAwareAppBar> {
   Widget _buildActiveSessionAppBar(BuildContext context) {
     final clientName = _visitService.activeClientName ?? 'Client';
 
-    return AppBar(
-      backgroundColor: AppColors.success,
-      foregroundColor: Colors.white,
-      elevation: 0,
-      leading: widget.leading,
-      automaticallyImplyLeading: widget.automaticallyImplyLeading,
-      title: GestureDetector(
-        onTap: _navigateToActiveClient,
-        child: Row(
+    return GestureDetector(
+      onTap: _navigateToActiveClient,
+      child: AppBar(
+        backgroundColor: AppColors.success,
+        foregroundColor: Colors.white,
+        elevation: 0,
+        leading: widget.leading,
+        automaticallyImplyLeading: widget.automaticallyImplyLeading,
+        title: Row(
           children: [
             // Pulsing dot
             _buildPulsingDot(),
@@ -227,46 +238,46 @@ class _SessionAwareAppBarState extends State<SessionAwareAppBar> {
             ),
           ],
         ),
-      ),
-      actions: [
-        // Timer display
-        Container(
-          margin: const EdgeInsets.symmetric(vertical: 10),
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.15),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: Colors.white.withValues(alpha: 0.3),
-              width: 1,
+        actions: [
+          // Timer display
+          Container(
+            margin: const EdgeInsets.symmetric(vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.3),
+                width: 1,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.timer_outlined,
+                  color: Colors.white.withValues(alpha: 0.9),
+                  size: 14,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  _formatDuration(_elapsed),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    fontFamily: 'monospace',
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ],
             ),
           ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.timer_outlined,
-                color: Colors.white.withValues(alpha: 0.9),
-                size: 14,
-              ),
-              const SizedBox(width: 4),
-              Text(
-                _formatDuration(_elapsed),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  fontFamily: 'monospace',
-                  letterSpacing: 0.5,
-                ),
-              ),
-            ],
-          ),
-        ),
-        // Include original actions
-        if (widget.actions != null) ...widget.actions!,
-      ],
-      bottom: widget.bottom,
+          // Include original actions
+          if (widget.actions != null) ...widget.actions!,
+        ],
+        bottom: widget.bottom,
+      ),
     );
   }
 

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:sirapro/models/visit.dart';
-import 'package:sirapro/models/visit_report.dart';
-import 'package:sirapro/screens/visit_detail_page.dart';
+import 'package:sirapro/models/api_visit.dart';
+import 'package:sirapro/screens/api_visit_detail_page.dart';
+import 'package:sirapro/services/visit_api_service.dart';
 import 'package:sirapro/widgets/session_aware_app_bar.dart';
 import 'package:intl/intl.dart';
 
@@ -13,17 +13,19 @@ class VisitsPage extends StatefulWidget {
 }
 
 class _VisitsPageState extends State<VisitsPage> {
-  late List<Visit> _visits;
-  late List<Visit> _filteredVisits;
+  final VisitApiService _visitApiService = VisitApiService();
+  List<ApiVisit> _visits = [];
+  List<ApiVisit> _filteredVisits = [];
   final TextEditingController _searchController = TextEditingController();
   String _selectedStatusFilter = 'Tous';
+  bool _isLoading = true;
+  String? _errorMessage;
 
   @override
   void initState() {
     super.initState();
-    _visits = _getMockVisits();
-    _filteredVisits = _visits;
     _searchController.addListener(_filterVisits);
+    _loadVisits();
   }
 
   @override
@@ -32,236 +34,107 @@ class _VisitsPageState extends State<VisitsPage> {
     super.dispose();
   }
 
+  Future<void> _loadVisits() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final response = await _visitApiService.getVisits();
+      setState(() {
+        _visits = response.data;
+        _filteredVisits = _visits;
+        _isLoading = false;
+      });
+      _filterVisits();
+    } on VisitApiException catch (e) {
+      setState(() {
+        _errorMessage = e.message;
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Une erreur inattendue s\'est produite';
+        _isLoading = false;
+      });
+    }
+  }
+
   void _filterVisits() {
     setState(() {
       _filteredVisits = _visits.where((visit) {
         // Search filter
         final searchLower = _searchController.text.toLowerCase();
+        final clientName = visit.client?.name ?? '';
+        final clientCity = visit.client?.city ?? '';
         final matchesSearch = searchLower.isEmpty ||
-            visit.clientName.toLowerCase().contains(searchLower) ||
-            visit.clientAddress.toLowerCase().contains(searchLower);
+            clientName.toLowerCase().contains(searchLower) ||
+            clientCity.toLowerCase().contains(searchLower);
 
         // Status filter
         final matchesStatus = _selectedStatusFilter == 'Tous' ||
-            visit.status.label == _selectedStatusFilter;
+            _getStatusLabel(visit.status) == _selectedStatusFilter;
 
         return matchesSearch && matchesStatus;
       }).toList();
     });
   }
 
-  List<Visit> _getMockVisits() {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-
-    return [
-      // Completed visit with full report
-      Visit(
-        id: 'V001',
-        routeId: 'R001',
-        clientId: '1',
-        clientName: 'Supermarché Bonheur',
-        clientAddress: 'Rue du Commerce, Cocody Riviera, Abidjan',
-        order: 1,
-        latitude: 5.3599,
-        longitude: -4.0082,
-        scheduledTime: today.add(const Duration(hours: 9)),
-        estimatedArrival: today.add(const Duration(hours: 9)),
-        actualStartTime: today.add(const Duration(hours: 9, minutes: 5)),
-        actualEndTime: today.add(const Duration(hours: 9, minutes: 45)),
-        status: VisitStatus.completed,
-        report: VisitReport(
-          id: 'VR001',
-          visitId: 'V001',
-          clientId: '1',
-          clientName: 'Supermarché Bonheur',
-          startTime: today.add(const Duration(hours: 9, minutes: 5)),
-          endTime: today.add(const Duration(hours: 9, minutes: 45)),
-          validationLatitude: 5.3599,
-          validationLongitude: -4.0082,
-          validationTime: today.add(const Duration(hours: 9, minutes: 45)),
-          shelfPhoto: GeotaggedPhoto(
-            path: '/mock/photo2.jpg',
-            timestamp: today.add(const Duration(hours: 9, minutes: 15)),
-            latitude: 5.3599,
-            longitude: -4.0082,
-          ),
-          gerantPresent: true,
-          orderPlaced: true,
-          orderAmount: 150000,
-          orderReference: 'CMD-2025-001',
-          comments: 'Excellent accueil, commande importante passée',
-          status: VisitReportStatus.validated,
-          createdAt: today.add(const Duration(hours: 9, minutes: 5)),
-          updatedAt: today.add(const Duration(hours: 9, minutes: 45)),
-        ),
-        createdAt: today.subtract(const Duration(days: 1)),
-        updatedAt: today.add(const Duration(hours: 9, minutes: 45)),
-      ),
-
-      // In progress visit
-      Visit(
-        id: 'V002',
-        routeId: 'R001',
-        clientId: '3',
-        clientName: 'Demi-Gros Akissi',
-        clientAddress: 'Avenue Houphouët-Boigny, Plateau, Abidjan',
-        order: 2,
-        latitude: 5.3267,
-        longitude: -4.0305,
-        scheduledTime: today.add(const Duration(hours: 11)),
-        estimatedArrival: today.add(const Duration(hours: 11)),
-        actualStartTime: today.add(const Duration(hours: 11, minutes: 10)),
-        status: VisitStatus.inProgress,
-        createdAt: today.subtract(const Duration(days: 1)),
-        updatedAt: today.add(const Duration(hours: 11, minutes: 10)),
-      ),
-
-      // Planned visit
-      Visit(
-        id: 'V003',
-        routeId: 'R001',
-        clientId: '2',
-        clientName: 'Alimentation Chez Adjoua',
-        clientAddress: 'Boulevard de la Paix, Yopougon Siporex, Abidjan',
-        order: 3,
-        latitude: 5.3364,
-        longitude: -4.0742,
-        scheduledTime: today.add(const Duration(hours: 14)),
-        estimatedArrival: today.add(const Duration(hours: 14)),
-        status: VisitStatus.planned,
-        createdAt: today.subtract(const Duration(days: 1)),
-      ),
-
-      // Completed visit from yesterday
-      Visit(
-        id: 'V004',
-        routeId: 'R002',
-        clientId: '6',
-        clientName: 'Cash & Carry Diallo',
-        clientAddress: 'Zone Industrielle, Treichville, Abidjan',
-        order: 1,
-        latitude: 5.2832,
-        longitude: -4.0180,
-        scheduledTime: today.subtract(const Duration(days: 1, hours: -10)),
-        estimatedArrival: today.subtract(const Duration(days: 1, hours: -10)),
-        actualStartTime: today.subtract(const Duration(days: 1, hours: -10, minutes: -5)),
-        actualEndTime: today.subtract(const Duration(days: 1, hours: -10, minutes: 30)),
-        status: VisitStatus.completed,
-        report: VisitReport(
-          id: 'VR004',
-          visitId: 'V004',
-          clientId: '6',
-          clientName: 'Cash & Carry Diallo',
-          startTime: today.subtract(const Duration(days: 1, hours: -10, minutes: -5)),
-          endTime: today.subtract(const Duration(days: 1, hours: -10, minutes: 30)),
-          validationLatitude: 5.2832,
-          validationLongitude: -4.0180,
-          validationTime: today.subtract(const Duration(days: 1, hours: -10, minutes: 30)),
-          shelfPhoto: GeotaggedPhoto(
-            path: '/mock/photo8.jpg',
-            timestamp: today.subtract(const Duration(days: 1, hours: -10)),
-            latitude: 5.2832,
-            longitude: -4.0180,
-          ),
-          gerantPresent: true,
-          orderPlaced: true,
-          orderAmount: 280000,
-          orderReference: 'CMD-2025-002',
-          stockShortages: 'Rupture sur savon liquide',
-          comments: 'Grosse commande, client satisfait',
-          status: VisitReportStatus.validated,
-          createdAt: today.subtract(const Duration(days: 1, hours: -10, minutes: -5)),
-          updatedAt: today.subtract(const Duration(days: 1, hours: -10, minutes: 30)),
-        ),
-        createdAt: today.subtract(const Duration(days: 2)),
-        updatedAt: today.subtract(const Duration(days: 1, hours: -10, minutes: 30)),
-      ),
-
-      // Incomplete visit (no report validated)
-      Visit(
-        id: 'V005',
-        routeId: 'R002',
-        clientId: '4',
-        clientName: 'Épicerie du Marché',
-        clientAddress: 'Près du Grand Marché, Adjamé, Abidjan',
-        order: 2,
-        latitude: 5.3515,
-        longitude: -4.0228,
-        scheduledTime: today.subtract(const Duration(days: 1, hours: -13)),
-        estimatedArrival: today.subtract(const Duration(days: 1, hours: -13)),
-        actualStartTime: today.subtract(const Duration(days: 1, hours: -13, minutes: -15)),
-        actualEndTime: today.subtract(const Duration(days: 1, hours: -13, minutes: 10)),
-        status: VisitStatus.incomplete,
-        report: VisitReport(
-          id: 'VR005',
-          visitId: 'V005',
-          clientId: '4',
-          clientName: 'Épicerie du Marché',
-          startTime: today.subtract(const Duration(days: 1, hours: -13, minutes: -15)),
-          endTime: today.subtract(const Duration(days: 1, hours: -13, minutes: 10)),
-          gerantPresent: false,
-          orderPlaced: false,
-          comments: 'Gérant absent, pas de commande',
-          status: VisitReportStatus.incomplete,
-          createdAt: today.subtract(const Duration(days: 1, hours: -13, minutes: -15)),
-        ),
-        notes: 'Rapport incomplet - photo de rayon manquante',
-        createdAt: today.subtract(const Duration(days: 2)),
-        updatedAt: today.subtract(const Duration(days: 1, hours: -13, minutes: 10)),
-      ),
-
-      // Skipped visit
-      Visit(
-        id: 'V006',
-        routeId: 'R002',
-        clientId: '5',
-        clientName: 'Mini Market Traoré',
-        clientAddress: 'Rue des Jardins, Marcory Zone 4, Abidjan',
-        order: 3,
-        latitude: 5.2789,
-        longitude: -3.9884,
-        scheduledTime: today.subtract(const Duration(days: 1, hours: -15)),
-        estimatedArrival: today.subtract(const Duration(days: 1, hours: -15)),
-        status: VisitStatus.skipped,
-        notes: 'Boutique fermée - jour férié',
-        createdAt: today.subtract(const Duration(days: 2)),
-        updatedAt: today.subtract(const Duration(days: 1, hours: -15)),
-      ),
-
-      // Planned visit for later today
-      Visit(
-        id: 'V007',
-        routeId: 'R001',
-        clientId: '4',
-        clientName: 'Épicerie du Marché',
-        clientAddress: 'Près du Grand Marché, Adjamé, Abidjan',
-        order: 4,
-        latitude: 5.3515,
-        longitude: -4.0228,
-        scheduledTime: today.add(const Duration(hours: 16)),
-        estimatedArrival: today.add(const Duration(hours: 16)),
-        status: VisitStatus.planned,
-        createdAt: today.subtract(const Duration(days: 1)),
-      ),
-    ];
+  String _getStatusLabel(String status) {
+    switch (status) {
+      case 'started':
+        return 'En cours';
+      case 'completed':
+        return 'Complété';
+      case 'aborted':
+        return 'Annulé';
+      default:
+        return status;
+    }
   }
 
-  Color _getStatusColor(VisitStatus status) {
-    final colorHex = status.colorHex;
-    return Color(int.parse(colorHex.substring(1), radix: 16) + 0xFF000000);
+  Color _getStatusColor(String status) {
+    switch (status) {
+      case 'started':
+        return Colors.orange;
+      case 'completed':
+        return Colors.green;
+      case 'aborted':
+        return Colors.red;
+      default:
+        return Colors.grey;
+    }
   }
 
   String _formatTime(DateTime? dateTime) {
     if (dateTime == null) return '--:--';
-    return DateFormat('HH:mm').format(dateTime);
+    return DateFormat('HH:mm').format(dateTime.toLocal());
   }
 
   String _formatDate(DateTime dateTime) {
-    return DateFormat('dd/MM/yyyy').format(dateTime);
+    return DateFormat('dd/MM/yyyy').format(dateTime.toLocal());
   }
 
-  Widget _buildVisitCard(Visit visit) {
+  String _formatDuration(int? seconds) {
+    if (seconds == null) return '--';
+    final duration = Duration(seconds: seconds);
+    final hours = duration.inHours;
+    final minutes = duration.inMinutes.remainder(60);
+    if (hours > 0) {
+      return '${hours}h ${minutes}min';
+    }
+    return '$minutes min';
+  }
+
+  double _calculateTotalOrderAmount(List<ApiVisitOrder> orders) {
+    return orders.fold(0.0, (sum, order) => sum + order.totalAmount);
+  }
+
+  Widget _buildVisitCard(ApiVisit visit) {
+    final totalOrderAmount = _calculateTotalOrderAmount(visit.orders);
+    final hasOrders = visit.orders.isNotEmpty;
+
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       elevation: 2,
@@ -273,7 +146,7 @@ class _VisitsPageState extends State<VisitsPage> {
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (context) => VisitDetailPage(visit: visit),
+              builder: (context) => ApiVisitDetailPage(visit: visit),
             ),
           );
         },
@@ -291,7 +164,7 @@ class _VisitsPageState extends State<VisitsPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          visit.clientName,
+                          visit.client?.name ?? 'Client inconnu',
                           style: const TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
@@ -299,23 +172,50 @@ class _VisitsPageState extends State<VisitsPage> {
                           ),
                         ),
                         const SizedBox(height: 4),
-                        Text(
-                          visit.clientAddress,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey[600],
-                          ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
+                        Row(
+                          children: [
+                            if (visit.client?.type != null) ...[
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: Colors.blue.withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  visit.client!.type!,
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: Colors.blue[700],
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                            ],
+                            if (visit.client?.city != null)
+                              Expanded(
+                                child: Text(
+                                  visit.client!.city!,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey[600],
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                          ],
                         ),
                       ],
                     ),
                   ),
                   const SizedBox(width: 8),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
-                      color: _getStatusColor(visit.status).withValues(alpha: 0.15),
+                      color:
+                          _getStatusColor(visit.status).withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(
                         color: _getStatusColor(visit.status),
@@ -323,7 +223,7 @@ class _VisitsPageState extends State<VisitsPage> {
                       ),
                     ),
                     child: Text(
-                      visit.status.label,
+                      _getStatusLabel(visit.status),
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.bold,
@@ -342,10 +242,12 @@ class _VisitsPageState extends State<VisitsPage> {
                   Expanded(
                     child: Row(
                       children: [
-                        Icon(Icons.calendar_today, size: 16, color: Colors.grey[600]),
+                        Icon(Icons.calendar_today,
+                            size: 16, color: Colors.grey[600]),
                         const SizedBox(width: 8),
                         Text(
-                          _formatDate(visit.scheduledTime ?? visit.createdAt),
+                          _formatDate(
+                              visit.startedAt ?? visit.createdAt ?? DateTime.now()),
                           style: TextStyle(
                             fontSize: 13,
                             color: Colors.grey[700],
@@ -359,7 +261,7 @@ class _VisitsPageState extends State<VisitsPage> {
                       Icon(Icons.access_time, size: 16, color: Colors.grey[600]),
                       const SizedBox(width: 8),
                       Text(
-                        _formatTime(visit.scheduledTime),
+                        _formatTime(visit.startedAt),
                         style: TextStyle(
                           fontSize: 13,
                           color: Colors.grey[700],
@@ -370,14 +272,31 @@ class _VisitsPageState extends State<VisitsPage> {
                 ],
               ),
               // Show duration for completed visits
-              if (visit.actualDuration != null) ...[
+              if (visit.durationSeconds != null) ...[
                 const SizedBox(height: 8),
                 Row(
                   children: [
                     Icon(Icons.timer, size: 16, color: Colors.grey[600]),
                     const SizedBox(width: 8),
                     Text(
-                      'Durée: ${visit.actualDuration!.inMinutes} min',
+                      'Durée: ${_formatDuration(visit.durationSeconds)}',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.grey[700],
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+              // Show user info
+              if (visit.user != null) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Icon(Icons.person, size: 16, color: Colors.grey[600]),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Par: ${visit.user!.name}',
                       style: TextStyle(
                         fontSize: 13,
                         color: Colors.grey[700],
@@ -387,14 +306,14 @@ class _VisitsPageState extends State<VisitsPage> {
                 ),
               ],
               // Show order info if available
-              if (visit.report?.orderPlaced == true) ...[
+              if (hasOrders) ...[
                 const SizedBox(height: 8),
                 Row(
                   children: [
                     const Icon(Icons.shopping_cart, size: 16, color: Colors.green),
                     const SizedBox(width: 8),
                     Text(
-                      'Commande: ${visit.report!.orderAmount != null ? "${NumberFormat('#,###').format(visit.report!.orderAmount)} FCFA" : "N/A"}',
+                      '${visit.orders.length} commande${visit.orders.length > 1 ? 's' : ''}: ${NumberFormat('#,###').format(totalOrderAmount)} FCFA',
                       style: const TextStyle(
                         fontSize: 13,
                         color: Colors.green,
@@ -404,8 +323,62 @@ class _VisitsPageState extends State<VisitsPage> {
                   ],
                 ),
               ],
-              // Show notes if any
-              if (visit.notes != null && visit.notes!.isNotEmpty) ...[
+              // Show report info if available
+              if (visit.report != null) ...[
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: visit.report!.isValidated
+                        ? Colors.green.withValues(alpha: 0.1)
+                        : Colors.orange.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        visit.report!.isValidated
+                            ? Icons.check_circle
+                            : Icons.pending,
+                        size: 16,
+                        color: visit.report!.isValidated
+                            ? Colors.green
+                            : Colors.orange,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        visit.report!.isValidated
+                            ? 'Rapport validé'
+                            : 'Rapport en attente',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: visit.report!.isValidated
+                              ? Colors.green
+                              : Colors.orange,
+                        ),
+                      ),
+                      if (visit.report!.photos.isNotEmpty) ...[
+                        const SizedBox(width: 8),
+                        Icon(
+                          Icons.photo_camera,
+                          size: 14,
+                          color: Colors.grey[600],
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '${visit.report!.photos.length}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+              // Show termination distance warning if applicable
+              if (visit.terminatedOutsideRange == true) ...[
                 const SizedBox(height: 8),
                 Container(
                   padding: const EdgeInsets.all(8),
@@ -416,11 +389,12 @@ class _VisitsPageState extends State<VisitsPage> {
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Icon(Icons.info_outline, size: 16, color: Colors.orange),
+                      const Icon(Icons.warning_amber,
+                          size: 16, color: Colors.orange),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          visit.notes!,
+                          'Terminé à ${visit.terminationDistance?.toStringAsFixed(0) ?? '?'} m du client',
                           style: const TextStyle(
                             fontSize: 12,
                             color: Colors.orange,
@@ -445,126 +419,168 @@ class _VisitsPageState extends State<VisitsPage> {
       appBar: const SessionAwareAppBar(
         title: 'Visites',
       ),
-      body: Column(
-        children: [
-          // Stats Section
-          Container(
-            padding: const EdgeInsets.all(16),
-            color: Colors.white,
-            child: Row(
-              children: [
-                Expanded(
-                  child: _buildStatCard(
-                    'Total',
-                    _visits.length.toString(),
-                    Colors.blue,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _buildStatCard(
-                    'Complété',
-                    _visits.where((v) => v.status == VisitStatus.completed).length.toString(),
-                    Colors.green,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _buildStatCard(
-                    'En cours',
-                    _visits.where((v) => v.status == VisitStatus.inProgress).length.toString(),
-                    Colors.orange,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _buildStatCard(
-                    'Planifié',
-                    _visits.where((v) => v.status == VisitStatus.planned).length.toString(),
-                    Colors.grey,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 8),
-          // Search and Filter Section
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Column(
-              children: [
-                // Search Bar
-                TextField(
-                  controller: _searchController,
-                  decoration: InputDecoration(
-                    hintText: 'Rechercher un client...',
-                    prefixIcon: const Icon(Icons.search),
-                    suffixIcon: _searchController.text.isNotEmpty
-                        ? IconButton(
-                            icon: const Icon(Icons.clear),
-                            onPressed: () {
-                              _searchController.clear();
-                            },
-                          )
-                        : null,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none,
+      body: RefreshIndicator(
+        onRefresh: _loadVisits,
+        child: Column(
+          children: [
+            // Stats Section
+            Container(
+              padding: const EdgeInsets.all(16),
+              color: Colors.white,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _buildStatCard(
+                      'Total',
+                      _visits.length.toString(),
+                      Colors.blue,
                     ),
-                    filled: true,
-                    fillColor: Colors.white,
                   ),
-                ),
-                const SizedBox(height: 8),
-                // Status Filter
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
-                      _buildFilterChip('Tous'),
-                      _buildFilterChip('Planifié'),
-                      _buildFilterChip('En cours'),
-                      _buildFilterChip('Complété'),
-                      _buildFilterChip('Incomplète'),
-                      _buildFilterChip('Sautée'),
-                    ],
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _buildStatCard(
+                      'Complété',
+                      _visits
+                          .where((v) => v.status == 'completed')
+                          .length
+                          .toString(),
+                      Colors.green,
+                    ),
                   ),
-                ),
-              ],
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _buildStatCard(
+                      'En cours',
+                      _visits
+                          .where((v) => v.status == 'started')
+                          .length
+                          .toString(),
+                      Colors.orange,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _buildStatCard(
+                      'Annulé',
+                      _visits
+                          .where((v) => v.status == 'aborted')
+                          .length
+                          .toString(),
+                      Colors.red,
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-          const SizedBox(height: 8),
-          // Visits List
-          Expanded(
-            child: _filteredVisits.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
+            const SizedBox(height: 8),
+            // Search and Filter Section
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Column(
+                children: [
+                  // Search Bar
+                  TextField(
+                    controller: _searchController,
+                    decoration: InputDecoration(
+                      hintText: 'Rechercher un client...',
+                      prefixIcon: const Icon(Icons.search),
+                      suffixIcon: _searchController.text.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(Icons.clear),
+                              onPressed: () {
+                                _searchController.clear();
+                              },
+                            )
+                          : null,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide.none,
+                      ),
+                      filled: true,
+                      fillColor: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  // Status Filter
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
                       children: [
-                        Icon(
-                          Icons.search_off,
-                          size: 64,
-                          color: Colors.grey[400],
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          'Aucune visite trouvée',
-                          style: TextStyle(
-                            fontSize: 18,
-                            color: Colors.grey[600],
-                          ),
-                        ),
+                        _buildFilterChip('Tous'),
+                        _buildFilterChip('En cours'),
+                        _buildFilterChip('Complété'),
+                        _buildFilterChip('Annulé'),
                       ],
                     ),
-                  )
-                : ListView.builder(
-                    itemCount: _filteredVisits.length,
-                    itemBuilder: (context, index) {
-                      return _buildVisitCard(_filteredVisits[index]);
-                    },
                   ),
-          ),
-        ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            // Content
+            Expanded(
+              child: _isLoading
+                  ? const Center(
+                      child: CircularProgressIndicator(),
+                    )
+                  : _errorMessage != null
+                      ? Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.error_outline,
+                                size: 64,
+                                color: Colors.red[300],
+                              ),
+                              const SizedBox(height: 16),
+                              Text(
+                                _errorMessage!,
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  color: Colors.grey[600],
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                              const SizedBox(height: 16),
+                              ElevatedButton.icon(
+                                onPressed: _loadVisits,
+                                icon: const Icon(Icons.refresh),
+                                label: const Text('Réessayer'),
+                              ),
+                            ],
+                          ),
+                        )
+                      : _filteredVisits.isEmpty
+                          ? Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.search_off,
+                                    size: 64,
+                                    color: Colors.grey[400],
+                                  ),
+                                  const SizedBox(height: 16),
+                                  Text(
+                                    'Aucune visite trouvée',
+                                    style: TextStyle(
+                                      fontSize: 18,
+                                      color: Colors.grey[600],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : ListView.builder(
+                              itemCount: _filteredVisits.length,
+                              itemBuilder: (context, index) {
+                                return _buildVisitCard(_filteredVisits[index]);
+                              },
+                            ),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -1,19 +1,19 @@
 import 'package:flutter/material.dart';
-import '../models/route.dart' as models;
-import '../models/visit.dart';
-import '../models/visit_report.dart';
+import '../models/api_routing.dart';
+import '../models/client.dart';
+import '../services/routing_api_service.dart';
 import '../services/visit_service.dart';
-import '../services/visit_api_service.dart';
 import '../widgets/session_aware_app_bar.dart';
-import 'visit_report_page.dart';
+import 'client_detail_page.dart';
 
 /// Page de détail d'une tournée avec gestion complète des visites et rapports
+/// Utilise l'API GET /api/routing/my pour récupérer les données
 class TourneeDetailPageNew extends StatefulWidget {
-  final models.Route? route; // Optionnel pour afficher des données mock
+  final String? date; // Date au format YYYY-MM-DD, null pour aujourd'hui
 
   const TourneeDetailPageNew({
     super.key,
-    this.route,
+    this.date,
   });
 
   @override
@@ -21,333 +21,141 @@ class TourneeDetailPageNew extends StatefulWidget {
 }
 
 class _TourneeDetailPageNewState extends State<TourneeDetailPageNew> {
-  late models.Route _currentRoute;
+  final RoutingApiService _routingApiService = RoutingApiService();
+  final VisitService _visitService = VisitService();
+
+  bool _isLoading = true;
+  String? _errorMessage;
+  ApiRoutingResponse? _routingResponse;
 
   @override
   void initState() {
     super.initState();
-    // Utiliser la route fournie ou créer une route mock
-    _currentRoute = widget.route ?? _createMockRoute();
+    _loadRouting();
   }
 
-  // Créer une route mock pour démonstration
-  models.Route _createMockRoute() {
-    final now = DateTime.now();
-    return models.Route(
-      id: 'route-1',
-      name: 'Tournée du Jour',
-      commercialId: 'user-1',
-      commercialName: 'Jean Dupont',
-      date: now,
-      status: models.RouteStatus.inProgress,
-      visits: [
-        Visit(
-          id: 'visit-1',
-          routeId: 'route-1',
-          clientId: 'client-1',
-          clientName: 'Supermarché Central',
-          clientAddress: '123 Rue de la République',
-          order: 1,
-          latitude: 5.3600,
-          longitude: -4.0083,
-          status: VisitStatus.completed,
-          actualStartTime: now.subtract(const Duration(hours: 2)),
-          actualEndTime: now.subtract(const Duration(hours: 1, minutes: 30)),
-          createdAt: now.subtract(const Duration(days: 1)),
-          report: VisitReport(
-            id: 'report-1',
-            visitId: 'visit-1',
-            clientId: 'client-1',
-            clientName: 'Supermarché Central',
-            startTime: now.subtract(const Duration(hours: 2)),
-            endTime: now.subtract(const Duration(hours: 1, minutes: 30)),
-            validationLatitude: 5.3600,
-            validationLongitude: -4.0083,
-            validationTime: now.subtract(const Duration(hours: 1, minutes: 30)),
-            gerantPresent: true,
-            orderPlaced: true,
-            orderAmount: 150000,
-            status: VisitReportStatus.validated,
-            createdAt: now.subtract(const Duration(hours: 2)),
-            updatedAt: now.subtract(const Duration(hours: 1, minutes: 30)),
-          ),
-        ),
-        Visit(
-          id: 'visit-2',
-          routeId: 'route-1',
-          clientId: 'client-2',
-          clientName: 'Épicerie du Coin',
-          clientAddress: '45 Avenue des Fleurs',
-          order: 2,
-          latitude: 5.3400,
-          longitude: -4.0200,
-          status: VisitStatus.inProgress,
-          actualStartTime: now.subtract(const Duration(minutes: 15)),
-          createdAt: now.subtract(const Duration(days: 1)),
-        ),
-        Visit(
-          id: 'visit-3',
-          routeId: 'route-1',
-          clientId: 'client-3',
-          clientName: 'Marché Bio',
-          clientAddress: '78 Boulevard Victor Hugo',
-          order: 3,
-          latitude: 5.3500,
-          longitude: -4.0100,
-          status: VisitStatus.planned,
-          createdAt: now.subtract(const Duration(days: 1)),
-        ),
-        Visit(
-          id: 'visit-4',
-          routeId: 'route-1',
-          clientId: 'client-4',
-          clientName: 'Alimentation Générale',
-          clientAddress: '12 Place du Marché',
-          order: 4,
-          latitude: 5.3300,
-          longitude: -4.0300,
-          status: VisitStatus.planned,
-          createdAt: now.subtract(const Duration(days: 1)),
-        ),
-      ],
-      createdAt: now.subtract(const Duration(days: 1)),
-    );
-  }
+  Future<void> _loadRouting() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
 
-  Future<void> _startVisit(Visit visit) async {
-    if (visit.status != VisitStatus.planned) return;
-
-    final visitService = VisitService();
-
-    // Vérifier s'il y a déjà une visite active
-    if (visitService.hasActiveVisit) {
-      showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Row(
-            children: [
-              Icon(Icons.warning, color: Colors.orange),
-              SizedBox(width: 8),
-              Text('Visite déjà en cours'),
-            ],
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Vous avez déjà une visite active en cours.',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 12),
-              Text('Client: ${visitService.activeClientName}'),
-              const SizedBox(height: 8),
-              const Text(
-                'Veuillez terminer la visite en cours avant d\'en commencer une nouvelle.',
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('OK'),
-            ),
-          ],
-        ),
-      );
-      return;
-    }
-
-    final updatedVisit = visit.copyWith(
-      status: VisitStatus.inProgress,
-      actualStartTime: DateTime.now(),
-    );
-
-    // Enregistrer la visite comme active
-    if (!visitService.startVisit(updatedVisit)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Impossible de démarrer la visite'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
-    }
-
-    _updateVisit(updatedVisit);
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Visite "${visit.clientName}" démarrée'),
-        backgroundColor: Colors.blue,
-      ),
-    );
-  }
-
-  Future<void> _openVisitReport(Visit visit) async {
-    // Démarrer automatiquement la visite si elle n'est pas encore commencée
-    if (visit.status == VisitStatus.planned) {
-      await _startVisit(visit);
-      // Récupérer la visite mise à jour
-      visit = _currentRoute.visits.firstWhere((v) => v.id == visit.id);
-    }
-
-    if (!mounted) return;
-
-    // Check for active API visit to get the API visit ID
-    int? apiVisitId;
     try {
-      final visitApiService = VisitApiService();
-      final activeVisit = await visitApiService.getActiveVisit();
-      if (activeVisit != null) {
-        apiVisitId = activeVisit.id;
+      final response = widget.date != null
+          ? await _routingApiService.getMyRouting(date: widget.date)
+          : await _routingApiService.getTodayRouting();
+
+      if (mounted) {
+        setState(() {
+          _routingResponse = response;
+          _isLoading = false;
+        });
+      }
+    } on RoutingApiException catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = e.message;
+          _isLoading = false;
+        });
       }
     } catch (e) {
-      // No active API visit or error fetching - continue without API ID
-      debugPrint('No active API visit: $e');
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'Une erreur inattendue s\'est produite';
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _startVisitForClient(ApiRoutingItem item) async {
+    // Check if there's already an active visit
+    if (_visitService.hasActiveApiVisit) {
+      _showActiveVisitDialog();
+      return;
     }
 
+    // Navigate to client detail page to start the visit
     if (!mounted) return;
 
-    // Ouvrir le formulaire de rapport
-    final VisitReport? report = await Navigator.push<VisitReport>(
+    final client = _convertToClient(item.client);
+    final result = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
-        builder: (context) => VisitReportPage(
-          visit: visit,
-          existingReport: visit.report,
-          apiVisitId: apiVisitId,
+        builder: (context) => ClientDetailPage(
+          client: client,
         ),
       ),
     );
 
-    if (report != null && mounted) {
-      // Mise à jour de la visite avec le rapport validé
-      final updatedVisit = visit.copyWith(
-        status: VisitStatus.completed,
-        report: report,
-        actualEndTime: report.endTime,
-      );
-
-      _updateVisit(updatedVisit);
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Rapport de visite validé avec succès'),
-          backgroundColor: Colors.green,
-        ),
-      );
+    // Reload routing data if a visit was completed
+    if (result == true && mounted) {
+      await _loadRouting();
     }
   }
 
-  void _updateVisit(Visit updatedVisit) {
-    // Si la visite n'est plus en cours, la terminer dans le service
-    if (updatedVisit.status != VisitStatus.inProgress) {
-      final visitService = VisitService();
-      visitService.endVisit();
-    }
-
-    setState(() {
-      final visits = _currentRoute.visits.map((v) {
-        return v.id == updatedVisit.id ? updatedVisit : v;
-      }).toList();
-
-      _currentRoute = _currentRoute.copyWith(
-        visits: visits,
-        updatedAt: DateTime.now(),
-      );
-    });
-  }
-
-  Future<void> _showVisitActions(Visit visit) async {
-    final result = await showModalBottomSheet<String>(
-      context: context,
-      builder: (context) {
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: const Icon(Icons.play_arrow, color: Colors.blue),
-                title: const Text('Démarrer la visite'),
-                enabled: visit.status == VisitStatus.planned,
-                onTap: () => Navigator.pop(context, 'start'),
-              ),
-              ListTile(
-                leading: const Icon(Icons.assignment, color: Colors.green),
-                title: const Text('Remplir le rapport'),
-                enabled: visit.status == VisitStatus.inProgress ||
-                    visit.status == VisitStatus.planned,
-                onTap: () => Navigator.pop(context, 'report'),
-              ),
-              if (visit.report != null) ...[
-                ListTile(
-                  leading: const Icon(Icons.visibility, color: Colors.orange),
-                  title: const Text('Voir le rapport'),
-                  onTap: () => Navigator.pop(context, 'view'),
-                ),
-              ],
-              ListTile(
-                leading: const Icon(Icons.cancel, color: Colors.red),
-                title: const Text('Annuler'),
-                onTap: () => Navigator.pop(context),
-              ),
-            ],
-          ),
-        );
-      },
+  Client _convertToClient(ApiRoutingClient apiClient) {
+    final now = DateTime.now();
+    return Client(
+      id: apiClient.id,
+      name: apiClient.name,
+      type: apiClient.type ?? 'Boutique',
+      managerName: apiClient.contactName ?? '',
+      phones: apiClient.phone != null ? [apiClient.phone!] : [],
+      city: apiClient.city ?? '',
+      address: apiClient.address ?? '',
+      latitude: apiClient.latitude,
+      longitude: apiClient.longitude,
+      potential: apiClient.potential,
+      hasOpenAlert: false,
+      createdAt: now,
+      updatedAt: now,
     );
-
-    if (result == 'start') {
-      await _startVisit(visit);
-    } else if (result == 'report') {
-      await _openVisitReport(visit);
-    } else if (result == 'view') {
-      _showVisitReportSummary(visit);
-    }
   }
 
-  void _showVisitReportSummary(Visit visit) {
-    if (visit.report == null) return;
-
-    final report = visit.report!;
+  void _showActiveVisitDialog() {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Résumé du rapport'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildReportField('Client', report.clientName),
-              _buildReportField('Gérant présent', report.gerantPresent == true ? 'Oui' : 'Non'),
-              _buildReportField('Commande réalisée', report.orderPlaced == true ? 'Oui' : 'Non'),
-              if (report.orderAmount != null)
-                _buildReportField('Montant', '${report.orderAmount!.toStringAsFixed(0)} FCFA'),
-              if (report.stockShortages != null)
-                _buildReportField('Ruptures', report.stockShortages!),
-              if (report.competitorActivity != null)
-                _buildReportField('Concurrence', report.competitorActivity!),
-              if (report.comments != null)
-                _buildReportField('Commentaires', report.comments!),
-              const SizedBox(height: 8),
-              _buildReportField('Photos rayons', report.shelfPhoto != null ? 'Oui' : 'Non'),
-              _buildReportField('Photos supplémentaires', report.additionalPhotos.length.toString()),
-            ],
-          ),
+        title: const Row(
+          children: [
+            Icon(Icons.warning, color: Colors.orange),
+            SizedBox(width: 8),
+            Text('Visite en cours'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Vous avez déjà une visite active en cours.',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 12),
+            Text('Client: ${_visitService.activeClientName ?? "Inconnu"}'),
+            const SizedBox(height: 8),
+            const Text(
+              'Veuillez terminer la visite en cours avant d\'en commencer une nouvelle.',
+            ),
+          ],
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Fermer'),
+            child: const Text('OK'),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildReportField(String label, String value) {
+  Future<void> _onRoutingItemTap(ApiRoutingItem item) async {
+    // Directly navigate to client page
+    await _startVisitForClient(item);
+  }
+
+  Widget _buildInfoField(String label, String value) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Column(
@@ -373,38 +181,119 @@ class _TourneeDetailPageNewState extends State<TourneeDetailPageNew> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: SessionAwareAppBar(
-        title: _currentRoute.name,
+        title: 'Tournée du Jour',
         actions: [
           IconButton(
-            icon: const Icon(Icons.info_outline),
-            onPressed: _showRouteInfo,
+            icon: const Icon(Icons.refresh),
+            onPressed: _isLoading ? null : _loadRouting,
           ),
+          if (_routingResponse?.data.hasRouting == true)
+            IconButton(
+              icon: const Icon(Icons.info_outline),
+              onPressed: _showRouteInfo,
+            ),
         ],
       ),
       body: SafeArea(
+        child: _buildBody(),
+      ),
+    );
+  }
+
+  Widget _buildBody() {
+    if (_isLoading) {
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 16),
+            Text('Chargement de la tournée...'),
+          ],
+        ),
+      );
+    }
+
+    if (_errorMessage != null) {
+      return Center(
         child: Padding(
-          padding: const EdgeInsets.all(16.0),
+          padding: const EdgeInsets.all(24.0),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              _buildProgressCard(),
+              const Icon(Icons.error_outline, size: 64, color: Colors.red),
+              const SizedBox(height: 16),
+              Text(
+                _errorMessage!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 16),
+              ),
               const SizedBox(height: 24),
-              _buildVisitsHeader(),
-              const SizedBox(height: 12),
-              Expanded(
-                child: _buildVisitsList(),
+              ElevatedButton.icon(
+                onPressed: _loadRouting,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Réessayer'),
               ),
             ],
           ),
+        ),
+      );
+    }
+
+    final data = _routingResponse?.data;
+    if (data == null || !data.hasRouting) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.route, size: 64, color: Colors.grey),
+              const SizedBox(height: 16),
+              const Text(
+                'Aucune tournée prévue pour aujourd\'hui',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Date: ${_formatDate(DateTime.now())}',
+                style: const TextStyle(color: Colors.grey),
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton.icon(
+                onPressed: _loadRouting,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Actualiser'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _loadRouting,
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildProgressCard(data.summary),
+            const SizedBox(height: 24),
+            _buildVisitsHeader(data.routing!),
+            const SizedBox(height: 12),
+            Expanded(
+              child: _buildVisitsList(data.routing!.routingItems),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildProgressCard() {
-    final progress = _currentRoute.progressPercentage / 100;
-    final completed = _currentRoute.completedVisits;
-    final total = _currentRoute.totalVisits;
+  Widget _buildProgressCard(ApiRoutingSummary summary) {
+    final progress = summary.progressPercentage / 100;
 
     return Container(
       width: double.infinity,
@@ -433,7 +322,7 @@ class _TourneeDetailPageNewState extends State<TourneeDetailPageNew> {
           ),
           const SizedBox(height: 16),
           Text(
-            '$completed/$total',
+            '${summary.completedClients}/${summary.totalClients}',
             style: const TextStyle(
               fontSize: 48,
               fontWeight: FontWeight.bold,
@@ -462,19 +351,51 @@ class _TourneeDetailPageNewState extends State<TourneeDetailPageNew> {
           ),
           const SizedBox(height: 8),
           Text(
-            '${_currentRoute.progressPercentage.toStringAsFixed(0)}%',
+            '${summary.progressPercentage.toStringAsFixed(0)}%',
             style: const TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.bold,
               color: Colors.black87,
             ),
           ),
+          const SizedBox(height: 12),
+          // Additional stats
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              _buildStatItem('En attente', summary.pendingClients, Colors.grey),
+              _buildStatItem('En cours', summary.inProgressClients, Colors.blue),
+              _buildStatItem('Terminées', summary.completedClients, Colors.green),
+            ],
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildVisitsHeader() {
+  Widget _buildStatItem(String label, int count, Color color) {
+    return Column(
+      children: [
+        Text(
+          count.toString(),
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
+        ),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.grey[600],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildVisitsHeader(ApiRouting routing) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
@@ -489,15 +410,15 @@ class _TourneeDetailPageNewState extends State<TourneeDetailPageNew> {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           decoration: BoxDecoration(
-            color: _getStatusColor(_currentRoute.status).withValues(alpha: 0.1),
+            color: _getRoutingStatusColor(routing.status).withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(12),
           ),
           child: Text(
-            _currentRoute.status.label,
+            _getRoutingStatusLabel(routing.status),
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.bold,
-              color: _getStatusColor(_currentRoute.status),
+              color: _getRoutingStatusColor(routing.status),
             ),
           ),
         ),
@@ -505,29 +426,37 @@ class _TourneeDetailPageNewState extends State<TourneeDetailPageNew> {
     );
   }
 
-  Widget _buildVisitsList() {
+  Widget _buildVisitsList(List<ApiRoutingItem> items) {
+    if (items.isEmpty) {
+      return const Center(
+        child: Text(
+          'Aucune visite dans cette tournée',
+          style: TextStyle(color: Colors.grey),
+        ),
+      );
+    }
+
     return ListView.builder(
-      itemCount: _currentRoute.visits.length,
+      itemCount: items.length,
       itemBuilder: (context, index) {
-        final visit = _currentRoute.visits[index];
-        return _buildVisitCard(visit);
+        final item = items[index];
+        return _buildVisitCard(item);
       },
     );
   }
 
-  Widget _buildVisitCard(Visit visit) {
-    final statusColor = _getVisitStatusColor(visit.status);
-    final canComplete = visit.canComplete;
+  Widget _buildVisitCard(ApiRoutingItem item) {
+    final statusColor = _getItemStatusColor(item);
 
     return GestureDetector(
-      onTap: () => _showVisitActions(visit),
+      onTap: () => _onRoutingItemTap(item),
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(12),
-          border: visit.status == VisitStatus.inProgress
+          border: item.isInProgress
               ? Border.all(color: Colors.blue, width: 2)
               : null,
           boxShadow: [
@@ -553,7 +482,7 @@ class _TourneeDetailPageNewState extends State<TourneeDetailPageNew> {
                   ),
                   child: Center(
                     child: Text(
-                      '${visit.order}',
+                      '${item.sequenceOrder}',
                       style: TextStyle(
                         fontWeight: FontWeight.bold,
                         color: statusColor,
@@ -565,7 +494,7 @@ class _TourneeDetailPageNewState extends State<TourneeDetailPageNew> {
 
                 // Icône de statut
                 Icon(
-                  _getVisitStatusIcon(visit.status),
+                  _getItemStatusIcon(item),
                   color: statusColor,
                   size: 32,
                 ),
@@ -577,7 +506,7 @@ class _TourneeDetailPageNewState extends State<TourneeDetailPageNew> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        visit.clientName,
+                        item.client.name,
                         style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
@@ -585,13 +514,59 @@ class _TourneeDetailPageNewState extends State<TourneeDetailPageNew> {
                         ),
                       ),
                       const SizedBox(height: 4),
-                      Text(
-                        visit.clientAddress,
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey[600],
+                      if (item.client.type != null || item.client.potential != null)
+                        Row(
+                          children: [
+                            if (item.client.type != null)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 2,
+                                ),
+                                margin: const EdgeInsets.only(right: 4),
+                                decoration: BoxDecoration(
+                                  color: Colors.blue.withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  item.client.type!,
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.blue,
+                                  ),
+                                ),
+                              ),
+                            if (item.client.potential != null)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: _getPotentialColor(item.client.potential!).withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  item.client.potential!,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: _getPotentialColor(item.client.potential!),
+                                  ),
+                                ),
+                              ),
+                          ],
                         ),
-                      ),
+                      if (item.client.displayAddress.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          item.client.displayAddress,
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 8),
 
                       // Badge de statut
@@ -607,7 +582,7 @@ class _TourneeDetailPageNewState extends State<TourneeDetailPageNew> {
                               borderRadius: BorderRadius.circular(12),
                             ),
                             child: Text(
-                              visit.status.label,
+                              _getItemStatusLabel(item),
                               style: TextStyle(
                                 fontSize: 12,
                                 fontWeight: FontWeight.bold,
@@ -615,33 +590,34 @@ class _TourneeDetailPageNewState extends State<TourneeDetailPageNew> {
                               ),
                             ),
                           ),
-                          const SizedBox(width: 8),
-                          if (visit.report != null && !canComplete)
+                          if (item.visit?.hasReport == true) ...[
+                            const SizedBox(width: 8),
                             Container(
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 8,
                                 vertical: 4,
                               ),
                               decoration: BoxDecoration(
-                                color: Colors.orange.withValues(alpha: 0.1),
+                                color: Colors.green.withValues(alpha: 0.1),
                                 borderRadius: BorderRadius.circular(12),
                               ),
                               child: const Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Icon(Icons.warning, size: 12, color: Colors.orange),
+                                  Icon(Icons.check, size: 12, color: Colors.green),
                                   SizedBox(width: 4),
                                   Text(
-                                    'Rapport incomplet',
+                                    'Rapport',
                                     style: TextStyle(
                                       fontSize: 11,
                                       fontWeight: FontWeight.bold,
-                                      color: Colors.orange,
+                                      color: Colors.green,
                                     ),
                                   ),
                                 ],
                               ),
                             ),
+                          ],
                         ],
                       ),
                     ],
@@ -657,7 +633,7 @@ class _TourneeDetailPageNewState extends State<TourneeDetailPageNew> {
             ),
 
             // Durée de visite si terminée
-            if (visit.actualDuration != null) ...[
+            if (item.visit?.duration != null) ...[
               const SizedBox(height: 12),
               Container(
                 padding: const EdgeInsets.all(8),
@@ -671,7 +647,7 @@ class _TourneeDetailPageNewState extends State<TourneeDetailPageNew> {
                     const Icon(Icons.timer, size: 16, color: Colors.grey),
                     const SizedBox(width: 4),
                     Text(
-                      'Durée: ${_formatDuration(visit.actualDuration!)}',
+                      'Durée: ${_formatDuration(item.visit!.duration!)}',
                       style: const TextStyle(
                         fontSize: 12,
                         color: Colors.grey,
@@ -687,52 +663,60 @@ class _TourneeDetailPageNewState extends State<TourneeDetailPageNew> {
     );
   }
 
-  IconData _getVisitStatusIcon(VisitStatus status) {
+  IconData _getItemStatusIcon(ApiRoutingItem item) {
+    if (item.isCompleted) return Icons.check_circle;
+    if (item.isInProgress) return Icons.pending;
+    return Icons.radio_button_unchecked;
+  }
+
+  Color _getItemStatusColor(ApiRoutingItem item) {
+    if (item.isCompleted) return Colors.green;
+    if (item.isInProgress) return Colors.blue;
+    return Colors.grey;
+  }
+
+  String _getItemStatusLabel(ApiRoutingItem item) {
+    if (item.isCompleted) return 'Complétée';
+    if (item.isInProgress) return 'En cours';
+    return 'En attente';
+  }
+
+  Color _getRoutingStatusColor(String status) {
     switch (status) {
-      case VisitStatus.completed:
-        return Icons.check_circle;
-      case VisitStatus.inProgress:
-        return Icons.pending;
-      case VisitStatus.planned:
-        return Icons.radio_button_unchecked;
-      case VisitStatus.incomplete:
-        return Icons.warning;
-      case VisitStatus.skipped:
-        return Icons.skip_next;
-      case VisitStatus.cancelled:
-        return Icons.cancel;
+      case 'planned':
+        return Colors.grey;
+      case 'in_progress':
+        return Colors.blue;
+      case 'completed':
+        return Colors.green;
+      default:
+        return Colors.grey;
     }
   }
 
-  Color _getVisitStatusColor(VisitStatus status) {
+  String _getRoutingStatusLabel(String status) {
     switch (status) {
-      case VisitStatus.completed:
-        return Colors.green;
-      case VisitStatus.inProgress:
-        return Colors.blue;
-      case VisitStatus.planned:
-        return Colors.grey;
-      case VisitStatus.incomplete:
-        return Colors.orange;
-      case VisitStatus.skipped:
-        return Colors.grey.shade700;
-      case VisitStatus.cancelled:
-        return Colors.red;
+      case 'planned':
+        return 'Planifiée';
+      case 'in_progress':
+        return 'En cours';
+      case 'completed':
+        return 'Terminée';
+      default:
+        return status;
     }
   }
 
-  Color _getStatusColor(models.RouteStatus status) {
-    switch (status) {
-      case models.RouteStatus.planned:
-        return Colors.grey;
-      case models.RouteStatus.inProgress:
-        return Colors.blue;
-      case models.RouteStatus.completed:
+  Color _getPotentialColor(String potential) {
+    switch (potential.toUpperCase()) {
+      case 'A':
         return Colors.green;
-      case models.RouteStatus.paused:
+      case 'B':
         return Colors.orange;
-      case models.RouteStatus.cancelled:
+      case 'C':
         return Colors.red;
+      default:
+        return Colors.grey;
     }
   }
 
@@ -745,26 +729,43 @@ class _TourneeDetailPageNewState extends State<TourneeDetailPageNew> {
     return '${minutes}min';
   }
 
+  String _formatDate(DateTime date) {
+    return '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
+  }
+
+  String _formatDateTime(DateTime dateTime) {
+    return '${_formatDate(dateTime)} ${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
+  }
+
   void _showRouteInfo() {
+    final routing = _routingResponse?.data.routing;
+    if (routing == null) return;
+
+    final summary = _routingResponse!.data.summary;
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Informations tournée'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildReportField('Nom', _currentRoute.name),
-            _buildReportField('Commercial', _currentRoute.commercialName),
-            _buildReportField('Date', _formatDate(_currentRoute.date)),
-            _buildReportField('Statut', _currentRoute.status.label),
-            _buildReportField('Visites totales', _currentRoute.totalVisits.toString()),
-            _buildReportField('Complétées', _currentRoute.completedVisits.toString()),
-            _buildReportField('En cours', _currentRoute.inProgressVisits.toString()),
-            _buildReportField('Planifiées', _currentRoute.plannedVisits.toString()),
-            if (_currentRoute.incompleteVisits > 0)
-              _buildReportField('Incomplètes', _currentRoute.incompleteVisits.toString()),
-          ],
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildInfoField('Date', routing.routeDate),
+              _buildInfoField('Statut', _getRoutingStatusLabel(routing.status)),
+              if (routing.baseCommerciale != null)
+                _buildInfoField('Base', routing.baseCommerciale!.name),
+              if (routing.zone != null)
+                _buildInfoField('Zone', routing.zone!.name),
+              const Divider(),
+              _buildInfoField('Clients totaux', summary.totalClients.toString()),
+              _buildInfoField('Complétées', summary.completedClients.toString()),
+              _buildInfoField('En cours', summary.inProgressClients.toString()),
+              _buildInfoField('En attente', summary.pendingClients.toString()),
+              _buildInfoField('Progression', '${summary.progressPercentage.toStringAsFixed(0)}%'),
+            ],
+          ),
         ),
         actions: [
           TextButton(
@@ -774,9 +775,5 @@ class _TourneeDetailPageNewState extends State<TourneeDetailPageNew> {
         ],
       ),
     );
-  }
-
-  String _formatDate(DateTime date) {
-    return '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
   }
 }
