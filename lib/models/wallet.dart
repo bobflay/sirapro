@@ -52,6 +52,8 @@ class WalletTransaction {
   final String? description;
   final String? referenceType;
   final int? referenceId;
+  final int? invoiceId; // Added to group transactions by invoice
+  final int? orderId; // Added to group transactions by order
   final DateTime createdAt;
 
   WalletTransaction({
@@ -62,6 +64,8 @@ class WalletTransaction {
     this.description,
     this.referenceType,
     this.referenceId,
+    this.invoiceId,
+    this.orderId,
     required this.createdAt,
   });
 
@@ -84,6 +88,8 @@ class WalletTransaction {
       description: json['description'] as String?,
       referenceType: json['reference_type'] as String?,
       referenceId: json['reference_id'] as int?,
+      invoiceId: json['invoice_id'] as int?,
+      orderId: json['order_id'] as int?,
       createdAt: DateTime.parse(json['created_at'] as String),
     );
   }
@@ -97,6 +103,8 @@ class WalletTransaction {
       'description': description,
       'reference_type': referenceType,
       'reference_id': referenceId,
+      if (invoiceId != null) 'invoice_id': invoiceId,
+      if (orderId != null) 'order_id': orderId,
       'created_at': createdAt.toIso8601String(),
     };
   }
@@ -181,6 +189,45 @@ class TransactionsResponse {
       message: json['message'] as String?,
     );
   }
+}
+
+/// Grouped transactions by invoice
+class GroupedInvoiceTransactions {
+  final int? invoiceId;
+  final String invoiceNumber;
+  final List<WalletTransaction> transactions;
+  final double totalAmount;
+  final DateTime firstTransactionDate;
+
+  GroupedInvoiceTransactions({
+    this.invoiceId,
+    required this.invoiceNumber,
+    required this.transactions,
+    required this.totalAmount,
+    required this.firstTransactionDate,
+  });
+
+  /// Returns the count of credit transactions
+  int get creditCount => transactions.where((t) => t.isCredit).length;
+
+  /// Returns the count of debit transactions
+  int get debitCount => transactions.where((t) => t.isDebit).length;
+
+  /// Returns the total credit amount
+  double get totalCredit => transactions
+      .where((t) => t.isCredit)
+      .fold(0.0, (sum, t) => sum + t.amount);
+
+  /// Returns the total debit amount
+  double get totalDebit => transactions
+      .where((t) => t.isDebit)
+      .fold(0.0, (sum, t) => sum + t.amount);
+
+  /// Returns true if there are more credits than debits
+  bool get isNetCredit => totalCredit > totalDebit;
+
+  /// Returns the net amount (credits - debits)
+  double get netAmount => totalCredit - totalDebit;
 }
 
 /// Helper function to safely parse double values

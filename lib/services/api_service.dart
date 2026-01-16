@@ -139,6 +139,27 @@ class ApiService {
     }
   }
 
+  /// Perform PATCH request
+  Future<dynamic> patch(
+    String endpoint, {
+    Map<String, dynamic>? body,
+    bool includeAuth = true,
+  }) async {
+    try {
+      final response = await http.patch(
+        Uri.parse('$baseUrl$endpoint'),
+        headers: _getHeaders(includeAuth: includeAuth),
+        body: json.encode(body),
+      );
+      return _handleResponse(response);
+    } on http.ClientException {
+      throw ApiException('Connection failed. Please check your internet.');
+    } catch (e) {
+      if (e is ApiException) rethrow;
+      throw ApiException('An unexpected error occurred');
+    }
+  }
+
   /// Perform DELETE request
   Future<dynamic> delete(String endpoint, {bool includeAuth = true}) async {
     try {

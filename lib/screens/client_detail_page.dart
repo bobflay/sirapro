@@ -75,6 +75,7 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
   DateTime? _visitStartTime;
   Duration _visitDuration = Duration.zero;
   Timer? _visitTimer;
+  bool _visitWasCompleted = false; // Track if visit was completed/terminated
 
   // Form controllers
   late TextEditingController _boutiqueNameController;
@@ -1033,6 +1034,9 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
       // Stop the timer and reset state
       _stopVisitLocally(status == 'completed');
 
+      // Mark that visit was completed for proper navigation result
+      _visitWasCompleted = true;
+
       if (mounted) {
         // Check if there's a warning (terminated outside allowed range)
         if (result.terminatedOutsideRange && result.warning != null) {
@@ -1162,6 +1166,9 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
 
       // Stop the timer and reset state
       _stopVisitLocally(status == 'completed');
+
+      // Mark that visit was completed for proper navigation result
+      _visitWasCompleted = true;
 
       if (mounted) {
         // Show success with warning about outside range
@@ -2046,7 +2053,7 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
   Widget build(BuildContext context) {
     return WillPopScope(
       onWillPop: () async {
-        Navigator.pop(context, _client);
+        Navigator.pop(context, _visitWasCompleted);
         return false;
       },
       child: Scaffold(
@@ -2055,7 +2062,7 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
           title: _isEditing ? 'Modifier Client' : 'Détails Client',
           leading: IconButton(
             icon: const Icon(Icons.arrow_back),
-            onPressed: () => Navigator.pop(context, _client),
+            onPressed: () => Navigator.pop(context, _visitWasCompleted),
           ),
           actions: [
             if (!_isEditing)
@@ -2265,6 +2272,21 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
                 _buildSectionTitle('Actions rapides'),
                 const SizedBox(height: 12),
                 _buildQuickActions(),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 20),
+
+          // Client Status Section
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildSectionTitle('Statut du client'),
+                const SizedBox(height: 12),
+                _buildStatusCard(),
               ],
             ),
           ),
@@ -2995,6 +3017,225 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
         children: children,
       ),
     );
+  }
+
+  Widget _buildStatusCard() {
+    final statusOptions = ['Actif', 'Fermé', 'Refusé de commande', 'En attente', 'Suspendu'];
+    final currentStatus = _client.status ?? 'Actif';
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withValues(alpha: 0.1),
+            spreadRadius: 1,
+            blurRadius: 5,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.info_outline,
+                color: _getStatusColor(currentStatus),
+                size: 20,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'Statut actuel: ',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.grey[600],
+                ),
+              ),
+              Text(
+                currentStatus,
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: _getStatusColor(currentStatus),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            'Changer le statut:',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: statusOptions.map((status) {
+              final isSelected = status == currentStatus;
+              return InkWell(
+                onTap: () => _updateClientStatus(status),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: isSelected
+                        ? _getStatusColor(status).withValues(alpha: 0.1)
+                        : Colors.grey[100],
+                    border: Border.all(
+                      color: isSelected
+                          ? _getStatusColor(status)
+                          : Colors.grey[300]!,
+                      width: isSelected ? 2 : 1,
+                    ),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        _getStatusIcon(status),
+                        size: 16,
+                        color: isSelected
+                            ? _getStatusColor(status)
+                            : Colors.grey[600],
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        status,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight:
+                              isSelected ? FontWeight.bold : FontWeight.normal,
+                          color: isSelected
+                              ? _getStatusColor(status)
+                              : Colors.grey[700],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Color _getStatusColor(String status) {
+    switch (status) {
+      case 'Actif':
+        return Colors.green;
+      case 'Fermé':
+        return Colors.red;
+      case 'Refusé de commande':
+        return Colors.deepOrange;
+      case 'En attente':
+        return Colors.orange;
+      case 'Suspendu':
+        return Colors.grey;
+      default:
+        return Colors.blue;
+    }
+  }
+
+  IconData _getStatusIcon(String status) {
+    switch (status) {
+      case 'Actif':
+        return Icons.check_circle;
+      case 'Fermé':
+        return Icons.cancel;
+      case 'Refusé de commande':
+        return Icons.block;
+      case 'En attente':
+        return Icons.pending;
+      case 'Suspendu':
+        return Icons.pause_circle;
+      default:
+        return Icons.info;
+    }
+  }
+
+  Future<void> _updateClientStatus(String newStatus) async {
+    if (newStatus == (_client.status ?? 'Actif')) {
+      return; // No change needed
+    }
+
+    // Show confirmation dialog
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Confirmer le changement'),
+        content: Text(
+          'Voulez-vous vraiment changer le statut du client à "$newStatus"?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Annuler'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _getStatusColor(newStatus),
+            ),
+            child: const Text('Confirmer'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    // Show loading indicator
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(
+        child: CircularProgressIndicator(),
+      ),
+    );
+
+    try {
+      final updatedClient = await _clientService.updateClientStatus(
+        _client.id,
+        newStatus,
+      );
+
+      if (!mounted) return;
+      Navigator.pop(context); // Close loading dialog
+
+      setState(() {
+        _client = updatedClient;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Statut mis à jour: $newStatus'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.pop(context); // Close loading dialog
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erreur: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   Widget _buildInfoRow(IconData icon, String label, String value) {

@@ -184,6 +184,7 @@ class Client {
       quartier: json['district'] as String?,
       zone: json['zone'] as String?,
       gpsLocation: json['gps_location'] as String?,
+      status: json['status'] as String?,
     );
   }
 

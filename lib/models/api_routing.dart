@@ -90,28 +90,68 @@ class ApiRouting {
   });
 
   factory ApiRouting.fromJson(Map<String, dynamic> json) {
-    return ApiRouting(
-      id: json['id'] as int,
-      userId: json['user_id'] as int,
-      routeDate: json['route_date'] as String,
-      status: json['status'] as String? ?? 'planned',
-      baseCommerciale: json['base_commerciale'] != null
+    print('[ApiRouting] Parsing routing from JSON...');
+    print('[ApiRouting] JSON keys: ${json.keys.toList()}');
+
+    try {
+      print('[ApiRouting] Parsing id: ${json['id']} (${json['id'].runtimeType})');
+      final id = json['id'] as int;
+
+      print('[ApiRouting] Parsing user_id: ${json['user_id']} (${json['user_id'].runtimeType})');
+      final userId = json['user_id'] as int;
+
+      // API returns 'route_day' not 'route_date' - it's a day name like 'monday', 'tuesday', etc.
+      print('[ApiRouting] Parsing route_date/route_day: ${json['route_date']} / ${json['route_day']}');
+      final routeDate = (json['route_date'] as String?) ??
+                        (json['route_day'] as String?) ??
+                        '';
+
+      print('[ApiRouting] Parsing status: ${json['status']} (${json['status']?.runtimeType})');
+      final status = json['status'] as String? ?? 'planned';
+
+      print('[ApiRouting] Parsing base_commerciale...');
+      final baseCommerciale = json['base_commerciale'] != null
           ? ApiBaseCommerciale.fromJson(json['base_commerciale'] as Map<String, dynamic>)
-          : null,
-      zone: json['zone'] != null
+          : null;
+
+      print('[ApiRouting] Parsing zone...');
+      final zone = json['zone'] != null
           ? ApiZone.fromJson(json['zone'] as Map<String, dynamic>)
-          : null,
-      routingItems: (json['routing_items'] as List<dynamic>?)
+          : null;
+
+      print('[ApiRouting] Parsing routing_items (count: ${json['routing_items'] is List ? (json['routing_items'] as List).length : 'N/A'})...');
+      final routingItems = (json['routing_items'] as List<dynamic>?)
               ?.map((e) => ApiRoutingItem.fromJson(e as Map<String, dynamic>))
               .toList() ??
-          [],
-      createdAt: json['created_at'] != null
+          [];
+
+      print('[ApiRouting] Parsing timestamps...');
+      final createdAt = json['created_at'] != null
           ? DateTime.tryParse(json['created_at'] as String)
-          : null,
-      updatedAt: json['updated_at'] != null
+          : null;
+      final updatedAt = json['updated_at'] != null
           ? DateTime.tryParse(json['updated_at'] as String)
-          : null,
-    );
+          : null;
+
+      print('[ApiRouting] Successfully parsed routing');
+
+      return ApiRouting(
+        id: id,
+        userId: userId,
+        routeDate: routeDate,
+        status: status,
+        baseCommerciale: baseCommerciale,
+        zone: zone,
+        routingItems: routingItems,
+        createdAt: createdAt,
+        updatedAt: updatedAt,
+      );
+    } catch (e, stackTrace) {
+      print('[ApiRouting] ERROR parsing routing: $e');
+      print('[ApiRouting] Stack trace: $stackTrace');
+      print('[ApiRouting] Full JSON: $json');
+      rethrow;
+    }
   }
 
   Map<String, dynamic> toJson() {
@@ -156,12 +196,22 @@ class ApiBaseCommerciale {
   });
 
   factory ApiBaseCommerciale.fromJson(Map<String, dynamic> json) {
-    return ApiBaseCommerciale(
-      id: json['id'] as int,
-      code: json['code'] as String? ?? '',
-      name: json['name'] as String? ?? '',
-      city: json['city'] as String?,
-    );
+    print('[ApiBaseCommerciale] Parsing from JSON...');
+    print('[ApiBaseCommerciale] id: ${json['id']}, code: ${json['code']}, name: ${json['name']}');
+
+    try {
+      return ApiBaseCommerciale(
+        id: json['id'] as int,
+        code: json['code'] as String? ?? '',
+        name: json['name'] as String? ?? '',
+        city: json['city'] as String?,
+      );
+    } catch (e, stackTrace) {
+      print('[ApiBaseCommerciale] ERROR: $e');
+      print('[ApiBaseCommerciale] Stack trace: $stackTrace');
+      print('[ApiBaseCommerciale] Full JSON: $json');
+      rethrow;
+    }
   }
 
   Map<String, dynamic> toJson() {
@@ -189,12 +239,22 @@ class ApiZone {
   });
 
   factory ApiZone.fromJson(Map<String, dynamic> json) {
-    return ApiZone(
-      id: json['id'] as int,
-      code: json['code'] as String? ?? '',
-      name: json['name'] as String? ?? '',
-      city: json['city'] as String?,
-    );
+    print('[ApiZone] Parsing from JSON...');
+    print('[ApiZone] id: ${json['id']}, code: ${json['code']}, name: ${json['name']}');
+
+    try {
+      return ApiZone(
+        id: json['id'] as int,
+        code: json['code'] as String? ?? '',
+        name: json['name'] as String? ?? '',
+        city: json['city'] as String?,
+      );
+    } catch (e, stackTrace) {
+      print('[ApiZone] ERROR: $e');
+      print('[ApiZone] Stack trace: $stackTrace');
+      print('[ApiZone] Full JSON: $json');
+      rethrow;
+    }
   }
 
   Map<String, dynamic> toJson() {
@@ -226,16 +286,28 @@ class ApiRoutingItem {
   });
 
   factory ApiRoutingItem.fromJson(Map<String, dynamic> json) {
-    return ApiRoutingItem(
-      id: json['id'] as int,
-      sequenceOrder: json['sequence_order'] as int? ?? 0,
-      isVisited: json['is_visited'] as bool? ?? false,
-      isCompleted: json['is_completed'] as bool? ?? false,
-      client: ApiRoutingClient.fromJson(json['client'] as Map<String, dynamic>),
-      visit: json['visit'] != null
+    print('[ApiRoutingItem] Parsing item id: ${json['id']}...');
+
+    try {
+      final client = ApiRoutingClient.fromJson(json['client'] as Map<String, dynamic>);
+      final visit = json['visit'] != null
           ? ApiRoutingVisit.fromJson(json['visit'] as Map<String, dynamic>)
-          : null,
-    );
+          : null;
+
+      return ApiRoutingItem(
+        id: json['id'] as int,
+        sequenceOrder: json['sequence_order'] as int? ?? 0,
+        isVisited: json['is_visited'] as bool? ?? false,
+        isCompleted: json['is_completed'] as bool? ?? false,
+        client: client,
+        visit: visit,
+      );
+    } catch (e, stackTrace) {
+      print('[ApiRoutingItem] ERROR parsing item: $e');
+      print('[ApiRoutingItem] Stack trace: $stackTrace');
+      print('[ApiRoutingItem] Full JSON: $json');
+      rethrow;
+    }
   }
 
   Map<String, dynamic> toJson() {
@@ -290,6 +362,10 @@ class ApiRoutingClient {
   });
 
   factory ApiRoutingClient.fromJson(Map<String, dynamic> json) {
+    print('[ApiRoutingClient] Parsing client...');
+    print('[ApiRoutingClient] id: ${json['id']}, name: ${json['name']} (${json['name']?.runtimeType})');
+    print('[ApiRoutingClient] JSON keys: ${json.keys.toList()}');
+
     // Helper to parse latitude/longitude that can be String or num
     double? parseCoordinate(dynamic value) {
       if (value == null) return null;
@@ -298,18 +374,49 @@ class ApiRoutingClient {
       return null;
     }
 
-    return ApiRoutingClient(
-      id: json['id'] as int,
-      name: json['name'] as String? ?? '',
-      type: json['type'] as String?,
-      potential: json['potential'] as String?,
-      latitude: parseCoordinate(json['latitude']),
-      longitude: parseCoordinate(json['longitude']),
-      address: json['address'] as String?,
-      city: json['city'] as String?,
-      phone: json['phone'] as String?,
-      contactName: json['contact_name'] as String?,
-    );
+    try {
+      // Safe parsing of name with detailed logging
+      final nameValue = json['name'];
+      print('[ApiRoutingClient] Raw name value: $nameValue (type: ${nameValue.runtimeType})');
+
+      final String name;
+      if (nameValue == null) {
+        print('[ApiRoutingClient] Name is null, using empty string');
+        name = '';
+      } else if (nameValue is String) {
+        print('[ApiRoutingClient] Name is already a String: "$nameValue"');
+        name = nameValue;
+      } else {
+        print('[ApiRoutingClient] Name is not a String, converting: $nameValue');
+        name = nameValue.toString();
+      }
+
+      // API returns 'manager_name' and 'address_description', not 'contact_name' and 'address'
+      final contactName = (json['contact_name'] as String?) ??
+                         (json['manager_name'] as String?);
+      final address = (json['address'] as String?) ??
+                     (json['address_description'] as String?);
+
+      print('[ApiRoutingClient] Parsed contactName: $contactName, address: $address');
+
+      return ApiRoutingClient(
+        id: json['id'] as int,
+        name: name,
+        type: json['type'] as String?,
+        potential: json['potential'] as String?,
+        latitude: parseCoordinate(json['latitude']),
+        longitude: parseCoordinate(json['longitude']),
+        address: address,
+        city: json['city'] as String?,
+        phone: json['phone'] as String?,
+        contactName: contactName,
+      );
+    } catch (e, stackTrace) {
+      print('[ApiRoutingClient] ERROR parsing client: $e');
+      print('[ApiRoutingClient] Stack trace: $stackTrace');
+      print('[ApiRoutingClient] Full JSON: $json');
+      rethrow;
+    }
   }
 
   Map<String, dynamic> toJson() {
@@ -353,18 +460,34 @@ class ApiRoutingVisit {
   });
 
   factory ApiRoutingVisit.fromJson(Map<String, dynamic> json) {
-    return ApiRoutingVisit(
-      id: json['id'] as int,
-      status: json['status'] as String? ?? 'started',
-      startedAt: json['started_at'] != null
-          ? DateTime.tryParse(json['started_at'] as String)
-          : null,
-      endedAt: json['ended_at'] != null
-          ? DateTime.tryParse(json['ended_at'] as String)
-          : null,
-      durationSeconds: json['duration_seconds'] as int?,
-      hasReport: json['has_report'] as bool?,
-    );
+    print('[ApiRoutingVisit] Parsing visit id: ${json['id']}...');
+
+    try {
+      // Safe parsing of date strings
+      DateTime? parseDateTime(String key) {
+        final value = json[key];
+        if (value == null) return null;
+        if (value is! String) {
+          print('[ApiRoutingVisit] WARNING: $key is not a String: $value (${value.runtimeType})');
+          return null;
+        }
+        return DateTime.tryParse(value);
+      }
+
+      return ApiRoutingVisit(
+        id: json['id'] as int,
+        status: json['status'] as String? ?? 'started',
+        startedAt: parseDateTime('started_at'),
+        endedAt: parseDateTime('ended_at'),
+        durationSeconds: json['duration_seconds'] as int?,
+        hasReport: json['has_report'] as bool?,
+      );
+    } catch (e, stackTrace) {
+      print('[ApiRoutingVisit] ERROR parsing visit: $e');
+      print('[ApiRoutingVisit] Stack trace: $stackTrace');
+      print('[ApiRoutingVisit] Full JSON: $json');
+      rethrow;
+    }
   }
 
   Map<String, dynamic> toJson() {

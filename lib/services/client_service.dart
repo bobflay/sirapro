@@ -441,6 +441,29 @@ class ClientService {
     return PhotoUploadResponse.fromJson(data);
   }
 
+  /// Update client status
+  ///
+  /// [clientId] - The client ID to update
+  /// [status] - The new status value (e.g., "Actif", "Fermé", etc.)
+  /// Returns the updated [Client] object
+  /// Throws [ApiException] on failure
+  Future<Client> updateClientStatus(int clientId, String status) async {
+    final response = await _apiService.patch(
+      '/api/clients/$clientId/status',
+      body: {'status': status},
+    );
+
+    final data = response as Map<String, dynamic>;
+
+    // Check for API-level errors
+    if (data['status'] == false || data['success'] == false) {
+      final message = data['message'] as String? ?? 'Failed to update client status';
+      throw ApiException(message, statusCode: 422);
+    }
+
+    return Client.fromJson(data['data'] as Map<String, dynamic>);
+  }
+
   /// Reset the singleton instance (useful for testing)
   static void reset() {
     _instance = null;

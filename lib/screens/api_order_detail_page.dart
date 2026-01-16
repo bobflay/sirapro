@@ -1,4 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:share_plus/share_plus.dart';
+import 'package:path_provider/path_provider.dart';
+import 'dart:io';
 import '../models/order_api.dart';
 import '../services/order_service.dart';
 import '../services/api_service.dart';
@@ -88,6 +93,27 @@ class _ApiOrderDetailPageState extends State<ApiOrderDetailPage> {
           RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
           (Match m) => '${m[1]} ',
         );
+  }
+
+  double _calculateDeliveredTotal(ApiOrder order) {
+    double total = 0.0;
+    for (int i = 0; i < order.orderItems.length; i++) {
+      if (_itemStatuses[i] == ApiOrderItem.statusDelivered) {
+        total += order.orderItems[i].lineTotal;
+      }
+    }
+    return total;
+  }
+
+  double _calculateNotDeliveredTotal(ApiOrder order) {
+    double total = 0.0;
+    for (int i = 0; i < order.orderItems.length; i++) {
+      if (_itemStatuses[i] == ApiOrderItem.statusNotDelivered ||
+          _itemStatuses[i] == ApiOrderItem.statusPending) {
+        total += order.orderItems[i].lineTotal;
+      }
+    }
+    return total;
   }
 
   String _formatDate(String? dateStr) {
@@ -239,6 +265,12 @@ class _ApiOrderDetailPageState extends State<ApiOrderDetailPage> {
       appBar: AppBar(
         title: Text(_order?.reference ?? 'Commande #${widget.orderId}'),
         actions: [
+          if (_order != null)
+            IconButton(
+              icon: const Icon(Icons.picture_as_pdf),
+              onPressed: () => _exportToPdf(context),
+              tooltip: 'Exporter en PDF',
+            ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _loadOrder,
@@ -375,6 +407,62 @@ class _ApiOrderDetailPageState extends State<ApiOrderDetailPage> {
                           fontSize: 24,
                           fontWeight: FontWeight.bold,
                           color: AppColors.primary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  const Divider(),
+                  const SizedBox(height: 12),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.check_circle, color: Colors.green, size: 16),
+                          const SizedBox(width: 6),
+                          const Text(
+                            'Total livré',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                      Text(
+                        '${_formatAmount(_calculateDeliveredTotal(order))} ${order.currency}',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.green,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.cancel, color: Colors.red, size: 16),
+                          const SizedBox(width: 6),
+                          const Text(
+                            'Total non livré',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                      Text(
+                        '${_formatAmount(_calculateNotDeliveredTotal(order))} ${order.currency}',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.red,
                         ),
                       ),
                     ],
@@ -818,6 +906,372 @@ class _ApiOrderDetailPageState extends State<ApiOrderDetailPage> {
               ],
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _exportToPdf(BuildContext context) async {
+    if (_order == null) return;
+
+    try {
+      // Show loading indicator
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  ),
+                ),
+                SizedBox(width: 16),
+                Text('Génération du PDF...'),
+              ],
+            ),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+
+      final pdf = pw.Document();
+      final order = _order!;
+
+      // Calculate totals
+      final deliveredTotal = _calculateDeliveredTotal(order);
+      final notDeliveredTotal = _calculateNotDeliveredTotal(order);
+
+      pdf.addPage(
+        pw.MultiPage(
+          pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.all(32),
+          build: (context) => [
+            // Header
+            pw.Header(
+              level: 0,
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text(
+                    'Détails de Commande',
+                    style: pw.TextStyle(
+                      fontSize: 24,
+                      fontWeight: pw.FontWeight.bold,
+                    ),
+                  ),
+                  pw.SizedBox(height: 8),
+                  pw.Text(
+                    order.reference ?? 'Commande #${order.id}',
+                    style: const pw.TextStyle(fontSize: 16),
+                  ),
+                  pw.SizedBox(height: 4),
+                  pw.Text(
+                    _formatDateTime(order.orderedAt),
+                    style: pw.TextStyle(
+                      fontSize: 12,
+                      color: PdfColors.grey700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            pw.SizedBox(height: 20),
+
+            // Status
+            pw.Container(
+              padding: const pw.EdgeInsets.all(12),
+              decoration: pw.BoxDecoration(
+                color: PdfColors.grey200,
+                borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8)),
+              ),
+              child: pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Text(
+                    'Statut:',
+                    style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+                  ),
+                  pw.Text(order.statusDisplayText),
+                ],
+              ),
+            ),
+            pw.SizedBox(height: 20),
+
+            // Client Info
+            pw.Text(
+              'Informations Client',
+              style: pw.TextStyle(
+                fontSize: 16,
+                fontWeight: pw.FontWeight.bold,
+              ),
+            ),
+            pw.SizedBox(height: 8),
+            pw.Container(
+              padding: const pw.EdgeInsets.all(12),
+              decoration: pw.BoxDecoration(
+                border: pw.Border.all(color: PdfColors.grey400),
+                borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8)),
+              ),
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  _buildPdfInfoRow('Nom', order.client?.name ?? '-'),
+                  if (order.client?.code != null)
+                    _buildPdfInfoRow('Code', order.client!.code!),
+                  if (order.client?.phone != null)
+                    _buildPdfInfoRow('Téléphone', order.client!.phone!),
+                  if (order.client?.address != null)
+                    _buildPdfInfoRow('Adresse', order.client!.address!),
+                  if (order.client?.city != null)
+                    _buildPdfInfoRow('Ville', order.client!.city!),
+                ],
+              ),
+            ),
+            pw.SizedBox(height: 20),
+
+            // Order Items
+            pw.Text(
+              'Articles (${order.orderItems.length})',
+              style: pw.TextStyle(
+                fontSize: 16,
+                fontWeight: pw.FontWeight.bold,
+              ),
+            ),
+            pw.SizedBox(height: 8),
+            pw.Table(
+              border: pw.TableBorder.all(color: PdfColors.grey400),
+              children: [
+                // Header row
+                pw.TableRow(
+                  decoration: const pw.BoxDecoration(color: PdfColors.grey300),
+                  children: [
+                    _buildPdfTableCell('Article', isHeader: true),
+                    _buildPdfTableCell('Prix U.', isHeader: true),
+                    _buildPdfTableCell('Qté', isHeader: true),
+                    _buildPdfTableCell('Total', isHeader: true),
+                    _buildPdfTableCell('Statut', isHeader: true),
+                  ],
+                ),
+                // Item rows
+                ...order.orderItems.asMap().entries.map((entry) {
+                  final index = entry.key;
+                  final item = entry.value;
+                  final status = _itemStatuses[index];
+                  String statusText;
+                  if (status == ApiOrderItem.statusDelivered) {
+                    statusText = 'Livré';
+                  } else if (status == ApiOrderItem.statusNotDelivered) {
+                    statusText = 'Non livré';
+                  } else {
+                    statusText = 'En attente';
+                  }
+
+                  return pw.TableRow(
+                    children: [
+                      _buildPdfTableCell(
+                        '${item.displayName}\n${item.packagingSnapshot ?? ''}',
+                      ),
+                      _buildPdfTableCell(
+                        '${_formatAmount(item.unitPriceSnapshot)} ${order.currency}',
+                      ),
+                      _buildPdfTableCell('${item.quantity}'),
+                      _buildPdfTableCell(
+                        '${_formatAmount(item.lineTotal)} ${order.currency}',
+                      ),
+                      _buildPdfTableCell(statusText),
+                    ],
+                  );
+                }),
+              ],
+            ),
+            pw.SizedBox(height: 20),
+
+            // Totals Summary
+            pw.Container(
+              padding: const pw.EdgeInsets.all(16),
+              decoration: pw.BoxDecoration(
+                color: PdfColors.grey200,
+                borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8)),
+              ),
+              child: pw.Column(
+                children: [
+                  pw.Row(
+                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                    children: [
+                      pw.Text(
+                        'Total',
+                        style: pw.TextStyle(
+                          fontSize: 18,
+                          fontWeight: pw.FontWeight.bold,
+                        ),
+                      ),
+                      pw.Text(
+                        '${_formatAmount(order.totalAmount)} ${order.currency}',
+                        style: pw.TextStyle(
+                          fontSize: 20,
+                          fontWeight: pw.FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                  pw.SizedBox(height: 12),
+                  pw.Divider(color: PdfColors.grey400),
+                  pw.SizedBox(height: 12),
+                  pw.Row(
+                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                    children: [
+                      pw.Text(
+                        'Total livré',
+                        style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+                      ),
+                      pw.Text(
+                        '${_formatAmount(deliveredTotal)} ${order.currency}',
+                        style: pw.TextStyle(
+                          fontWeight: pw.FontWeight.bold,
+                          color: PdfColors.green700,
+                        ),
+                      ),
+                    ],
+                  ),
+                  pw.SizedBox(height: 8),
+                  pw.Row(
+                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                    children: [
+                      pw.Text(
+                        'Total non livré',
+                        style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+                      ),
+                      pw.Text(
+                        '${_formatAmount(notDeliveredTotal)} ${order.currency}',
+                        style: pw.TextStyle(
+                          fontWeight: pw.FontWeight.bold,
+                          color: PdfColors.red700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+
+            // Additional Info
+            if (order.zone != null || order.baseCommerciale != null) ...[
+              pw.SizedBox(height: 20),
+              pw.Text(
+                'Informations additionnelles',
+                style: pw.TextStyle(
+                  fontSize: 16,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+              pw.SizedBox(height: 8),
+              pw.Container(
+                padding: const pw.EdgeInsets.all(12),
+                decoration: pw.BoxDecoration(
+                  border: pw.Border.all(color: PdfColors.grey400),
+                  borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8)),
+                ),
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    if (order.zone != null)
+                      _buildPdfInfoRow('Zone', order.zone!.name ?? '-'),
+                    if (order.baseCommerciale != null)
+                      _buildPdfInfoRow(
+                        'Base commerciale',
+                        order.baseCommerciale!.name ?? '-',
+                      ),
+                    if (order.validatedAt != null)
+                      _buildPdfInfoRow(
+                        'Date de validation',
+                        _formatDateTime(order.validatedAt),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+
+            // Footer
+            pw.SizedBox(height: 30),
+            pw.Divider(),
+            pw.SizedBox(height: 8),
+            pw.Text(
+              'Document généré le ${_formatDateTime(DateTime.now().toIso8601String())}',
+              style: pw.TextStyle(
+                fontSize: 10,
+                color: PdfColors.grey600,
+              ),
+            ),
+          ],
+        ),
+      );
+
+      // Generate PDF bytes
+      final bytes = await pdf.save();
+
+      // Save PDF to temporary directory
+      final output = await getTemporaryDirectory();
+      final fileName = 'commande_${order.reference ?? order.id}.pdf';
+      final file = File('${output.path}/$fileName');
+      await file.writeAsBytes(bytes);
+
+      // Share the PDF
+      if (context.mounted) {
+        final result = await Share.shareXFiles(
+          [XFile(file.path, mimeType: 'application/pdf')],
+          subject: 'Commande ${order.reference ?? order.id}',
+          text: 'Commande pour ${order.client?.name ?? 'client'} - Total: ${_formatAmount(order.totalAmount)} ${order.currency}',
+        );
+
+        debugPrint('Share result: $result');
+      }
+    } catch (e) {
+      debugPrint('Error exporting PDF: $e');
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur lors de l\'export PDF: $e'),
+            backgroundColor: AppColors.error,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    }
+  }
+
+  pw.Widget _buildPdfInfoRow(String label, String value) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.symmetric(vertical: 4),
+      child: pw.Row(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.SizedBox(
+            width: 150,
+            child: pw.Text(
+              label,
+              style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+            ),
+          ),
+          pw.Expanded(
+            child: pw.Text(value),
+          ),
+        ],
+      ),
+    );
+  }
+
+  pw.Widget _buildPdfTableCell(String text, {bool isHeader = false}) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.all(8),
+      child: pw.Text(
+        text,
+        style: pw.TextStyle(
+          fontWeight: isHeader ? pw.FontWeight.bold : pw.FontWeight.normal,
+          fontSize: isHeader ? 12 : 10,
         ),
       ),
     );

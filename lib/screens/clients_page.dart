@@ -242,22 +242,14 @@ class _ClientsPageState extends State<ClientsPage> {
   }
 
   Future<void> _navigateToClientDetail(Client client, int index) async {
-    final updatedClient = await Navigator.push<Client>(
+    await Navigator.push<bool>(
       context,
       MaterialPageRoute(
         builder: (context) => ClientDetailPage(client: client),
       ),
     );
-
-    if (updatedClient != null && mounted) {
-      final clientIndex = _clients.indexWhere((c) => c.id == updatedClient.id);
-      if (clientIndex != -1) {
-        setState(() {
-          _clients[clientIndex] = updatedClient;
-        });
-        _applyLocalFilters();
-      }
-    }
+    // Note: ClientDetailPage returns true if a visit was completed
+    // Client data is managed by the server, so no need to update local state
   }
 
   @override

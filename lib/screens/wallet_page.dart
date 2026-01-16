@@ -5,6 +5,7 @@ import 'package:sirapro/services/api_service.dart';
 import 'package:sirapro/utils/app_colors.dart';
 import 'package:sirapro/widgets/session_aware_app_bar.dart';
 import 'package:sirapro/screens/wallet_transactions_page.dart';
+import 'package:sirapro/screens/invoice_transactions_detail_page.dart';
 
 class WalletPage extends StatefulWidget {
   const WalletPage({super.key});
@@ -17,6 +18,8 @@ class _WalletPageState extends State<WalletPage> {
   final WalletService _walletService = WalletService();
 
   Wallet? _wallet;
+  List<GroupedInvoiceTransactions> _groupedInvoices = [];
+  List<WalletTransaction> _otherTransactions = [];
   bool _isLoading = true;
   String? _errorMessage;
 
@@ -24,6 +27,89 @@ class _WalletPageState extends State<WalletPage> {
   void initState() {
     super.initState();
     _loadWallet();
+  }
+
+  void _groupTransactions(List<WalletTransaction> transactions) {
+    final Map<String, List<WalletTransaction>> groupedByReference = {};
+    final List<WalletTransaction> others = [];
+
+    for (final transaction in transactions) {
+      // Prefer using order_id, then invoice_id, otherwise fall back to referenceType/referenceId
+      if (transaction.orderId != null) {
+        // Use order_id for grouping
+        final key = 'Order_${transaction.orderId}';
+        if (!groupedByReference.containsKey(key)) {
+          groupedByReference[key] = [];
+        }
+        groupedByReference[key]!.add(transaction);
+      } else if (transaction.invoiceId != null) {
+        // Use invoice_id for grouping
+        final key = 'Invoice_${transaction.invoiceId}';
+        if (!groupedByReference.containsKey(key)) {
+          groupedByReference[key] = [];
+        }
+        groupedByReference[key]!.add(transaction);
+      } else if (transaction.referenceType != null &&
+          transaction.referenceId != null &&
+          (transaction.referenceType!.contains('Invoice') ||
+           transaction.referenceType!.contains('Order'))) {
+        // Fallback to reference type and ID
+        final key = '${transaction.referenceType}_${transaction.referenceId}';
+        if (!groupedByReference.containsKey(key)) {
+          groupedByReference[key] = [];
+        }
+        groupedByReference[key]!.add(transaction);
+      } else {
+        others.add(transaction);
+      }
+    }
+
+    // Convert to GroupedInvoiceTransactions
+    _groupedInvoices = groupedByReference.entries.map((entry) {
+      final transactions = entry.value;
+      transactions.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+      final firstTransaction = transactions.first;
+
+      // Determine the ID and label
+      int? displayId;
+      String label;
+
+      if (firstTransaction.orderId != null) {
+        // Use order_id directly
+        displayId = firstTransaction.orderId;
+        label = 'Commande';
+      } else if (firstTransaction.invoiceId != null) {
+        // Use invoice_id directly
+        displayId = firstTransaction.invoiceId;
+        label = 'Facture';
+      } else if (firstTransaction.referenceType != null) {
+        // Fallback to reference fields
+        displayId = firstTransaction.referenceId;
+        final isInvoice = firstTransaction.referenceType!.contains('Invoice');
+        label = isInvoice ? 'Facture' : 'Commande';
+      } else {
+        displayId = firstTransaction.referenceId;
+        label = 'Transaction';
+      }
+
+      return GroupedInvoiceTransactions(
+        invoiceId: displayId,
+        invoiceNumber: '$label #${displayId ?? '?'}',
+        transactions: transactions,
+        totalAmount: transactions.fold(
+          0.0,
+          (sum, t) => sum + (t.isCredit ? t.amount : -t.amount),
+        ),
+        firstTransactionDate: transactions.first.createdAt,
+      );
+    }).toList();
+
+    // Sort grouped invoices by date
+    _groupedInvoices.sort((a, b) =>
+      b.firstTransactionDate.compareTo(a.firstTransactionDate));
+
+    _otherTransactions = others;
   }
 
   Future<void> _loadWallet() async {
@@ -38,6 +124,7 @@ class _WalletPageState extends State<WalletPage> {
         if (response.status && response.wallet != null) {
           setState(() {
             _wallet = response.wallet;
+            _groupTransactions(_wallet!.recentTransactions);
             _isLoading = false;
           });
         } else {
@@ -217,6 +304,107 @@ class _WalletPageState extends State<WalletPage> {
     );
   }
 
+  Widget _buildGroupedInvoiceItem(GroupedInvoiceTransactions group) {
+    final isNetCredit = group.isNetCredit;
+    final color = isNetCredit ? AppColors.success : AppColors.primary;
+
+    return InkWell(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => InvoiceTransactionsDetailPage(
+              groupedTransactions: group,
+            ),
+          ),
+        );
+      },
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            // Invoice icon
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(
+                Icons.receipt_long,
+                color: AppColors.primary,
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 12),
+            // Invoice details
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    group.invoiceNumber,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Text(
+                        '${group.transactions.length} transaction${group.transactions.length > 1 ? 's' : ''}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                      Text(
+                        ' • ',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                      Text(
+                        _formatDateTime(group.firstTransactionDate),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            // Net amount and arrow
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  _formatAmount(group.netAmount.abs(), isNetCredit),
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: color,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Icon(
+                  Icons.arrow_forward_ios,
+                  size: 12,
+                  color: Colors.grey[400],
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildTransactionItem(WalletTransaction transaction) {
     final isCredit = transaction.isCredit;
     final color = isCredit ? AppColors.success : AppColors.primary;
@@ -311,6 +499,25 @@ class _WalletPageState extends State<WalletPage> {
       );
     }
 
+    final totalItems = _groupedInvoices.length + _otherTransactions.length;
+    final displayItems = <Widget>[];
+
+    // Add grouped invoices
+    for (int i = 0; i < _groupedInvoices.length; i++) {
+      displayItems.add(_buildGroupedInvoiceItem(_groupedInvoices[i]));
+      if (i < totalItems - 1) {
+        displayItems.add(Divider(height: 1, indent: 16, endIndent: 16, color: Colors.grey[200]));
+      }
+    }
+
+    // Add other transactions
+    for (int i = 0; i < _otherTransactions.length; i++) {
+      displayItems.add(_buildTransactionItem(_otherTransactions[i]));
+      if (_groupedInvoices.length + i < totalItems - 1) {
+        displayItems.add(Divider(height: 1, indent: 16, endIndent: 16, color: Colors.grey[200]));
+      }
+    }
+
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
@@ -325,13 +532,7 @@ class _WalletPageState extends State<WalletPage> {
         ],
       ),
       child: Column(
-        children: [
-          for (int i = 0; i < _wallet!.recentTransactions.length; i++) ...[
-            _buildTransactionItem(_wallet!.recentTransactions[i]),
-            if (i < _wallet!.recentTransactions.length - 1)
-              Divider(height: 1, indent: 16, endIndent: 16, color: Colors.grey[200]),
-          ],
-        ],
+        children: displayItems,
       ),
     );
   }

@@ -30,15 +30,15 @@ class AuthService {
     return _instance!;
   }
 
-  /// Login with email and password
+  /// Login with phone number (identifier) and password
   /// Returns the authenticated User on success
   /// Throws AuthException on failure
-  Future<User> login(String email, String password) async {
+  Future<User> login(String identifier, String password) async {
     try {
       final response = await _apiService.post(
         '/api/login',
         body: {
-          'email': email,
+          'identifier': identifier,
           'password': password,
         },
         includeAuth: false,
@@ -77,7 +77,7 @@ class AuthService {
       return user;
     } on ApiException catch (e) {
       if (e.statusCode == 401) {
-        throw AuthException('Invalid email or password');
+        throw AuthException('Invalid phone number or password');
       }
       throw AuthException(e.message);
     } catch (e) {

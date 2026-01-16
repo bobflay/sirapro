@@ -197,6 +197,7 @@ class InvoiceClient {
 
 /// Invoice line item
 class InvoiceItem {
+  final int? invoiceId; // Added to group items by invoice
   final String? reference;
   final String? designation;
   final int quantity;
@@ -213,6 +214,7 @@ class InvoiceItem {
   final String? status; // 'charged', 'delivered', 'not_delivered'
 
   InvoiceItem({
+    this.invoiceId,
     this.reference,
     this.designation,
     required this.quantity,
@@ -227,6 +229,7 @@ class InvoiceItem {
 
   factory InvoiceItem.fromJson(Map<String, dynamic> json) {
     return InvoiceItem(
+      invoiceId: json['invoice_id'] != null ? _parseInt(json['invoice_id']) : null,
       reference: json['reference'] as String?,
       designation: json['designation'] as String?,
       quantity: _parseInt(json['quantity']),
@@ -242,6 +245,7 @@ class InvoiceItem {
 
   Map<String, dynamic> toJson() {
     return {
+      if (invoiceId != null) 'invoice_id': invoiceId,
       'reference': reference,
       'designation': designation,
       'quantity': quantity,

@@ -79,7 +79,10 @@ class RoutingApiService {
       final uri = Uri.parse('${ApiService.baseUrl}/api/routing/my')
           .replace(queryParameters: queryParams.isNotEmpty ? queryParams : null);
 
+      print('[RoutingAPI] Fetching routing from: $uri');
+
       final token = _apiService.token;
+      print('[RoutingAPI] Token present: ${token != null}');
 
       final response = await http.get(
         uri,
@@ -90,9 +93,43 @@ class RoutingApiService {
         },
       );
 
+      print('[RoutingAPI] Response status code: ${response.statusCode}');
+      print('[RoutingAPI] Response body length: ${response.body.length}');
+
       if (response.statusCode >= 200 && response.statusCode < 300) {
+        print('[RoutingAPI] Raw response body: ${response.body}');
+
         final body = jsonDecode(response.body) as Map<String, dynamic>;
-        return ApiRoutingResponse.fromJson(body);
+        print('[RoutingAPI] Decoded JSON keys: ${body.keys.toList()}');
+        print('[RoutingAPI] Success field: ${body['success']}');
+        print('[RoutingAPI] Data field present: ${body['data'] != null}');
+
+        if (body['data'] != null) {
+          final data = body['data'] as Map<String, dynamic>;
+          print('[RoutingAPI] Data keys: ${data.keys.toList()}');
+          print('[RoutingAPI] Routing present: ${data['routing'] != null}');
+          print('[RoutingAPI] Summary present: ${data['summary'] != null}');
+
+          if (data['routing'] != null) {
+            final routing = data['routing'] as Map<String, dynamic>;
+            print('[RoutingAPI] Routing keys: ${routing.keys.toList()}');
+            print('[RoutingAPI] Routing ID: ${routing['id']}');
+            print('[RoutingAPI] User ID: ${routing['user_id']}');
+            print('[RoutingAPI] Route date: ${routing['route_date']}');
+            print('[RoutingAPI] Status: ${routing['status']}');
+          }
+        }
+
+        print('[RoutingAPI] Starting ApiRoutingResponse.fromJson...');
+        try {
+          final result = ApiRoutingResponse.fromJson(body);
+          print('[RoutingAPI] Successfully parsed routing response');
+          return result;
+        } catch (e, stackTrace) {
+          print('[RoutingAPI] ERROR parsing ApiRoutingResponse: $e');
+          print('[RoutingAPI] Stack trace: $stackTrace');
+          rethrow;
+        }
       }
 
       // Handle error response

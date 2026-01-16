@@ -756,6 +756,7 @@ class InvoicePhoto {
 
 class SavedInvoiceItem {
   final int id;
+  final int? invoiceId; // Added to group items by invoice
   final String? reference;
   final String? designation;
   final int quantity;
@@ -766,6 +767,7 @@ class SavedInvoiceItem {
 
   SavedInvoiceItem({
     required this.id,
+    this.invoiceId,
     this.reference,
     this.designation,
     required this.quantity,
@@ -785,6 +787,7 @@ class SavedInvoiceItem {
   factory SavedInvoiceItem.fromJson(Map<String, dynamic> json) {
     return SavedInvoiceItem(
       id: _parseIntSafe(json['id']),
+      invoiceId: json['invoice_id'] != null ? _parseIntSafe(json['invoice_id']) : null,
       reference: json['reference'] as String?,
       designation: json['designation'] as String?,
       quantity: _parseIntSafe(json['quantity']),

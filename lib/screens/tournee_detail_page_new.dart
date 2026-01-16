@@ -3,6 +3,7 @@ import '../models/api_routing.dart';
 import '../models/client.dart';
 import '../services/routing_api_service.dart';
 import '../services/visit_service.dart';
+import '../services/client_service.dart';
 import '../widgets/session_aware_app_bar.dart';
 import 'client_detail_page.dart';
 
@@ -23,6 +24,7 @@ class TourneeDetailPageNew extends StatefulWidget {
 class _TourneeDetailPageNewState extends State<TourneeDetailPageNew> {
   final RoutingApiService _routingApiService = RoutingApiService();
   final VisitService _visitService = VisitService();
+  final ClientService _clientService = ClientService();
 
   bool _isLoading = true;
   String? _errorMessage;
@@ -78,7 +80,44 @@ class _TourneeDetailPageNewState extends State<TourneeDetailPageNew> {
     // Navigate to client detail page to start the visit
     if (!mounted) return;
 
-    final client = _convertToClient(item.client);
+    // Fetch full client data with photos from the API
+    Client client;
+    try {
+      // Show loading indicator while fetching client details
+      if (mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => const Center(
+            child: CircularProgressIndicator(),
+          ),
+        );
+      }
+
+      client = await _clientService.getClient(item.client.id);
+
+      // Close loading indicator
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      // Close loading indicator
+      if (mounted) Navigator.pop(context);
+
+      // If fetching fails, fall back to converted client (without photos)
+      debugPrint('Error fetching full client data: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Impossible de charger les photos du client'),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+      client = _convertToClient(item.client);
+    }
+
+    if (!mounted) return;
+
     final result = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
