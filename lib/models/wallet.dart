@@ -230,6 +230,91 @@ class GroupedInvoiceTransactions {
   double get netAmount => totalCredit - totalDebit;
 }
 
+/// Cash receipt model
+class CashReceipt {
+  final int id;
+  final double amount;
+  final String imageUrl;
+  final String status; // 'pending', 'approved', 'rejected'
+  final bool aiVerified;
+  final bool aiAmountVerified;
+  final bool aiIsStamped;
+  final double? aiDetectedAmount;
+  final String? notes;
+  final String? rejectionReason;
+  final DateTime createdAt;
+  final DateTime? approvedAt;
+
+  CashReceipt({
+    required this.id,
+    required this.amount,
+    required this.imageUrl,
+    required this.status,
+    required this.aiVerified,
+    required this.aiAmountVerified,
+    required this.aiIsStamped,
+    this.aiDetectedAmount,
+    this.notes,
+    this.rejectionReason,
+    required this.createdAt,
+    this.approvedAt,
+  });
+
+  bool get isPending => status == 'pending';
+  bool get isApproved => status == 'approved';
+  bool get isRejected => status == 'rejected';
+
+  factory CashReceipt.fromJson(Map<String, dynamic> json) {
+    return CashReceipt(
+      id: json['id'] as int,
+      amount: _parseDoubleSafe(json['amount']),
+      imageUrl: json['image_url'] as String? ?? '',
+      status: json['status'] as String? ?? 'pending',
+      aiVerified: json['ai_verified'] as bool? ?? false,
+      aiAmountVerified: json['ai_amount_verified'] as bool? ?? false,
+      aiIsStamped: json['ai_is_stamped'] as bool? ?? false,
+      aiDetectedAmount: json['ai_detected_amount'] != null
+          ? _parseDoubleSafe(json['ai_detected_amount'])
+          : null,
+      notes: json['notes'] as String?,
+      rejectionReason: json['rejection_reason'] as String?,
+      createdAt: DateTime.parse(json['created_at'] as String),
+      approvedAt: json['approved_at'] != null
+          ? DateTime.parse(json['approved_at'] as String)
+          : null,
+    );
+  }
+}
+
+/// Response wrapper for cash receipts list
+class CashReceiptsResponse {
+  final bool status;
+  final List<CashReceipt> receipts;
+  final TransactionPagination? pagination;
+
+  CashReceiptsResponse({
+    required this.status,
+    this.receipts = const [],
+    this.pagination,
+  });
+
+  factory CashReceiptsResponse.fromJson(Map<String, dynamic> json) {
+    final data = json['data'] as Map<String, dynamic>?;
+    return CashReceiptsResponse(
+      status: json['status'] as bool? ?? false,
+      receipts: data != null && data['receipts'] != null
+          ? (data['receipts'] as List)
+              .map((e) => CashReceipt.fromJson(e as Map<String, dynamic>))
+              .toList()
+          : [],
+      pagination: data != null && data['pagination'] != null
+          ? TransactionPagination.fromJson(
+              data['pagination'] as Map<String, dynamic>)
+          : null,
+    );
+  }
+}
+
 /// Helper function to safely parse double values
 double _parseDoubleSafe(dynamic value) {
   if (value == null) return 0.0;
