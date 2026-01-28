@@ -8,6 +8,7 @@ import 'package:sirapro/screens/home_page.dart';
 import 'package:sirapro/services/auth_service.dart';
 import 'package:sirapro/services/visit_service.dart';
 import 'package:sirapro/services/push_notification_service.dart';
+import 'package:sirapro/services/offline/offline_service.dart';
 import 'package:sirapro/utils/app_colors.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
@@ -26,6 +27,11 @@ void main() async {
 
   // Initialize push notifications
   await PushNotificationService().initialize();
+
+  // Initialize offline service (mobile only)
+  if (!kIsWeb) {
+    await OfflineService().initialize();
+  }
 
   await initializeDateFormatting('fr_FR', null);
   // Load any active visit from persistent storage

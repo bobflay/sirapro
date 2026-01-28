@@ -5,7 +5,9 @@ import '../models/create_client_request.dart';
 import '../models/update_client_request.dart';
 import '../models/photo_upload_request.dart';
 import '../models/visit_report.dart';
+import '../models/sync_queue_item.dart';
 import 'api_service.dart';
+import 'offline/offline_service.dart';
 
 // Re-export UploadProgressCallback for convenience
 export 'api_service.dart' show UploadProgressCallback;
@@ -13,16 +15,23 @@ export 'api_service.dart' show UploadProgressCallback;
 /// Service for managing client-related API operations
 class ClientService {
   final ApiService _apiService;
+  final OfflineService _offlineService;
 
   // Singleton pattern
   static ClientService? _instance;
 
-  ClientService._internal(this._apiService);
+  ClientService._internal(this._apiService, this._offlineService);
 
-  factory ClientService({ApiService? apiService}) {
-    _instance ??= ClientService._internal(apiService ?? ApiService());
+  factory ClientService({ApiService? apiService, OfflineService? offlineService}) {
+    _instance ??= ClientService._internal(
+      apiService ?? ApiService(),
+      offlineService ?? OfflineService(),
+    );
     return _instance!;
   }
+
+  /// Check if we're currently online
+  bool get _isOnline => _offlineService.isOnline || kIsWeb;
 
   /// Fetch a paginated list of clients with optional filters
   ///
@@ -39,6 +48,49 @@ class ClientService {
   /// [mapWest] - Western longitude boundary for map filtering (-180 to 180)
   /// Returns [ClientsResponse] containing the list of clients and pagination info
   Future<ClientsResponse> getClients({
+    int page = 1,
+    int limit = 20,
+    String? search,
+    String? type,
+    String? city,
+    int? zoneId,
+    bool? hasAlert,
+    double? mapNorth,
+    double? mapSouth,
+    double? mapEast,
+    double? mapWest,
+  }) async {
+    // Try online first, fall back to cached data if offline
+    if (_isOnline) {
+      try {
+        return await _getClientsFromApi(
+          page: page,
+          limit: limit,
+          search: search,
+          type: type,
+          city: city,
+          zoneId: zoneId,
+          hasAlert: hasAlert,
+          mapNorth: mapNorth,
+          mapSouth: mapSouth,
+          mapEast: mapEast,
+          mapWest: mapWest,
+        );
+      } catch (e) {
+        // If API fails, try cached data
+        if (!kIsWeb) {
+          return await _getClientsFromCache(page: page, limit: limit, search: search);
+        }
+        rethrow;
+      }
+    } else {
+      // Offline - use cached data
+      return await _getClientsFromCache(page: page, limit: limit, search: search);
+    }
+  }
+
+  /// Fetch clients from API
+  Future<ClientsResponse> _getClientsFromApi({
     int page = 1,
     int limit = 20,
     String? search,
@@ -85,6 +137,44 @@ class ClientService {
 
     final response = await _apiService.get('/api/clients?$queryString');
     return ClientsResponse.fromJson(response as Map<String, dynamic>);
+  }
+
+  /// Fetch clients from local cache
+  Future<ClientsResponse> _getClientsFromCache({
+    int page = 1,
+    int limit = 20,
+    String? search,
+  }) async {
+    List<Map<String, dynamic>> cachedData;
+
+    if (search != null && search.isNotEmpty) {
+      cachedData = await _offlineService.searchCachedClients(search);
+    } else {
+      cachedData = await _offlineService.getCachedClients();
+    }
+
+    // Apply pagination
+    final startIndex = (page - 1) * limit;
+    final endIndex = startIndex + limit;
+    final paginatedData = cachedData.length > startIndex
+        ? cachedData.sublist(startIndex, endIndex > cachedData.length ? cachedData.length : endIndex)
+        : <Map<String, dynamic>>[];
+
+    final clients = paginatedData.map((json) => Client.fromJson(json)).toList();
+    final lastPage = cachedData.isEmpty ? 1 : (cachedData.length / limit).ceil();
+
+    return ClientsResponse(
+      clients: clients,
+      meta: PaginationMeta(
+        currentPage: page,
+        lastPage: lastPage,
+        perPage: limit,
+        total: cachedData.length,
+        from: cachedData.isEmpty ? null : startIndex + 1,
+        to: cachedData.isEmpty ? null : startIndex + paginatedData.length,
+      ),
+      success: true,
+    );
   }
 
   /// Fetch all clients by loading all pages
