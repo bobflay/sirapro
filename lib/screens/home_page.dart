@@ -14,7 +14,6 @@ import 'package:sirapro/screens/wallet_page.dart';
 import 'package:sirapro/utils/app_colors.dart';
 import 'package:sirapro/services/auth_service.dart';
 import 'package:sirapro/services/home_service.dart';
-import 'package:sirapro/services/api_service.dart';
 import 'package:sirapro/services/routing_api_service.dart';
 import 'package:sirapro/models/api_routing.dart';
 import 'package:sirapro/widgets/session_aware_app_bar.dart';
@@ -41,6 +40,7 @@ class _HomePageState extends State<HomePage> {
   bool _hasRouting = false;
 
   bool _isLoading = true;
+  bool _isOfflineData = false;
   String? _errorMessage;
 
   @override
@@ -90,18 +90,15 @@ class _HomePageState extends State<HomePage> {
         setState(() {
           _clientsCount = homeData.clientsCount;
           _userBalance = homeData.balance;
-        });
-      }
-    } on ApiException catch (e) {
-      if (mounted) {
-        setState(() {
-          _errorMessage = e.message;
+          _isOfflineData = homeData.isOffline;
         });
       }
     } catch (e) {
+      // Home data loading error is not critical when we have cached data
+      // The UI will still show with default values
       if (mounted) {
         setState(() {
-          _errorMessage = 'Une erreur est survenue lors du chargement des données';
+          _isOfflineData = true;
         });
       }
     }
