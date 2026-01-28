@@ -247,19 +247,62 @@ class OfflineService {
 
   // ==================== Entity Sync Methods ====================
 
+  /// Helper to extract data list from various API response formats
+  List<Map<String, dynamic>> _extractDataList(Map<String, dynamic> response) {
+    final data = response['data'];
+
+    // Direct list in data
+    if (data is List) {
+      return data.whereType<Map<String, dynamic>>().toList();
+    }
+
+    // Nested pagination format: { data: { data: [...], current_page: ... } }
+    if (data is Map<String, dynamic>) {
+      final nestedData = data['data'];
+      if (nestedData is List) {
+        return nestedData.whereType<Map<String, dynamic>>().toList();
+      }
+    }
+
+    return [];
+  }
+
   Future<bool> _syncClients() async {
     try {
       _updateSyncStatus('clients', isSyncing: true);
 
-      // Fetch all clients from API
-      final response = await _apiService.get('/api/clients?limit=1000');
-      final data = response as Map<String, dynamic>;
-      final clients = (data['data'] as List<dynamic>).cast<Map<String, dynamic>>();
+      // Fetch clients with pagination (API limit is 100)
+      final List<Map<String, dynamic>> allClients = [];
+      int page = 1;
+      bool hasMore = true;
+
+      while (hasMore) {
+        final response = await _apiService.get('/api/clients?page=$page&limit=100');
+        final data = response as Map<String, dynamic>;
+        final clients = _extractDataList(data);
+
+        if (clients.isEmpty) {
+          hasMore = false;
+        } else {
+          allClients.addAll(clients);
+          // Check if there's more pages
+          final meta = data['meta'] as Map<String, dynamic>?;
+          final currentPage = meta?['current_page'] as int? ?? page;
+          final lastPage = meta?['last_page'] as int? ?? 1;
+          hasMore = currentPage < lastPage;
+          page++;
+        }
+
+        // Safety limit to avoid infinite loops
+        if (page > 50) hasMore = false;
+      }
 
       // Save to local database
-      await _database.upsertAll('clients', clients, 'id');
+      if (allClients.isNotEmpty) {
+        await _database.upsertAll('clients', allClients, 'id');
+      }
 
-      _updateSyncStatus('clients', isSyncing: false, itemCount: clients.length);
+      _updateSyncStatus('clients', isSyncing: false, itemCount: allClients.length);
       return true;
     } catch (e) {
       _updateSyncStatus('clients', isSyncing: false, error: e.toString());
@@ -271,25 +314,49 @@ class OfflineService {
     try {
       _updateSyncStatus('products', isSyncing: true);
 
-      // Fetch all products from API
-      final response = await _apiService.get('/api/products?per_page=1000');
-      final data = response as Map<String, dynamic>;
-      final products = (data['data'] as List<dynamic>).cast<Map<String, dynamic>>();
+      // Fetch products with pagination
+      final List<Map<String, dynamic>> allProducts = [];
+      int page = 1;
+      bool hasMore = true;
+
+      while (hasMore) {
+        final response = await _apiService.get('/api/products?page=$page&per_page=100');
+        final data = response as Map<String, dynamic>;
+        final products = _extractDataList(data);
+
+        if (products.isEmpty) {
+          hasMore = false;
+        } else {
+          allProducts.addAll(products);
+          // Check pagination in nested data structure
+          final nestedData = data['data'] as Map<String, dynamic>?;
+          final currentPage = nestedData?['current_page'] as int? ?? page;
+          final lastPage = nestedData?['last_page'] as int? ?? 1;
+          hasMore = currentPage < lastPage;
+          page++;
+        }
+
+        if (page > 50) hasMore = false;
+      }
 
       // Save to local database
-      await _database.upsertAll('products', products, 'id');
+      if (allProducts.isNotEmpty) {
+        await _database.upsertAll('products', allProducts, 'id');
+      }
 
       // Also sync categories
       try {
         final catResponse = await _apiService.get('/api/products/categories?top_level=true');
         final catData = catResponse as Map<String, dynamic>;
-        final categories = (catData['data'] as List<dynamic>).cast<Map<String, dynamic>>();
-        await _database.upsertAll('product_categories', categories, 'id');
+        final categories = _extractDataList(catData);
+        if (categories.isNotEmpty) {
+          await _database.upsertAll('product_categories', categories, 'id');
+        }
       } catch (_) {
         // Categories are optional, don't fail the whole sync
       }
 
-      _updateSyncStatus('products', isSyncing: false, itemCount: products.length);
+      _updateSyncStatus('products', isSyncing: false, itemCount: allProducts.length);
       return true;
     } catch (e) {
       _updateSyncStatus('products', isSyncing: false, error: e.toString());
@@ -301,18 +368,39 @@ class OfflineService {
     try {
       _updateSyncStatus('orders', isSyncing: true);
 
-      // Fetch recent orders (last 30 days)
+      // Fetch recent orders (last 30 days) with pagination
       final fromDate = DateTime.now().subtract(const Duration(days: 30));
-      final response = await _apiService.get(
-        '/api/orders?per_page=500&from_date=${fromDate.toIso8601String().split('T').first}',
-      );
-      final data = response as Map<String, dynamic>;
-      final orders = (data['data'] as List<dynamic>).cast<Map<String, dynamic>>();
+      final List<Map<String, dynamic>> allOrders = [];
+      int page = 1;
+      bool hasMore = true;
+
+      while (hasMore) {
+        final response = await _apiService.get(
+          '/api/orders?page=$page&per_page=100&from_date=${fromDate.toIso8601String().split('T').first}',
+        );
+        final data = response as Map<String, dynamic>;
+        final orders = _extractDataList(data);
+
+        if (orders.isEmpty) {
+          hasMore = false;
+        } else {
+          allOrders.addAll(orders);
+          final nestedData = data['data'] as Map<String, dynamic>?;
+          final currentPage = nestedData?['current_page'] as int? ?? page;
+          final lastPage = nestedData?['last_page'] as int? ?? 1;
+          hasMore = currentPage < lastPage;
+          page++;
+        }
+
+        if (page > 20) hasMore = false;
+      }
 
       // Save to local database
-      await _database.upsertAll('orders', orders, 'id');
+      if (allOrders.isNotEmpty) {
+        await _database.upsertAll('orders', allOrders, 'id');
+      }
 
-      _updateSyncStatus('orders', isSyncing: false, itemCount: orders.length);
+      _updateSyncStatus('orders', isSyncing: false, itemCount: allOrders.length);
       return true;
     } catch (e) {
       _updateSyncStatus('orders', isSyncing: false, error: e.toString());
@@ -324,18 +412,39 @@ class OfflineService {
     try {
       _updateSyncStatus('visits', isSyncing: true);
 
-      // Fetch recent visits (last 7 days)
+      // Fetch recent visits (last 7 days) with pagination
       final fromDate = DateTime.now().subtract(const Duration(days: 7));
-      final response = await _apiService.get(
-        '/api/visits?per_page=200&from_date=${fromDate.toIso8601String().split('T').first}',
-      );
-      final data = response as Map<String, dynamic>;
-      final visits = (data['data'] as List<dynamic>).cast<Map<String, dynamic>>();
+      final List<Map<String, dynamic>> allVisits = [];
+      int page = 1;
+      bool hasMore = true;
+
+      while (hasMore) {
+        final response = await _apiService.get(
+          '/api/visits?page=$page&per_page=100&from_date=${fromDate.toIso8601String().split('T').first}',
+        );
+        final data = response as Map<String, dynamic>;
+        final visits = _extractDataList(data);
+
+        if (visits.isEmpty) {
+          hasMore = false;
+        } else {
+          allVisits.addAll(visits);
+          final nestedData = data['data'] as Map<String, dynamic>?;
+          final currentPage = nestedData?['current_page'] as int? ?? page;
+          final lastPage = nestedData?['last_page'] as int? ?? 1;
+          hasMore = currentPage < lastPage;
+          page++;
+        }
+
+        if (page > 10) hasMore = false;
+      }
 
       // Save to local database
-      await _database.upsertAll('visits', visits, 'id');
+      if (allVisits.isNotEmpty) {
+        await _database.upsertAll('visits', allVisits, 'id');
+      }
 
-      _updateSyncStatus('visits', isSyncing: false, itemCount: visits.length);
+      _updateSyncStatus('visits', isSyncing: false, itemCount: allVisits.length);
       return true;
     } catch (e) {
       _updateSyncStatus('visits', isSyncing: false, error: e.toString());
@@ -347,15 +456,36 @@ class OfflineService {
     try {
       _updateSyncStatus('alerts', isSyncing: true);
 
-      // Fetch open alerts
-      final response = await _apiService.get('/api/alerts?status=open&limit=200');
-      final data = response as Map<String, dynamic>;
-      final alerts = (data['data'] as List<dynamic>).cast<Map<String, dynamic>>();
+      // Fetch open alerts with pagination
+      final List<Map<String, dynamic>> allAlerts = [];
+      int page = 1;
+      bool hasMore = true;
+
+      while (hasMore) {
+        final response = await _apiService.get('/api/alerts?page=$page&limit=100&status=open');
+        final data = response as Map<String, dynamic>;
+        final alerts = _extractDataList(data);
+
+        if (alerts.isEmpty) {
+          hasMore = false;
+        } else {
+          allAlerts.addAll(alerts);
+          final meta = data['meta'] as Map<String, dynamic>?;
+          final currentPage = meta?['current_page'] as int? ?? page;
+          final lastPage = meta?['last_page'] as int? ?? 1;
+          hasMore = currentPage < lastPage;
+          page++;
+        }
+
+        if (page > 10) hasMore = false;
+      }
 
       // Save to local database
-      await _database.upsertAll('alerts', alerts, 'id');
+      if (allAlerts.isNotEmpty) {
+        await _database.upsertAll('alerts', allAlerts, 'id');
+      }
 
-      _updateSyncStatus('alerts', isSyncing: false, itemCount: alerts.length);
+      _updateSyncStatus('alerts', isSyncing: false, itemCount: allAlerts.length);
       return true;
     } catch (e) {
       _updateSyncStatus('alerts', isSyncing: false, error: e.toString());
@@ -367,15 +497,36 @@ class OfflineService {
     try {
       _updateSyncStatus('invoices', isSyncing: true);
 
-      // Fetch recent invoices
-      final response = await _apiService.get('/api/invoices?per_page=200');
-      final data = response as Map<String, dynamic>;
-      final invoices = (data['data'] as List<dynamic>).cast<Map<String, dynamic>>();
+      // Fetch recent invoices with pagination
+      final List<Map<String, dynamic>> allInvoices = [];
+      int page = 1;
+      bool hasMore = true;
+
+      while (hasMore) {
+        final response = await _apiService.get('/api/invoices?page=$page&per_page=100');
+        final data = response as Map<String, dynamic>;
+        final invoices = _extractDataList(data);
+
+        if (invoices.isEmpty) {
+          hasMore = false;
+        } else {
+          allInvoices.addAll(invoices);
+          final nestedData = data['data'] as Map<String, dynamic>?;
+          final currentPage = nestedData?['current_page'] as int? ?? page;
+          final lastPage = nestedData?['last_page'] as int? ?? 1;
+          hasMore = currentPage < lastPage;
+          page++;
+        }
+
+        if (page > 10) hasMore = false;
+      }
 
       // Save to local database
-      await _database.upsertAll('invoices', invoices, 'id');
+      if (allInvoices.isNotEmpty) {
+        await _database.upsertAll('invoices', allInvoices, 'id');
+      }
 
-      _updateSyncStatus('invoices', isSyncing: false, itemCount: invoices.length);
+      _updateSyncStatus('invoices', isSyncing: false, itemCount: allInvoices.length);
       return true;
     } catch (e) {
       _updateSyncStatus('invoices', isSyncing: false, error: e.toString());
@@ -395,7 +546,15 @@ class OfflineService {
       // Save to local database
       await _database.saveRouting(today, data);
 
-      final itemCount = (data['data']?['items'] as List?)?.length ?? 0;
+      // Extract item count from routing response
+      int itemCount = 0;
+      final routingData = data['data'];
+      if (routingData is Map<String, dynamic>) {
+        final routing = routingData['routing'] as Map<String, dynamic>?;
+        final items = routing?['routing_items'] as List?;
+        itemCount = items?.length ?? 0;
+      }
+
       _updateSyncStatus('routing', isSyncing: false, itemCount: itemCount);
       return true;
     } catch (e) {
