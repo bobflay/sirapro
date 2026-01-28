@@ -429,9 +429,10 @@ class OfflineService {
           hasMore = false;
         } else {
           allVisits.addAll(visits);
-          final nestedData = data['data'] as Map<String, dynamic>?;
-          final currentPage = nestedData?['current_page'] as int? ?? page;
-          final lastPage = nestedData?['last_page'] as int? ?? 1;
+          // Visits API uses 'meta' for pagination (not nested data.data)
+          final meta = data['meta'] as Map<String, dynamic>?;
+          final currentPage = meta?['current_page'] as int? ?? page;
+          final lastPage = meta?['last_page'] as int? ?? 1;
           hasMore = currentPage < lastPage;
           page++;
         }
@@ -456,13 +457,37 @@ class OfflineService {
     try {
       _updateSyncStatus('alerts', isSyncing: true);
 
-      // Fetch open alerts with pagination
+      // Fetch alerts with pagination (API accepts: pending, in_progress, resolved)
+      // Sync both pending and in_progress alerts for offline access
       final List<Map<String, dynamic>> allAlerts = [];
+
+      // Fetch pending alerts
       int page = 1;
       bool hasMore = true;
-
       while (hasMore) {
-        final response = await _apiService.get('/api/alerts?page=$page&limit=100&status=open');
+        final response = await _apiService.get('/api/alerts?page=$page&limit=100&status=pending');
+        final data = response as Map<String, dynamic>;
+        final alerts = _extractDataList(data);
+
+        if (alerts.isEmpty) {
+          hasMore = false;
+        } else {
+          allAlerts.addAll(alerts);
+          final meta = data['meta'] as Map<String, dynamic>?;
+          final currentPage = meta?['current_page'] as int? ?? page;
+          final lastPage = meta?['last_page'] as int? ?? 1;
+          hasMore = currentPage < lastPage;
+          page++;
+        }
+
+        if (page > 10) hasMore = false;
+      }
+
+      // Also fetch in_progress alerts
+      page = 1;
+      hasMore = true;
+      while (hasMore) {
+        final response = await _apiService.get('/api/alerts?page=$page&limit=100&status=in_progress');
         final data = response as Map<String, dynamic>;
         final alerts = _extractDataList(data);
 
