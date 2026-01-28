@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:sirapro/models/sync_queue_item.dart';
+import 'package:sirapro/services/offline/connectivity_service.dart';
 import 'package:sirapro/services/offline/offline_service.dart';
 import 'package:sirapro/widgets/session_aware_app_bar.dart';
 
@@ -51,6 +52,9 @@ class _SyncPageState extends State<SyncPage> {
     if (!_offlineService.isInitialized) {
       await _offlineService.initialize();
     }
+
+    // Force refresh connectivity status
+    await ConnectivityService().checkConnectivity();
 
     // Load initial sync statuses
     _loadSyncStatuses();

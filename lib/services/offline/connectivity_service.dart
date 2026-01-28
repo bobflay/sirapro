@@ -36,6 +36,9 @@ class ConnectivityService {
     // Get initial connectivity status
     await _checkConnectivity();
 
+    // Broadcast initial status to listeners
+    _connectivityController.add(_isOnline);
+
     // Listen for changes
     _subscription = _connectivity.onConnectivityChanged.listen(_onConnectivityChanged);
 
@@ -51,6 +54,7 @@ class ConnectivityService {
     } catch (e) {
       // Assume online if we can't check (fail-safe for web or restricted platforms)
       _isOnline = true;
+      _connectivityController.add(_isOnline);
       return true;
     }
   }
@@ -65,12 +69,11 @@ class ConnectivityService {
     final wasOnline = _isOnline;
 
     // Check if connection is available
-    _isOnline = result == ConnectivityResult.wifi ||
-        result == ConnectivityResult.mobile ||
-        result == ConnectivityResult.ethernet;
+    // ConnectivityResult.none means no connection
+    _isOnline = result != ConnectivityResult.none;
 
-    // Notify listeners if status changed
-    if (wasOnline != _isOnline) {
+    // Always notify listeners on initialization or when status changes
+    if (wasOnline != _isOnline || !_initialized) {
       _connectivityController.add(_isOnline);
     }
   }
@@ -89,9 +92,7 @@ class ConnectivityService {
 
     try {
       final result = await _connectivity.checkConnectivity();
-      return result == ConnectivityResult.wifi ||
-          result == ConnectivityResult.mobile ||
-          result == ConnectivityResult.ethernet;
+      return result != ConnectivityResult.none;
     } catch (e) {
       return false;
     }
