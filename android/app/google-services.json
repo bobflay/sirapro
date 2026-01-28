@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "297037244393",
+    "project_id": "sira-67284",
+    "storage_bucket": "sira-67284.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:297037244393:android:741e6793764f4b7ffe0d78",
+        "android_client_info": {
+          "package_name": "online.xpertbot.sirapro"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyARoyB4z4EDNIOk_ucChPa8U8Ru-JkFMes"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

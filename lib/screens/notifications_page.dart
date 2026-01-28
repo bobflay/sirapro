@@ -1,8 +1,46 @@
 import 'package:flutter/material.dart';
+import 'package:sirapro/models/notification.dart';
+import 'package:sirapro/services/notification_service.dart';
 import 'package:sirapro/widgets/session_aware_app_bar.dart';
 
-class NotificationsPage extends StatelessWidget {
+class NotificationsPage extends StatefulWidget {
   const NotificationsPage({super.key});
+
+  @override
+  State<NotificationsPage> createState() => _NotificationsPageState();
+}
+
+class _NotificationsPageState extends State<NotificationsPage> {
+  final NotificationService _notificationService = NotificationService();
+  List<ApiNotification> _notifications = [];
+  bool _isLoading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadNotifications();
+  }
+
+  Future<void> _loadNotifications() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+
+    try {
+      final notifications = await _notificationService.getNotifications();
+      setState(() {
+        _notifications = notifications;
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _error = e.toString();
+        _isLoading = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -12,53 +50,115 @@ class NotificationsPage extends StatelessWidget {
         title: 'Notifications',
       ),
       body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(16.0),
+        child: _buildBody(),
+      ),
+    );
+  }
+
+  Widget _buildBody() {
+    if (_isLoading) {
+      return const Center(
+        child: CircularProgressIndicator(),
+      );
+    }
+
+    if (_error != null) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            _buildNotificationCard(
-              context,
-              icon: Icons.shopping_cart,
-              iconColor: Colors.green,
-              title: 'Nouvelle commande',
-              message: 'Client ABC a passé une commande de 1 250 DH',
-              time: 'Il y a 2 heures',
-              isUnread: true,
+            Icon(
+              Icons.error_outline,
+              size: 64,
+              color: Colors.grey[400],
             ),
-            const SizedBox(height: 12),
-            _buildNotificationCard(
-              context,
-              icon: Icons.warning,
-              iconColor: Colors.orange,
-              title: 'Alerte stock',
-              message: 'Le stock du produit XYZ est faible (5 unités restantes)',
-              time: 'Il y a 5 heures',
-              isUnread: true,
+            const SizedBox(height: 16),
+            Text(
+              'Erreur de chargement',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Colors.grey[700],
+              ),
             ),
-            const SizedBox(height: 12),
-            _buildNotificationCard(
-              context,
-              icon: Icons.calendar_today,
-              iconColor: Colors.blue,
-              title: 'Rappel de visite',
-              message: 'Vous avez 4 visites planifiées pour demain',
-              time: 'Hier',
-              isUnread: true,
+            const SizedBox(height: 8),
+            Text(
+              _error!,
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey[600],
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              onPressed: _loadNotifications,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Réessayer'),
             ),
           ],
         ),
+      );
+    }
+
+    if (_notifications.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.notifications_off_outlined,
+              size: 64,
+              color: Colors.grey[400],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Aucune notification',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Colors.grey[700],
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Vous n\'avez pas encore de notifications',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey[600],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _loadNotifications,
+      child: ListView.separated(
+        padding: const EdgeInsets.all(16.0),
+        itemCount: _notifications.length,
+        separatorBuilder: (context, index) => const SizedBox(height: 12),
+        itemBuilder: (context, index) {
+          final notification = _notifications[index];
+          return _buildNotificationCard(
+            context,
+            notification: notification,
+          );
+        },
       ),
     );
   }
 
   Widget _buildNotificationCard(
     BuildContext context, {
-    required IconData icon,
-    required Color iconColor,
-    required String title,
-    required String message,
-    required String time,
-    required bool isUnread,
+    required ApiNotification notification,
   }) {
+    final isUnread = notification.isUnread;
+    final iconData = _getIconForNotification(notification);
+    final iconColor = _getIconColorForNotification(notification);
+    final timeAgo = _formatTimeAgo(notification.createdAt);
+
     return Container(
       decoration: BoxDecoration(
         color: isUnread ? Colors.blue.withValues(alpha: 0.05) : Colors.white,
@@ -98,7 +198,7 @@ class NotificationsPage extends StatelessWidget {
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Icon(
-                    icon,
+                    iconData,
                     color: iconColor,
                     size: 24,
                   ),
@@ -113,8 +213,8 @@ class NotificationsPage extends StatelessWidget {
                         children: [
                           Expanded(
                             child: Text(
-                              title,
-                              style: TextStyle(
+                              notification.title,
+                              style: const TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
                                 color: Colors.black87,
@@ -134,7 +234,7 @@ class NotificationsPage extends StatelessWidget {
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        message,
+                        notification.message,
                         style: TextStyle(
                           fontSize: 14,
                           color: Colors.grey[700],
@@ -151,7 +251,7 @@ class NotificationsPage extends StatelessWidget {
                           ),
                           const SizedBox(width: 4),
                           Text(
-                            time,
+                            timeAgo,
                             style: TextStyle(
                               fontSize: 12,
                               color: Colors.grey[500],
@@ -168,5 +268,68 @@ class NotificationsPage extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  IconData _getIconForNotification(ApiNotification notification) {
+    final title = notification.title.toLowerCase();
+    if (title.contains('otp') || title.contains('code')) {
+      return Icons.security;
+    } else if (title.contains('commande') || title.contains('order')) {
+      return Icons.shopping_cart;
+    } else if (title.contains('stock') || title.contains('alerte')) {
+      return Icons.warning;
+    } else if (title.contains('visite') || title.contains('visit')) {
+      return Icons.calendar_today;
+    } else if (title.contains('paiement') || title.contains('payment')) {
+      return Icons.payment;
+    } else if (title.contains('client')) {
+      return Icons.person;
+    }
+    return Icons.notifications;
+  }
+
+  Color _getIconColorForNotification(ApiNotification notification) {
+    final title = notification.title.toLowerCase();
+    if (title.contains('otp') || title.contains('code')) {
+      return Colors.purple;
+    } else if (title.contains('commande') || title.contains('order')) {
+      return Colors.green;
+    } else if (title.contains('stock') || title.contains('alerte')) {
+      return Colors.orange;
+    } else if (title.contains('visite') || title.contains('visit')) {
+      return Colors.blue;
+    } else if (title.contains('paiement') || title.contains('payment')) {
+      return Colors.teal;
+    } else if (title.contains('client')) {
+      return Colors.indigo;
+    }
+    return Colors.grey;
+  }
+
+  String _formatTimeAgo(DateTime dateTime) {
+    final now = DateTime.now();
+    final difference = now.difference(dateTime);
+
+    if (difference.inSeconds < 60) {
+      return 'À l\'instant';
+    } else if (difference.inMinutes < 60) {
+      final minutes = difference.inMinutes;
+      return 'Il y a $minutes min';
+    } else if (difference.inHours < 24) {
+      final hours = difference.inHours;
+      return 'Il y a $hours h';
+    } else if (difference.inDays < 7) {
+      final days = difference.inDays;
+      return days == 1 ? 'Hier' : 'Il y a $days jours';
+    } else if (difference.inDays < 30) {
+      final weeks = (difference.inDays / 7).floor();
+      return weeks == 1 ? 'Il y a 1 semaine' : 'Il y a $weeks semaines';
+    } else if (difference.inDays < 365) {
+      final months = (difference.inDays / 30).floor();
+      return months == 1 ? 'Il y a 1 mois' : 'Il y a $months mois';
+    } else {
+      final years = (difference.inDays / 365).floor();
+      return years == 1 ? 'Il y a 1 an' : 'Il y a $years ans';
+    }
   }
 }

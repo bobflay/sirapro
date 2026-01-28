@@ -52,6 +52,30 @@ class ApiProductCategory {
   }
 }
 
+/// Sale type enum for order items
+enum SaleType {
+  pack,
+  unit;
+
+  String get displayName {
+    switch (this) {
+      case SaleType.pack:
+        return 'Pack';
+      case SaleType.unit:
+        return 'Unité';
+    }
+  }
+
+  String get apiValue {
+    switch (this) {
+      case SaleType.pack:
+        return 'pack';
+      case SaleType.unit:
+        return 'unit';
+    }
+  }
+}
+
 /// Product from API
 /// Matches: GET /api/products
 /// Note: The API returns base_products which have a nested product object
@@ -184,6 +208,49 @@ class ApiProduct {
     );
     return '$formatted FCFA';
   }
+
+  /// Check if product can be sold as individual units
+  bool get canBeSoldAsUnit => canSellUnit == true && (unitPrice != null || (unitsPerPack != null && unitsPerPack! > 0));
+
+  /// Get the effective pack price
+  double? get effectivePackPrice => packPrice ?? price;
+
+  /// Get the effective unit price (calculated if not set)
+  double? get effectiveUnitPrice {
+    if (unitPrice != null) return unitPrice;
+    if (effectivePackPrice != null && unitsPerPack != null && unitsPerPack! > 0) {
+      return effectivePackPrice! / unitsPerPack!;
+    }
+    return null;
+  }
+
+  /// Get formatted pack price
+  String get formattedPackPrice {
+    final packPriceValue = effectivePackPrice;
+    if (packPriceValue == null) return 'Prix non disponible';
+    final formatted = packPriceValue.toStringAsFixed(0).replaceAllMapped(
+      RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+      (Match m) => '${m[1]} ',
+    );
+    return '$formatted FCFA/pack';
+  }
+
+  /// Get formatted unit price
+  String get formattedUnitPrice {
+    final unitPriceValue = effectiveUnitPrice;
+    if (unitPriceValue == null) return 'Prix non disponible';
+    final formatted = unitPriceValue.toStringAsFixed(0).replaceAllMapped(
+      RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+      (Match m) => '${m[1]} ',
+    );
+    return '$formatted FCFA/unité';
+  }
+
+  /// Get units per pack display text
+  String get unitsPerPackDisplay {
+    if (unitsPerPack == null || unitsPerPack == 0) return '';
+    return '$unitsPerPack unités/pack';
+  }
 }
 
 /// Cart item for order creation
@@ -191,33 +258,71 @@ class CartItem {
   final ApiProduct product;
   int quantity;
   final double? customUnitPrice;
+  final SaleType saleType;
 
   CartItem({
     required this.product,
     this.quantity = 1,
     this.customUnitPrice,
+    this.saleType = SaleType.pack,
   });
 
-  /// Get unit price from custom price or product (or 0 if not available)
-  double get unitPrice => customUnitPrice ?? product.price ?? 0;
+  /// Get the effective price based on sale type
+  /// For pack: uses packPrice or falls back to product.price
+  /// For unit: uses unitPrice or calculates from packPrice / unitsPerPack
+  double get effectivePrice {
+    if (customUnitPrice != null) return customUnitPrice!;
+
+    if (saleType == SaleType.unit) {
+      // Try to use unit price first
+      if (product.unitPrice != null) {
+        return product.unitPrice!;
+      }
+      // Fall back to calculating from pack price
+      if (product.packPrice != null && product.unitsPerPack != null && product.unitsPerPack! > 0) {
+        return product.packPrice! / product.unitsPerPack!;
+      }
+      // Last resort: use regular price divided by units if available
+      if (product.price != null && product.unitsPerPack != null && product.unitsPerPack! > 0) {
+        return product.price! / product.unitsPerPack!;
+      }
+    }
+
+    // For pack or as fallback
+    return product.packPrice ?? product.price ?? 0;
+  }
+
+  /// Get unit price (legacy getter for compatibility)
+  double get unitPrice => effectivePrice;
 
   /// Check if product has price
-  bool get hasPrice => customUnitPrice != null || product.hasPrice;
+  bool get hasPrice {
+    if (customUnitPrice != null) return true;
+    if (saleType == SaleType.unit) {
+      return product.unitPrice != null ||
+          (product.packPrice != null && product.unitsPerPack != null && product.unitsPerPack! > 0) ||
+          (product.price != null && product.unitsPerPack != null && product.unitsPerPack! > 0);
+    }
+    return product.packPrice != null || product.hasPrice;
+  }
 
   /// Calculate line total
-  double get lineTotal => unitPrice * quantity;
+  double get lineTotal => effectivePrice * quantity;
 
   /// Get display name
   String get displayName => product.displayName;
 
-  /// Get formatted unit price
+  /// Get sale type display text
+  String get saleTypeDisplay => saleType.displayName;
+
+  /// Get formatted unit price with sale type indication
   String get formattedUnitPrice {
     if (!hasPrice) return 'Prix non disponible';
-    final formatted = unitPrice.toStringAsFixed(0).replaceAllMapped(
+    final formatted = effectivePrice.toStringAsFixed(0).replaceAllMapped(
       RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
       (Match m) => '${m[1]} ',
     );
-    return '$formatted FCFA';
+    return '$formatted FCFA/${saleType == SaleType.unit ? 'unité' : 'pack'}';
   }
 
   /// Get formatted line total
@@ -232,17 +337,29 @@ class CartItem {
 
   /// Convert to order item payload for API
   /// Uses product_id as required by POST /api/orders
-  /// Optionally includes unit_price if custom price is set
+  /// Includes sale_type and unit_price for proper pricing
   Map<String, dynamic> toOrderItemPayload() {
     final payload = <String, dynamic>{
       'product_id': product.id,
       'quantity': quantity,
+      'sale_type': saleType.apiValue,
+      'unit_price': effectivePrice,
     };
-    // Include unit_price if custom price is set
-    if (customUnitPrice != null) {
-      payload['unit_price'] = customUnitPrice;
-    }
     return payload;
+  }
+
+  /// Create a copy with different sale type
+  CartItem copyWith({
+    int? quantity,
+    SaleType? saleType,
+    double? customUnitPrice,
+  }) {
+    return CartItem(
+      product: product,
+      quantity: quantity ?? this.quantity,
+      saleType: saleType ?? this.saleType,
+      customUnitPrice: customUnitPrice ?? this.customUnitPrice,
+    );
   }
 }
 

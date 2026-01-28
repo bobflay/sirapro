@@ -2263,21 +2263,6 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
 
           const SizedBox(height: 20),
 
-          // Quick Actions Section
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildSectionTitle('Actions rapides'),
-                const SizedBox(height: 12),
-                _buildQuickActions(),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 20),
-
           // Client Status Section
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -2290,6 +2275,22 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
               ],
             ),
           ),
+
+          // Quick Actions Section (hidden for Fermé or Suspendu clients)
+          if (_client.status != 'Fermé' && _client.status != 'Suspendu') ...[
+            const SizedBox(height: 20),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildSectionTitle('Actions rapides'),
+                  const SizedBox(height: 12),
+                  _buildQuickActions(),
+                ],
+              ),
+            ),
+          ],
 
           const SizedBox(height: 20),
 

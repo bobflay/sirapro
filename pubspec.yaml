@@ -51,6 +51,12 @@ dependencies:
   flutter_secure_storage: ^9.2.2
   easy_stepper: ^0.9.1
   geocoding: ^3.0.0
+  fl_chart: ^0.69.2
+
+  # Firebase
+  firebase_core: ^3.8.0
+  firebase_messaging: ^15.1.6
+  flutter_local_notifications: ^18.0.1
 
 dev_dependencies:
   flutter_test:

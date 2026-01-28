@@ -3,6 +3,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user.dart';
 import 'api_service.dart';
+import 'push_notification_service.dart';
 
 class AuthException implements Exception {
   final String message;
@@ -74,6 +75,9 @@ class AuthService {
       // Cache user
       _cachedUser = user;
 
+      // Send FCM token to server for push notifications
+      await PushNotificationService().sendTokenToServer();
+
       return user;
     } on ApiException catch (e) {
       if (e.statusCode == 401) {
@@ -94,6 +98,14 @@ class AuthService {
       final token = await getToken();
       if (token != null) {
         _apiService.setToken(token);
+
+        // Delete FCM token from server before logout
+        try {
+          await PushNotificationService().deleteTokenFromServer();
+        } catch (_) {
+          // Ignore FCM token deletion errors
+        }
+
         try {
           await _apiService.post('/api/logout');
         } catch (_) {
@@ -159,6 +171,9 @@ class AuthService {
         await _saveUser(user);
         _cachedUser = user;
       }
+
+      // Send FCM token to server (for returning users)
+      await PushNotificationService().sendTokenToServer();
 
       return true;
     } on ApiException catch (e) {

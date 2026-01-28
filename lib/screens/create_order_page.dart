@@ -31,7 +31,7 @@ class _CreateOrderPageState extends State<CreateOrderPage> {
   List<ApiProduct> _products = [];
   List<ApiProductCategory> _categories = [];
   List<Client> _clients = [];
-  final Map<int, CartItem> _cart = {}; // productId -> CartItem
+  final Map<String, CartItem> _cart = {}; // "productId_saleType" -> CartItem
   User? _currentUser;
 
   // State
@@ -224,39 +224,343 @@ class _CreateOrderPageState extends State<CreateOrderPage> {
     _loadProducts(refresh: true);
   }
 
-  void _addToCart(ApiProduct product) {
+  /// Generate cart key from product id and sale type
+  String _cartKey(int productId, SaleType saleType) => '${productId}_${saleType.apiValue}';
+
+  void _addToCart(ApiProduct product, {SaleType? saleType}) {
+    // If product can be sold as unit and no sale type specified, show selection dialog
+    if (saleType == null && product.canBeSoldAsUnit) {
+      _showSaleTypeDialog(product);
+      return;
+    }
+
+    // Default to pack if not specified
+    final selectedSaleType = saleType ?? SaleType.pack;
+    final key = _cartKey(product.id, selectedSaleType);
+
     setState(() {
-      if (_cart.containsKey(product.id)) {
-        _cart[product.id]!.quantity++;
+      if (_cart.containsKey(key)) {
+        _cart[key]!.quantity++;
       } else {
-        _cart[product.id] = CartItem(
+        _cart[key] = CartItem(
           product: product,
           quantity: 1,
+          saleType: selectedSaleType,
         );
       }
     });
   }
 
-  void _removeFromCart(int productId) {
+  void _removeFromCart(String cartKey) {
     setState(() {
-      if (_cart.containsKey(productId)) {
-        if (_cart[productId]!.quantity > 1) {
-          _cart[productId]!.quantity--;
+      if (_cart.containsKey(cartKey)) {
+        if (_cart[cartKey]!.quantity > 1) {
+          _cart[cartKey]!.quantity--;
         } else {
-          _cart.remove(productId);
+          _cart.remove(cartKey);
         }
       }
     });
   }
 
-  void _deleteFromCart(int productId) {
+  void _deleteFromCart(String cartKey) {
     setState(() {
-      _cart.remove(productId);
+      _cart.remove(cartKey);
     });
   }
 
+  /// Get total quantity of a product in cart (both pack and unit)
   int _getCartQuantity(ApiProduct product) {
-    return _cart[product.id]?.quantity ?? 0;
+    int total = 0;
+    final packKey = _cartKey(product.id, SaleType.pack);
+    final unitKey = _cartKey(product.id, SaleType.unit);
+    if (_cart.containsKey(packKey)) total += _cart[packKey]!.quantity;
+    if (_cart.containsKey(unitKey)) total += _cart[unitKey]!.quantity;
+    return total;
+  }
+
+  /// Check if product is in cart (either as pack or unit)
+  bool _isInCart(ApiProduct product) {
+    return _cart.containsKey(_cartKey(product.id, SaleType.pack)) ||
+           _cart.containsKey(_cartKey(product.id, SaleType.unit));
+  }
+
+  /// Get the first cart key for a product (pack first, then unit)
+  String? _getFirstCartKey(ApiProduct product) {
+    final packKey = _cartKey(product.id, SaleType.pack);
+    if (_cart.containsKey(packKey)) return packKey;
+    final unitKey = _cartKey(product.id, SaleType.unit);
+    if (_cart.containsKey(unitKey)) return unitKey;
+    return null;
+  }
+
+  /// Remove from cart using product (finds first cart item)
+  void _removeFromCartByProduct(ApiProduct product) {
+    final key = _getFirstCartKey(product);
+    if (key != null) {
+      _removeFromCart(key);
+    }
+  }
+
+  /// Show dialog to select pack or unit
+  void _showSaleTypeDialog(ApiProduct product) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              product.displayName,
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            if (product.unitsPerPackDisplay.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                product.unitsPerPackDisplay,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.grey[600],
+                ),
+              ),
+            ],
+            const SizedBox(height: 20),
+            const Text(
+              'Comment voulez-vous acheter ce produit?',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            const SizedBox(height: 16),
+            // Pack option
+            _buildSaleTypeOption(
+              title: 'Pack complet',
+              subtitle: product.formattedPackPrice,
+              icon: Icons.inventory_2,
+              onTap: () {
+                Navigator.pop(context);
+                _showQuantityInputDialog(product, SaleType.pack);
+              },
+            ),
+            const SizedBox(height: 12),
+            // Unit option
+            _buildSaleTypeOption(
+              title: 'À l\'unité',
+              subtitle: product.formattedUnitPrice,
+              icon: Icons.format_list_numbered,
+              onTap: () {
+                Navigator.pop(context);
+                _showQuantityInputDialog(product, SaleType.unit);
+              },
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Show quantity input dialog
+  void _showQuantityInputDialog(ApiProduct product, SaleType saleType) {
+    final quantityController = TextEditingController(text: '1');
+    final formKey = GlobalKey<FormState>();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Icon(
+              saleType == SaleType.unit ? Icons.format_list_numbered : Icons.inventory_2,
+              color: saleType == SaleType.unit ? Colors.orange : AppColors.primary,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Quantité de ${saleType == SaleType.unit ? 'unités' : 'packs'}',
+                style: const TextStyle(fontSize: 18),
+              ),
+            ),
+          ],
+        ),
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                product.displayName,
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                saleType == SaleType.unit
+                    ? product.formattedUnitPrice
+                    : product.formattedPackPrice,
+                style: TextStyle(
+                  color: AppColors.primary,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: quantityController,
+                keyboardType: TextInputType.number,
+                autofocus: true,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                ),
+                decoration: InputDecoration(
+                  labelText: 'Quantité',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  prefixIcon: IconButton(
+                    icon: const Icon(Icons.remove_circle_outline),
+                    onPressed: () {
+                      final current = int.tryParse(quantityController.text) ?? 1;
+                      if (current > 1) {
+                        quantityController.text = (current - 1).toString();
+                      }
+                    },
+                  ),
+                  suffixIcon: IconButton(
+                    icon: const Icon(Icons.add_circle_outline),
+                    onPressed: () {
+                      final current = int.tryParse(quantityController.text) ?? 0;
+                      quantityController.text = (current + 1).toString();
+                    },
+                  ),
+                ),
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'Entrez une quantité';
+                  }
+                  final qty = int.tryParse(value);
+                  if (qty == null || qty < 1) {
+                    return 'Quantité invalide';
+                  }
+                  return null;
+                },
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Annuler'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              if (formKey.currentState!.validate()) {
+                final quantity = int.parse(quantityController.text);
+                Navigator.pop(context);
+                _addToCartWithQuantity(product, saleType, quantity);
+              }
+            },
+            child: const Text('Ajouter'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Add to cart with a specific quantity
+  void _addToCartWithQuantity(ApiProduct product, SaleType saleType, int quantity) {
+    final key = _cartKey(product.id, saleType);
+
+    setState(() {
+      if (_cart.containsKey(key)) {
+        _cart[key]!.quantity += quantity;
+      } else {
+        _cart[key] = CartItem(
+          product: product,
+          quantity: quantity,
+          saleType: saleType,
+        );
+      }
+    });
+  }
+
+  Widget _buildSaleTypeOption({
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          border: Border.all(color: Colors.grey[300]!),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(icon, color: AppColors.primary),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 16,
+                    ),
+                  ),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      color: AppColors.primary,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey),
+          ],
+        ),
+      ),
+    );
   }
 
   int _getCartItemsCount() {
@@ -831,6 +1135,24 @@ class _CreateOrderPageState extends State<CreateOrderPage> {
                           color: product.hasPrice ? AppColors.primary : Colors.grey[500],
                         ),
                       ),
+                      if (product.canBeSoldAsUnit) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.orange.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            'Unité dispo',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w500,
+                              color: Colors.orange[700],
+                            ),
+                          ),
+                        ),
+                      ],
                       if (product.categoryName != null) ...[
                         const SizedBox(width: 8),
                         Container(
@@ -862,7 +1184,7 @@ class _CreateOrderPageState extends State<CreateOrderPage> {
                     children: [
                       _buildQuantityButton(
                         Icons.remove,
-                        () => _removeFromCart(product.id),
+                        () => _removeFromCartByProduct(product),
                       ),
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 10),
@@ -1056,8 +1378,9 @@ class _CreateOrderPageState extends State<CreateOrderPage> {
                       itemCount: _cart.length,
                       separatorBuilder: (_, __) => const SizedBox(height: 12),
                       itemBuilder: (context, index) {
-                        final item = _cart.values.toList()[index];
-                        return _buildCartItem(item);
+                        final cartKey = _cart.keys.toList()[index];
+                        final item = _cart[cartKey]!;
+                        return _buildCartItem(item, cartKey);
                       },
                     ),
             ),
@@ -1154,7 +1477,7 @@ class _CreateOrderPageState extends State<CreateOrderPage> {
     );
   }
 
-  Widget _buildCartItem(CartItem item) {
+  Widget _buildCartItem(CartItem item, String cartKey) {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -1186,6 +1509,27 @@ class _CreateOrderPageState extends State<CreateOrderPage> {
                   ),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 4),
+                // Sale type badge
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: item.saleType == SaleType.unit
+                        ? Colors.orange.withValues(alpha: 0.1)
+                        : AppColors.primary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    item.saleType == SaleType.unit ? 'Unité' : 'Pack',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: item.saleType == SaleType.unit
+                          ? Colors.orange[700]
+                          : AppColors.primary,
+                    ),
+                  ),
                 ),
                 const SizedBox(height: 4),
                 Row(
@@ -1228,7 +1572,7 @@ class _CreateOrderPageState extends State<CreateOrderPage> {
                   _buildSmallQuantityButton(
                     Icons.remove,
                     () {
-                      _removeFromCart(item.product.id);
+                      _removeFromCart(cartKey);
                       if (_cart.isEmpty) Navigator.pop(context);
                     },
                   ),
@@ -1241,13 +1585,13 @@ class _CreateOrderPageState extends State<CreateOrderPage> {
                   ),
                   _buildSmallQuantityButton(
                     Icons.add,
-                    () => _addToCart(item.product),
+                    () => _addToCart(item.product, saleType: item.saleType),
                   ),
                   const SizedBox(width: 8),
                   IconButton(
                     icon: const Icon(Icons.delete_outline, color: Colors.red),
                     onPressed: () {
-                      _deleteFromCart(item.product.id);
+                      _deleteFromCart(cartKey);
                       if (_cart.isEmpty) Navigator.pop(context);
                     },
                     constraints: const BoxConstraints(minWidth: 32, minHeight: 32),

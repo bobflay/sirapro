@@ -1,13 +1,32 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:sirapro/firebase_options.dart';
 import 'package:sirapro/screens/login_screen.dart';
 import 'package:sirapro/screens/home_page.dart';
 import 'package:sirapro/services/auth_service.dart';
 import 'package:sirapro/services/visit_service.dart';
+import 'package:sirapro/services/push_notification_service.dart';
 import 'package:sirapro/utils/app_colors.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize Firebase
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+
+  // Set up background message handler (mobile only - web uses service worker)
+  if (!kIsWeb) {
+    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+  }
+
+  // Initialize push notifications
+  await PushNotificationService().initialize();
+
   await initializeDateFormatting('fr_FR', null);
   // Load any active visit from persistent storage
   await VisitService().loadActiveVisit();
