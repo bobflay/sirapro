@@ -4,6 +4,7 @@ class Client {
   final int id;
   final String name;
   final String type;
+  final String? clientType;
   final String managerName;
   final List<String> phones;
   final String city;
@@ -36,6 +37,7 @@ class Client {
     required this.id,
     required this.name,
     required this.type,
+    this.clientType,
     required this.managerName,
     required this.phones,
     required this.city,
@@ -155,6 +157,7 @@ class Client {
       id: json['id'] as int,
       name: json['name'] as String,
       type: json['type'] as String,
+      clientType: json['client_type'] as String?,
       managerName: json['manager_name'] as String,
       phones: (json['phones'] as List<dynamic>).map((e) => e as String).toList(),
       city: json['city'] as String,
@@ -193,6 +196,7 @@ class Client {
       'id': id,
       'name': name,
       'type': type,
+      'client_type': clientType,
       'manager_name': managerName,
       'phones': phones,
       'city': city,
@@ -215,6 +219,7 @@ class Client {
     int? id,
     String? name,
     String? type,
+    String? clientType,
     String? managerName,
     List<String>? phones,
     String? city,
@@ -257,6 +262,7 @@ class Client {
       id: id ?? this.id,
       name: boutiqueName ?? name ?? this.name,
       type: type ?? this.type,
+      clientType: clientType ?? this.clientType,
       managerName: gerantName ?? managerName ?? this.managerName,
       phones: updatedPhones,
       city: ville ?? city ?? this.city,

@@ -88,6 +88,7 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
   late TextEditingController _villeController;
 
   String? _selectedType;
+  String? _selectedClientType;
   String? _selectedZone;
   String? _selectedPotentiel;
   String? _selectedFrequence;
@@ -110,6 +111,12 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
     'Étalage',
     'Boulangerie',
     'Autre',
+  ];
+
+  final List<String> _clientTypes = [
+    'Aucun',
+    'B2B',
+    'B2C',
   ];
 
   final List<String> _zones = [
@@ -196,6 +203,7 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
     _villeController = TextEditingController(text: _client.ville);
 
     _selectedType = _client.type;
+    _selectedClientType = _client.clientType ?? 'Aucun';
     _selectedZone = _client.zone;
     _selectedPotentiel = _client.potentiel;
     // Convert API value (english) to French label for dropdown
@@ -1678,6 +1686,7 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
       final request = UpdateClientRequest(
         name: _boutiqueNameController.text.trim(),
         type: _selectedType,
+        clientType: _selectedClientType == 'Aucun' ? null : _selectedClientType,
         managerName: _gerantNameController.text.trim(),
         phone: PhoneUtils.stripSpaces(_phoneController.text.trim()),
         whatsapp: _whatsappController.text.trim().isNotEmpty
@@ -2355,6 +2364,8 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
                 const SizedBox(height: 12),
                 _buildInfoCard([
                   _buildInfoRow(Icons.category, 'Type', _client.type),
+                  if (_client.clientType != null && _client.clientType!.isNotEmpty)
+                    _buildInfoRow(Icons.business, 'Classification', _client.clientType!),
                   if (_client.potentiel != null)
                     _buildInfoRow(Icons.star, 'Potentiel', _client.potentiel!),
                   if (_client.frequenceVisite != null)
@@ -2412,6 +2423,13 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
               label: 'Type *',
               items: _types,
               onChanged: (value) => setState(() => _selectedType = value),
+            ),
+            const SizedBox(height: 16),
+            _buildDropdown(
+              value: _selectedClientType,
+              label: 'Classification (B2B/B2C)',
+              items: _clientTypes,
+              onChanged: (value) => setState(() => _selectedClientType = value),
             ),
             const SizedBox(height: 16),
             _buildTextField(

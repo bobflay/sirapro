@@ -10,6 +10,10 @@ class CreateClientRequest {
   /// One of: Boutique, Supermarché, Demi-grossiste, Grossiste, Distributeur, Autre
   final String type;
 
+  /// Client type classification (optional)
+  /// One of: B2B, B2C
+  final String? clientType;
+
   /// Client potential (required)
   /// One of: A, B, C
   final String potential;
@@ -62,6 +66,7 @@ class CreateClientRequest {
     required this.code,
     required this.name,
     required this.type,
+    this.clientType,
     required this.potential,
     required this.baseCommercialeId,
     required this.zoneId,
@@ -96,6 +101,9 @@ class CreateClientRequest {
     };
 
     // Add optional fields only if they have values
+    if (clientType != null && clientType!.isNotEmpty) {
+      json['client_type'] = clientType;
+    }
     if (managerName != null && managerName!.isNotEmpty) {
       json['manager_name'] = managerName;
     }
@@ -148,6 +156,13 @@ class CreateClientRequest {
     ];
     if (!validTypes.contains(type)) {
       errors.add('Type de client invalide');
+    }
+
+    if (clientType != null && clientType!.isNotEmpty) {
+      final validClientTypes = ['B2B', 'B2C'];
+      if (!validClientTypes.contains(clientType)) {
+        errors.add('Type de classification invalide (B2B ou B2C)');
+      }
     }
 
     final validPotentials = ['A', 'B', 'C'];

@@ -21,8 +21,7 @@ class _WalletPageState extends State<WalletPage>
   late final TabController _tabController;
 
   Wallet? _wallet;
-  List<GroupedInvoiceTransactions> _groupedInvoices = [];
-  List<WalletTransaction> _otherTransactions = [];
+  Map<String, List<dynamic>> _transactionsByDay = {}; // Map of date -> list of transactions/groups
   List<CashReceipt> _cashReceipts = [];
   bool _isLoading = true;
   String? _errorMessage;
@@ -41,86 +40,132 @@ class _WalletPageState extends State<WalletPage>
   }
 
   void _groupTransactions(List<WalletTransaction> transactions) {
-    final Map<String, List<WalletTransaction>> groupedByReference = {};
-    final List<WalletTransaction> others = [];
+    // First, group by day
+    final Map<String, List<WalletTransaction>> transactionsByDay = {};
 
     for (final transaction in transactions) {
-      // Prefer using order_id, then invoice_id, otherwise fall back to referenceType/referenceId
-      if (transaction.orderId != null) {
-        // Use order_id for grouping
-        final key = 'Order_${transaction.orderId}';
-        if (!groupedByReference.containsKey(key)) {
-          groupedByReference[key] = [];
-        }
-        groupedByReference[key]!.add(transaction);
-      } else if (transaction.invoiceId != null) {
-        // Use invoice_id for grouping
-        final key = 'Invoice_${transaction.invoiceId}';
-        if (!groupedByReference.containsKey(key)) {
-          groupedByReference[key] = [];
-        }
-        groupedByReference[key]!.add(transaction);
-      } else if (transaction.referenceType != null &&
-          transaction.referenceId != null &&
-          (transaction.referenceType!.contains('Invoice') ||
-           transaction.referenceType!.contains('Order'))) {
-        // Fallback to reference type and ID
-        final key = '${transaction.referenceType}_${transaction.referenceId}';
-        if (!groupedByReference.containsKey(key)) {
-          groupedByReference[key] = [];
-        }
-        groupedByReference[key]!.add(transaction);
-      } else {
-        others.add(transaction);
+      final dateKey = _getDateKey(transaction.createdAt);
+      if (!transactionsByDay.containsKey(dateKey)) {
+        transactionsByDay[dateKey] = [];
       }
+      transactionsByDay[dateKey]!.add(transaction);
     }
 
-    // Convert to GroupedInvoiceTransactions
-    _groupedInvoices = groupedByReference.entries.map((entry) {
-      final transactions = entry.value;
-      transactions.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    // Then, for each day, group by invoice/order
+    _transactionsByDay = {};
 
-      final firstTransaction = transactions.first;
+    for (final entry in transactionsByDay.entries) {
+      final dateKey = entry.key;
+      final dayTransactions = entry.value;
 
-      // Determine the ID and label
-      int? displayId;
-      String label;
+      // Group transactions within this day
+      final Map<String, List<WalletTransaction>> groupedByReference = {};
+      final List<WalletTransaction> others = [];
 
-      if (firstTransaction.orderId != null) {
-        // Use order_id directly
-        displayId = firstTransaction.orderId;
-        label = 'Commande';
-      } else if (firstTransaction.invoiceId != null) {
-        // Use invoice_id directly
-        displayId = firstTransaction.invoiceId;
-        label = 'Facture';
-      } else if (firstTransaction.referenceType != null) {
-        // Fallback to reference fields
-        displayId = firstTransaction.referenceId;
-        final isInvoice = firstTransaction.referenceType!.contains('Invoice');
-        label = isInvoice ? 'Facture' : 'Commande';
-      } else {
-        displayId = firstTransaction.referenceId;
-        label = 'Transaction';
+      for (final transaction in dayTransactions) {
+        // Prefer using order_id, then invoice_id, otherwise fall back to referenceType/referenceId
+        if (transaction.orderId != null) {
+          final key = 'Order_${transaction.orderId}';
+          if (!groupedByReference.containsKey(key)) {
+            groupedByReference[key] = [];
+          }
+          groupedByReference[key]!.add(transaction);
+        } else if (transaction.invoiceId != null) {
+          final key = 'Invoice_${transaction.invoiceId}';
+          if (!groupedByReference.containsKey(key)) {
+            groupedByReference[key] = [];
+          }
+          groupedByReference[key]!.add(transaction);
+        } else if (transaction.referenceType != null &&
+            transaction.referenceId != null &&
+            (transaction.referenceType!.contains('Invoice') ||
+             transaction.referenceType!.contains('Order'))) {
+          final key = '${transaction.referenceType}_${transaction.referenceId}';
+          if (!groupedByReference.containsKey(key)) {
+            groupedByReference[key] = [];
+          }
+          groupedByReference[key]!.add(transaction);
+        } else {
+          others.add(transaction);
+        }
       }
 
-      return GroupedInvoiceTransactions(
-        invoiceId: displayId,
-        invoiceNumber: '$label #${displayId ?? '?'}',
-        transactions: transactions,
-        totalAmount: transactions.fold(
-          0.0,
-          (sum, t) => sum + (t.isCredit ? t.amount : -t.amount),
-        ),
-        firstTransactionDate: transactions.first.createdAt,
-      );
-    }).toList();
+      // Convert to GroupedInvoiceTransactions
+      final groupedInvoices = groupedByReference.entries.map((entry) {
+        final transactions = entry.value;
+        transactions.sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
-    // Sort grouped invoices by date
-    _groupedInvoices.sort((a, b) =>
-      b.firstTransactionDate.compareTo(a.firstTransactionDate));
+        final firstTransaction = transactions.first;
 
-    _otherTransactions = others;
+        // Determine the ID and label
+        int? displayId;
+        String label;
+
+        if (firstTransaction.orderId != null) {
+          displayId = firstTransaction.orderId;
+          label = 'Commande';
+        } else if (firstTransaction.invoiceId != null) {
+          displayId = firstTransaction.invoiceId;
+          label = 'Facture';
+        } else if (firstTransaction.referenceType != null) {
+          displayId = firstTransaction.referenceId;
+          final isInvoice = firstTransaction.referenceType!.contains('Invoice');
+          label = isInvoice ? 'Facture' : 'Commande';
+        } else {
+          displayId = firstTransaction.referenceId;
+          label = 'Transaction';
+        }
+
+        return GroupedInvoiceTransactions(
+          invoiceId: displayId,
+          invoiceNumber: '$label #${displayId ?? '?'}',
+          transactions: transactions,
+          totalAmount: transactions.fold(
+            0.0,
+            (sum, t) => sum + (t.isCredit ? t.amount : -t.amount),
+          ),
+          firstTransactionDate: transactions.first.createdAt,
+        );
+      }).toList();
+
+      // Combine grouped and individual transactions for this day
+      final dayItems = <dynamic>[...groupedInvoices, ...others];
+      dayItems.sort((a, b) {
+        final aDate = a is GroupedInvoiceTransactions
+            ? a.firstTransactionDate
+            : (a as WalletTransaction).createdAt;
+        final bDate = b is GroupedInvoiceTransactions
+            ? b.firstTransactionDate
+            : (b as WalletTransaction).createdAt;
+        return bDate.compareTo(aDate);
+      });
+
+      _transactionsByDay[dateKey] = dayItems;
+    }
+  }
+
+  String _getDateKey(DateTime date) {
+    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+  }
+
+  String _formatDateHeader(String dateKey) {
+    final parts = dateKey.split('-');
+    final date = DateTime(int.parse(parts[0]), int.parse(parts[1]), int.parse(parts[2]));
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
+
+    if (date == today) {
+      return "Aujourd'hui";
+    } else if (date == yesterday) {
+      return 'Hier';
+    } else {
+      final months = [
+        'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
+        'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'
+      ];
+      return '${date.day} ${months[date.month - 1]} ${date.year}';
+    }
   }
 
   Future<void> _loadWallet() async {
@@ -265,22 +310,58 @@ class _WalletPageState extends State<WalletPage>
             ],
           ),
           const SizedBox(height: 24),
-          const Text(
-            'Solde Actuel',
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.white70,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            _wallet != null ? _formatBalance(_wallet!.balance) : '-- FCFA',
-            style: const TextStyle(
-              fontSize: 32,
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
-            ),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Solde du Jour',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.white70,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      _wallet != null ? _formatBalance(_wallet!.soldeDuJour) : '-- FCFA',
+                      style: const TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Solde Cumulé',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.white70,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      _wallet != null ? _formatBalance(_wallet!.soldeCumule) : '-- FCFA',
+                      style: const TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -518,41 +599,56 @@ class _WalletPageState extends State<WalletPage>
       );
     }
 
-    final totalItems = _groupedInvoices.length + _otherTransactions.length;
-    final displayItems = <Widget>[];
+    // Sort days by date (most recent first)
+    final sortedDays = _transactionsByDay.keys.toList()
+      ..sort((a, b) => b.compareTo(a));
 
-    // Add grouped invoices
-    for (int i = 0; i < _groupedInvoices.length; i++) {
-      displayItems.add(_buildGroupedInvoiceItem(_groupedInvoices[i]));
-      if (i < totalItems - 1) {
-        displayItems.add(Divider(height: 1, indent: 16, endIndent: 16, color: Colors.grey[200]));
-      }
-    }
-
-    // Add other transactions
-    for (int i = 0; i < _otherTransactions.length; i++) {
-      displayItems.add(_buildTransactionItem(_otherTransactions[i]));
-      if (_groupedInvoices.length + i < totalItems - 1) {
-        displayItems.add(Divider(height: 1, indent: 16, endIndent: 16, color: Colors.grey[200]));
-      }
-    }
-
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withValues(alpha: 0.1),
-            blurRadius: 5,
-            offset: const Offset(0, 2),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (final dateKey in sortedDays) ...[
+          // Day header
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+            child: Text(
+              _formatDateHeader(dateKey),
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: Colors.black54,
+              ),
+            ),
           ),
+          // Transactions for this day
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.grey.withValues(alpha: 0.1),
+                  blurRadius: 5,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Column(
+              children: [
+                for (int i = 0; i < _transactionsByDay[dateKey]!.length; i++) ...[
+                  if (i > 0)
+                    Divider(height: 1, indent: 16, endIndent: 16, color: Colors.grey[200]),
+                  if (_transactionsByDay[dateKey]![i] is GroupedInvoiceTransactions)
+                    _buildGroupedInvoiceItem(_transactionsByDay[dateKey]![i] as GroupedInvoiceTransactions)
+                  else
+                    _buildTransactionItem(_transactionsByDay[dateKey]![i] as WalletTransaction),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
         ],
-      ),
-      child: Column(
-        children: displayItems,
-      ),
+      ],
     );
   }
 

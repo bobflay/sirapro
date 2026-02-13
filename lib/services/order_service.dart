@@ -369,4 +369,52 @@ class OrderService {
       throw ApiException('Une erreur inattendue est survenue: $e');
     }
   }
+
+  /// Download invoice PDF for an order from the server
+  ///
+  /// Returns the PDF file bytes
+  Future<List<int>> downloadInvoice(int orderId) async {
+    try {
+      final uri = Uri.parse('${ApiService.baseUrl}/api/orders/$orderId/invoice');
+      final token = _apiService.token;
+
+      debugPrint('[OrderService] Downloading invoice for order: $orderId');
+
+      final response = await http.get(
+        uri,
+        headers: {
+          'Accept': 'application/pdf',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+      );
+
+      debugPrint('[OrderService] Download invoice response status: ${response.statusCode}');
+
+      if (response.statusCode == 200) {
+        return response.bodyBytes;
+      }
+
+      if (response.statusCode == 404) {
+        throw ApiException('Facture introuvable', statusCode: 404);
+      }
+
+      if (response.statusCode == 401) {
+        throw ApiException('Non autorisé. Veuillez vous reconnecter.', statusCode: 401);
+      }
+
+      // Try to parse error message from JSON response
+      try {
+        final body = jsonDecode(response.body) as Map<String, dynamic>;
+        final errorMessage = body['message'] as String? ?? 'Erreur lors du téléchargement de la facture';
+        throw ApiException(errorMessage, statusCode: response.statusCode);
+      } catch (e) {
+        throw ApiException('Erreur lors du téléchargement de la facture', statusCode: response.statusCode);
+      }
+    } on http.ClientException {
+      throw ApiException('Erreur de connexion. Vérifiez votre connexion internet.');
+    } catch (e) {
+      if (e is ApiException) rethrow;
+      throw ApiException('Une erreur inattendue est survenue: $e');
+    }
+  }
 }

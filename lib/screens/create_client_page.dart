@@ -53,6 +53,7 @@ class _CreateClientPageState extends State<CreateClientPage> {
   // Administrative Data
   final _boutiqueNameController = TextEditingController();
   String? _selectedType;
+  String? _selectedClientType;
   final _gerantNameController = TextEditingController();
   final _phoneController = TextEditingController();
   final _whatsappController = TextEditingController();
@@ -292,6 +293,12 @@ class _CreateClientPageState extends State<CreateClientPage> {
     'Étalage',
     'Boulangerie',
     'Autre',
+  ];
+
+  final List<String> _clientTypes = [
+    'Aucun',
+    'B2B',
+    'B2C',
   ];
 
   // Zones are now loaded from user data dynamically
@@ -788,6 +795,7 @@ class _CreateClientPageState extends State<CreateClientPage> {
         code: _codeController.text.trim(),
         name: _boutiqueNameController.text.trim(),
         type: _selectedType ?? 'Boutique',
+        clientType: _selectedClientType == 'Aucun' || _selectedClientType == null ? null : _selectedClientType,
         potential: _potentiel ?? 'C',
         baseCommercialeId: baseCommercialeId,
         zoneId: zoneId,
@@ -1330,6 +1338,19 @@ class _CreateClientPageState extends State<CreateClientPage> {
             onChanged: (value) {
               setState(() {
                 _selectedType = value;
+              });
+            },
+          ),
+          const SizedBox(height: 16),
+          _buildDropdownField(
+            value: _selectedClientType,
+            label: 'Classification (B2B/B2C)',
+            icon: Icons.business,
+            items: _clientTypes,
+            isRequired: false,
+            onChanged: (value) {
+              setState(() {
+                _selectedClientType = value;
               });
             },
           ),

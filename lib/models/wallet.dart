@@ -2,6 +2,8 @@
 class Wallet {
   final int id;
   final double balance;
+  final double soldeCumule;
+  final double soldeDuJour;
   final int userId;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -10,6 +12,8 @@ class Wallet {
   Wallet({
     required this.id,
     required this.balance,
+    required this.soldeCumule,
+    required this.soldeDuJour,
     required this.userId,
     required this.createdAt,
     required this.updatedAt,
@@ -20,6 +24,8 @@ class Wallet {
     return Wallet(
       id: json['id'] as int,
       balance: _parseDoubleSafe(json['balance']),
+      soldeCumule: _parseDoubleSafe(json['solde_cumule']),
+      soldeDuJour: _parseDoubleSafe(json['solde_du_jour']),
       userId: json['user_id'] as int,
       createdAt: DateTime.parse(json['created_at'] as String),
       updatedAt: DateTime.parse(json['updated_at'] as String),
@@ -35,6 +41,8 @@ class Wallet {
     return {
       'id': id,
       'balance': balance,
+      'solde_cumule': soldeCumule,
+      'solde_du_jour': soldeDuJour,
       'user_id': userId,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),

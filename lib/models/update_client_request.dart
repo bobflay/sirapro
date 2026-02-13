@@ -11,6 +11,10 @@ class UpdateClientRequest {
   /// One of: Boutique, Supermarché, Demi-grossiste, Grossiste, Distributeur, Autre
   final String? type;
 
+  /// Client type classification (optional, nullable)
+  /// One of: B2B, B2C
+  final String? clientType;
+
   /// Client potential (optional)
   /// One of: A, B, C
   final String? potential;
@@ -63,6 +67,7 @@ class UpdateClientRequest {
     this.code,
     this.name,
     this.type,
+    this.clientType,
     this.potential,
     this.baseCommercialeId,
     this.zoneId,
@@ -93,6 +98,9 @@ class UpdateClientRequest {
     }
     if (type != null) {
       json['type'] = type;
+    }
+    if (clientType != null) {
+      json['client_type'] = clientType;
     }
     if (potential != null) {
       json['potential'] = potential;
@@ -178,6 +186,13 @@ class UpdateClientRequest {
       ];
       if (!validTypes.contains(type)) {
         errors.add('Type de client invalide');
+      }
+    }
+
+    if (clientType != null && clientType!.isNotEmpty) {
+      final validClientTypes = ['B2B', 'B2C'];
+      if (!validClientTypes.contains(clientType)) {
+        errors.add('Type de classification invalide (B2B ou B2C)');
       }
     }
 

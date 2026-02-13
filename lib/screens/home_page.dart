@@ -14,9 +14,11 @@ import 'package:sirapro/screens/wallet_page.dart';
 import 'package:sirapro/utils/app_colors.dart';
 import 'package:sirapro/services/auth_service.dart';
 import 'package:sirapro/services/home_service.dart';
+import 'package:sirapro/services/wallet_service.dart';
 import 'package:sirapro/services/api_service.dart';
 import 'package:sirapro/services/routing_api_service.dart';
 import 'package:sirapro/models/api_routing.dart';
+import 'package:sirapro/models/wallet.dart';
 import 'package:sirapro/widgets/session_aware_app_bar.dart';
 
 class HomePage extends StatefulWidget {
@@ -29,11 +31,13 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   final AuthService _authService = AuthService();
   final HomeService _homeService = HomeService();
+  final WalletService _walletService = WalletService();
   final RoutingApiService _routingApiService = RoutingApiService();
 
   String? _userName;
   String? _userPhoto;
-  double _userBalance = 0.0;
+  double _soldeDuJour = 0.0;
+  double _soldeCumule = 0.0;
   int _clientsCount = 0;
 
   // Routing data
@@ -55,10 +59,11 @@ class _HomePageState extends State<HomePage> {
       _errorMessage = null;
     });
 
-    // Load user data, home data, and routing data in parallel
+    // Load user data, home data, wallet data, and routing data in parallel
     await Future.wait([
       _loadUserData(),
       _loadHomeData(),
+      _loadWalletData(),
       _loadRoutingData(),
     ]);
 
@@ -89,7 +94,6 @@ class _HomePageState extends State<HomePage> {
       if (mounted) {
         setState(() {
           _clientsCount = homeData.clientsCount;
-          _userBalance = homeData.balance;
         });
       }
     } on ApiException catch (e) {
@@ -104,6 +108,20 @@ class _HomePageState extends State<HomePage> {
           _errorMessage = 'Une erreur est survenue lors du chargement des données';
         });
       }
+    }
+  }
+
+  Future<void> _loadWalletData() async {
+    try {
+      final walletResponse = await _walletService.getWallet();
+      if (mounted && walletResponse.status && walletResponse.wallet != null) {
+        setState(() {
+          _soldeDuJour = walletResponse.wallet!.soldeDuJour;
+          _soldeCumule = walletResponse.wallet!.soldeCumule;
+        });
+      }
+    } catch (e) {
+      // Wallet data loading error is not critical, continue silently
     }
   }
 
@@ -428,31 +446,51 @@ class _HomePageState extends State<HomePage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Container(
-                          padding: const EdgeInsets.all(10),
+                          padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
                             color: Colors.white.withValues(alpha: 0.2),
                             borderRadius: BorderRadius.circular(10),
                           ),
                           child: const Icon(
                             Icons.account_balance_wallet,
-                            size: 24,
+                            size: 20,
                             color: Colors.white,
                           ),
                         ),
-                        const SizedBox(height: 12),
+                        const SizedBox(height: 8),
                         const Text(
-                          'Solde Actuel',
+                          'Du Jour',
                           style: TextStyle(
-                            fontSize: 12,
+                            fontSize: 10,
                             color: Colors.white70,
                             fontWeight: FontWeight.w500,
                           ),
                         ),
-                        const SizedBox(height: 4),
+                        const SizedBox(height: 2),
                         Text(
-                          _formatBalance(_userBalance),
+                          _formatBalance(_soldeDuJour),
                           style: const TextStyle(
-                            fontSize: 18,
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 6),
+                        const Text(
+                          'Cumulé',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Colors.white70,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          _formatBalance(_soldeCumule),
+                          style: const TextStyle(
+                            fontSize: 14,
                             fontWeight: FontWeight.bold,
                             color: Colors.white,
                           ),

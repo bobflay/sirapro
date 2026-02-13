@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:pdf/pdf.dart';
-import 'package:pdf/widgets.dart' as pw;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:share_plus/share_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
@@ -8,6 +7,8 @@ import '../models/order_api.dart';
 import '../services/order_service.dart';
 import '../services/api_service.dart';
 import '../utils/app_colors.dart';
+// ignore: avoid_web_libraries_in_flutter
+import 'dart:html' as html;
 
 class ApiOrderDetailPage extends StatefulWidget {
   final int? orderId;
@@ -133,27 +134,6 @@ class _ApiOrderDetailPageState extends State<ApiOrderDetailPage> {
       return '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year} à ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
     } catch (e) {
       return dateStr;
-    }
-  }
-
-  Color _getStatusColor(String status) {
-    switch (status.toLowerCase()) {
-      case 'draft':
-        return Colors.grey;
-      case 'pending':
-        return Colors.orange;
-      case 'sent':
-        return Colors.blue;
-      case 'confirmed':
-        return Colors.teal;
-      case 'processing':
-        return Colors.purple;
-      case 'delivered':
-        return AppColors.success;
-      case 'cancelled':
-        return AppColors.error;
-      default:
-        return Colors.grey;
     }
   }
 
@@ -329,7 +309,6 @@ class _ApiOrderDetailPageState extends State<ApiOrderDetailPage> {
     }
 
     final order = _order!;
-    final statusColor = _getStatusColor(order.status);
 
     return RefreshIndicator(
       onRefresh: _loadOrder,
@@ -357,27 +336,6 @@ class _ApiOrderDetailPageState extends State<ApiOrderDetailPage> {
                 children: [
                   Row(
                     children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: statusColor.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.circle, color: statusColor, size: 10),
-                            const SizedBox(width: 6),
-                            Text(
-                              order.statusDisplayText,
-                              style: TextStyle(
-                                color: statusColor,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
                       const Spacer(),
                       Text(
                         _formatDate(order.orderedAt),
@@ -930,7 +888,7 @@ class _ApiOrderDetailPageState extends State<ApiOrderDetailPage> {
                   ),
                 ),
                 SizedBox(width: 16),
-                Text('Génération du PDF...'),
+                Text('Téléchargement de la facture...'),
               ],
             ),
             duration: Duration(seconds: 2),
@@ -938,342 +896,66 @@ class _ApiOrderDetailPageState extends State<ApiOrderDetailPage> {
         );
       }
 
-      final pdf = pw.Document();
       final order = _order!;
 
-      // Calculate totals
-      final deliveredTotal = _calculateDeliveredTotal(order);
-      final notDeliveredTotal = _calculateNotDeliveredTotal(order);
-
-      pdf.addPage(
-        pw.MultiPage(
-          pageFormat: PdfPageFormat.a4,
-          margin: const pw.EdgeInsets.all(32),
-          build: (context) => [
-            // Header
-            pw.Header(
-              level: 0,
-              child: pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  pw.Text(
-                    'Détails de Commande',
-                    style: pw.TextStyle(
-                      fontSize: 24,
-                      fontWeight: pw.FontWeight.bold,
-                    ),
-                  ),
-                  pw.SizedBox(height: 8),
-                  pw.Text(
-                    order.reference ?? 'Commande #${order.id}',
-                    style: const pw.TextStyle(fontSize: 16),
-                  ),
-                  pw.SizedBox(height: 4),
-                  pw.Text(
-                    _formatDateTime(order.orderedAt),
-                    style: pw.TextStyle(
-                      fontSize: 12,
-                      color: PdfColors.grey700,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            pw.SizedBox(height: 20),
-
-            // Status
-            pw.Container(
-              padding: const pw.EdgeInsets.all(12),
-              decoration: pw.BoxDecoration(
-                color: PdfColors.grey200,
-                borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8)),
-              ),
-              child: pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  pw.Text(
-                    'Statut:',
-                    style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
-                  ),
-                  pw.Text(order.statusDisplayText),
-                ],
-              ),
-            ),
-            pw.SizedBox(height: 20),
-
-            // Client Info
-            pw.Text(
-              'Informations Client',
-              style: pw.TextStyle(
-                fontSize: 16,
-                fontWeight: pw.FontWeight.bold,
-              ),
-            ),
-            pw.SizedBox(height: 8),
-            pw.Container(
-              padding: const pw.EdgeInsets.all(12),
-              decoration: pw.BoxDecoration(
-                border: pw.Border.all(color: PdfColors.grey400),
-                borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8)),
-              ),
-              child: pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  _buildPdfInfoRow('Nom', order.client?.name ?? '-'),
-                  if (order.client?.code != null)
-                    _buildPdfInfoRow('Code', order.client!.code!),
-                  if (order.client?.phone != null)
-                    _buildPdfInfoRow('Téléphone', order.client!.phone!),
-                  if (order.client?.address != null)
-                    _buildPdfInfoRow('Adresse', order.client!.address!),
-                  if (order.client?.city != null)
-                    _buildPdfInfoRow('Ville', order.client!.city!),
-                ],
-              ),
-            ),
-            pw.SizedBox(height: 20),
-
-            // Order Items
-            pw.Text(
-              'Articles (${order.orderItems.length})',
-              style: pw.TextStyle(
-                fontSize: 16,
-                fontWeight: pw.FontWeight.bold,
-              ),
-            ),
-            pw.SizedBox(height: 8),
-            pw.Table(
-              border: pw.TableBorder.all(color: PdfColors.grey400),
-              children: [
-                // Header row
-                pw.TableRow(
-                  decoration: const pw.BoxDecoration(color: PdfColors.grey300),
-                  children: [
-                    _buildPdfTableCell('Article', isHeader: true),
-                    _buildPdfTableCell('Prix U.', isHeader: true),
-                    _buildPdfTableCell('Qté', isHeader: true),
-                    _buildPdfTableCell('Total', isHeader: true),
-                    _buildPdfTableCell('Statut', isHeader: true),
-                  ],
-                ),
-                // Item rows
-                ...order.orderItems.asMap().entries.map((entry) {
-                  final index = entry.key;
-                  final item = entry.value;
-                  final status = _itemStatuses[index];
-                  String statusText;
-                  if (status == ApiOrderItem.statusDelivered) {
-                    statusText = 'Livré';
-                  } else if (status == ApiOrderItem.statusNotDelivered) {
-                    statusText = 'Non livré';
-                  } else {
-                    statusText = 'En attente';
-                  }
-
-                  return pw.TableRow(
-                    children: [
-                      _buildPdfTableCell(
-                        '${item.displayName}\n${item.packagingSnapshot ?? ''}',
-                      ),
-                      _buildPdfTableCell(
-                        '${_formatAmount(item.unitPriceSnapshot)} ${order.currency}',
-                      ),
-                      _buildPdfTableCell('${item.quantity}'),
-                      _buildPdfTableCell(
-                        '${_formatAmount(item.lineTotal)} ${order.currency}',
-                      ),
-                      _buildPdfTableCell(statusText),
-                    ],
-                  );
-                }),
-              ],
-            ),
-            pw.SizedBox(height: 20),
-
-            // Totals Summary
-            pw.Container(
-              padding: const pw.EdgeInsets.all(16),
-              decoration: pw.BoxDecoration(
-                color: PdfColors.grey200,
-                borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8)),
-              ),
-              child: pw.Column(
-                children: [
-                  pw.Row(
-                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                    children: [
-                      pw.Text(
-                        'Total',
-                        style: pw.TextStyle(
-                          fontSize: 18,
-                          fontWeight: pw.FontWeight.bold,
-                        ),
-                      ),
-                      pw.Text(
-                        '${_formatAmount(order.totalAmount)} ${order.currency}',
-                        style: pw.TextStyle(
-                          fontSize: 20,
-                          fontWeight: pw.FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                  pw.SizedBox(height: 12),
-                  pw.Divider(color: PdfColors.grey400),
-                  pw.SizedBox(height: 12),
-                  pw.Row(
-                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                    children: [
-                      pw.Text(
-                        'Total livré',
-                        style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
-                      ),
-                      pw.Text(
-                        '${_formatAmount(deliveredTotal)} ${order.currency}',
-                        style: pw.TextStyle(
-                          fontWeight: pw.FontWeight.bold,
-                          color: PdfColors.green700,
-                        ),
-                      ),
-                    ],
-                  ),
-                  pw.SizedBox(height: 8),
-                  pw.Row(
-                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                    children: [
-                      pw.Text(
-                        'Total non livré',
-                        style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
-                      ),
-                      pw.Text(
-                        '${_formatAmount(notDeliveredTotal)} ${order.currency}',
-                        style: pw.TextStyle(
-                          fontWeight: pw.FontWeight.bold,
-                          color: PdfColors.red700,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-
-            // Additional Info
-            if (order.zone != null || order.baseCommerciale != null) ...[
-              pw.SizedBox(height: 20),
-              pw.Text(
-                'Informations additionnelles',
-                style: pw.TextStyle(
-                  fontSize: 16,
-                  fontWeight: pw.FontWeight.bold,
-                ),
-              ),
-              pw.SizedBox(height: 8),
-              pw.Container(
-                padding: const pw.EdgeInsets.all(12),
-                decoration: pw.BoxDecoration(
-                  border: pw.Border.all(color: PdfColors.grey400),
-                  borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8)),
-                ),
-                child: pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: [
-                    if (order.zone != null)
-                      _buildPdfInfoRow('Zone', order.zone!.name ?? '-'),
-                    if (order.baseCommerciale != null)
-                      _buildPdfInfoRow(
-                        'Base commerciale',
-                        order.baseCommerciale!.name ?? '-',
-                      ),
-                    if (order.validatedAt != null)
-                      _buildPdfInfoRow(
-                        'Date de validation',
-                        _formatDateTime(order.validatedAt),
-                      ),
-                  ],
-                ),
-              ),
-            ],
-
-            // Footer
-            pw.SizedBox(height: 30),
-            pw.Divider(),
-            pw.SizedBox(height: 8),
-            pw.Text(
-              'Document généré le ${_formatDateTime(DateTime.now().toIso8601String())}',
-              style: pw.TextStyle(
-                fontSize: 10,
-                color: PdfColors.grey600,
-              ),
-            ),
-          ],
-        ),
-      );
-
-      // Generate PDF bytes
-      final bytes = await pdf.save();
-
-      // Save PDF to temporary directory
-      final output = await getTemporaryDirectory();
+      // Download PDF from server
+      final pdfBytes = await _orderService.downloadInvoice(order.id);
       final fileName = 'commande_${order.reference ?? order.id}.pdf';
-      final file = File('${output.path}/$fileName');
-      await file.writeAsBytes(bytes);
 
-      // Share the PDF
-      if (context.mounted) {
-        final result = await Share.shareXFiles(
-          [XFile(file.path, mimeType: 'application/pdf')],
-          subject: 'Commande ${order.reference ?? order.id}',
-          text: 'Commande pour ${order.client?.name ?? 'client'} - Total: ${_formatAmount(order.totalAmount)} ${order.currency}',
-        );
+      if (kIsWeb) {
+        // Web: Download directly using blob
+        final blob = html.Blob([pdfBytes], 'application/pdf');
+        final url = html.Url.createObjectUrlFromBlob(blob);
+        final anchor = html.AnchorElement(href: url)
+          ..setAttribute('download', fileName)
+          ..click();
+        html.Url.revokeObjectUrl(url);
 
-        debugPrint('Share result: $result');
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Facture téléchargée: $fileName'),
+              backgroundColor: AppColors.success,
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+      } else {
+        // Mobile: Save to temp and share
+        final output = await getTemporaryDirectory();
+        final file = File('${output.path}/$fileName');
+        await file.writeAsBytes(pdfBytes);
+
+        if (context.mounted) {
+          await Share.shareXFiles(
+            [XFile(file.path, mimeType: 'application/pdf')],
+            subject: 'Commande ${order.reference ?? order.id}',
+            text: 'Commande pour ${order.client?.name ?? 'client'} - Total: ${_formatAmount(order.totalAmount)} ${order.currency}',
+          );
+        }
       }
-    } catch (e) {
-      debugPrint('Error exporting PDF: $e');
+    } on ApiException catch (e) {
+      debugPrint('API Error downloading invoice: ${e.message}');
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Erreur lors de l\'export PDF: $e'),
+            content: Text(e.message),
+            backgroundColor: AppColors.error,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error downloading invoice: $e');
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur lors du téléchargement de la facture: $e'),
             backgroundColor: AppColors.error,
             duration: const Duration(seconds: 4),
           ),
         );
       }
     }
-  }
-
-  pw.Widget _buildPdfInfoRow(String label, String value) {
-    return pw.Padding(
-      padding: const pw.EdgeInsets.symmetric(vertical: 4),
-      child: pw.Row(
-        crossAxisAlignment: pw.CrossAxisAlignment.start,
-        children: [
-          pw.SizedBox(
-            width: 150,
-            child: pw.Text(
-              label,
-              style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
-            ),
-          ),
-          pw.Expanded(
-            child: pw.Text(value),
-          ),
-        ],
-      ),
-    );
-  }
-
-  pw.Widget _buildPdfTableCell(String text, {bool isHeader = false}) {
-    return pw.Padding(
-      padding: const pw.EdgeInsets.all(8),
-      child: pw.Text(
-        text,
-        style: pw.TextStyle(
-          fontWeight: isHeader ? pw.FontWeight.bold : pw.FontWeight.normal,
-          fontSize: isHeader ? 12 : 10,
-        ),
-      ),
-    );
   }
 }
