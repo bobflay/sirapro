@@ -7,8 +7,8 @@ import '../models/order_api.dart';
 import '../services/order_service.dart';
 import '../services/api_service.dart';
 import '../utils/app_colors.dart';
-// ignore: avoid_web_libraries_in_flutter
-import 'dart:html' as html;
+import '../utils/html_stub.dart'
+    if (dart.library.html) 'dart:html' as html;
 
 class ApiOrderDetailPage extends StatefulWidget {
   final int? orderId;
