@@ -9,6 +9,7 @@ import '../services/api_service.dart';
 import '../utils/app_colors.dart';
 import '../utils/html_stub.dart'
     if (dart.library.html) 'dart:html' as html;
+import 'edit_order_page.dart';
 
 class ApiOrderDetailPage extends StatefulWidget {
   final int? orderId;
@@ -245,6 +246,12 @@ class _ApiOrderDetailPageState extends State<ApiOrderDetailPage> {
       appBar: AppBar(
         title: Text(_order?.reference ?? 'Commande #${widget.orderId}'),
         actions: [
+          if (_order != null)
+            IconButton(
+              icon: const Icon(Icons.edit),
+              onPressed: () => _navigateToEditOrder(),
+              tooltip: 'Modifier la commande',
+            ),
           if (_order != null)
             IconButton(
               icon: const Icon(Icons.picture_as_pdf),
@@ -867,6 +874,19 @@ class _ApiOrderDetailPageState extends State<ApiOrderDetailPage> {
         ),
       ),
     );
+  }
+
+  Future<void> _navigateToEditOrder() async {
+    if (_order == null) return;
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => EditOrderPage(order: _order!),
+      ),
+    );
+    if (result == true) {
+      _loadOrder();
+    }
   }
 
   Future<void> _exportToPdf(BuildContext context) async {

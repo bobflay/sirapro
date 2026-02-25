@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:sirapro/screens/agents_dashboard_page.dart';
 import 'package:sirapro/screens/tournee_detail_page_new.dart';
 import 'package:sirapro/screens/clients_page.dart';
 import 'package:sirapro/screens/notifications_page.dart';
@@ -39,6 +40,7 @@ class _HomePageState extends State<HomePage> {
   double _soldeDuJour = 0.0;
   double _soldeCumule = 0.0;
   int _clientsCount = 0;
+  bool _isAgent = true; // default to agent view; updated after user loads
 
   // Routing data
   ApiRoutingSummary? _routingSummary;
@@ -81,6 +83,7 @@ class _HomePageState extends State<HomePage> {
         setState(() {
           _userName = user.name;
           _userPhoto = user.photoUrl;
+          _isAgent = user.hasRole('ROLE_AGENT');
         });
       }
     } catch (e) {
@@ -840,6 +843,21 @@ class _HomePageState extends State<HomePage> {
                       );
                     },
                   ),
+                  if (!_isAgent)
+                    _buildActionButton(
+                      context,
+                      icon: Icons.dashboard,
+                      label: 'Dashboard\nAgents',
+                      color: AppColors.primaryDark,
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const AgentsDashboardPage(),
+                          ),
+                        );
+                      },
+                    ),
                 ],
               ),
             ),

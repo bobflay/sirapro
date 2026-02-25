@@ -128,6 +128,74 @@ class OrderItemStatusUpdate {
       };
 }
 
+/// Request model for updating an order
+/// PUT /api/orders/{order}
+class UpdateOrderRequest {
+  final int orderId;
+  final int? clientId;
+  final int? visitId;
+  final bool clearVisitId;
+  final int? zoneId;
+  final bool clearZoneId;
+  final List<UpdateOrderItemPayload>? items;
+
+  UpdateOrderRequest({
+    required this.orderId,
+    this.clientId,
+    this.visitId,
+    this.clearVisitId = false,
+    this.zoneId,
+    this.clearZoneId = false,
+    this.items,
+  });
+
+  bool get hasChanges => toJson().isNotEmpty;
+
+  Map<String, dynamic> toJson() {
+    final json = <String, dynamic>{};
+    if (clientId != null) json['client_id'] = clientId;
+    if (clearVisitId) {
+      json['visit_id'] = null;
+    } else if (visitId != null) {
+      json['visit_id'] = visitId;
+    }
+    if (clearZoneId) {
+      json['zone_id'] = null;
+    } else if (zoneId != null) {
+      json['zone_id'] = zoneId;
+    }
+    if (items != null) {
+      json['items'] = items!.map((item) => item.toJson()).toList();
+    }
+    return json;
+  }
+}
+
+/// Individual item payload for order update
+class UpdateOrderItemPayload {
+  final int productId;
+  final int quantity;
+  final String saleType;
+  final double? unitPrice;
+
+  UpdateOrderItemPayload({
+    required this.productId,
+    required this.quantity,
+    this.saleType = 'pack',
+    this.unitPrice,
+  });
+
+  Map<String, dynamic> toJson() {
+    final json = <String, dynamic>{
+      'product_id': productId,
+      'quantity': quantity,
+      'sale_type': saleType,
+    };
+    if (unitPrice != null) json['unit_price'] = unitPrice;
+    return json;
+  }
+}
+
 /// Response from updating order items status
 class UpdateOrderItemsStatusResponse {
   final bool status;
@@ -318,6 +386,65 @@ class OrderService {
       }
 
       final errorMessage = body['message'] as String? ?? 'Erreur lors de la récupération de la commande';
+      throw ApiException(errorMessage, statusCode: response.statusCode);
+    } on http.ClientException {
+      throw ApiException('Erreur de connexion. Vérifiez votre connexion internet.');
+    } catch (e) {
+      if (e is ApiException) rethrow;
+      throw ApiException('Une erreur inattendue est survenue: $e');
+    }
+  }
+
+  /// Update an order
+  ///
+  /// PUT /api/orders/{order}
+  /// Only the order owner can edit. All fields are optional.
+  /// When items is sent, all existing items are deleted and replaced.
+  Future<OrderDetailResponse> updateOrder(UpdateOrderRequest request) async {
+    try {
+      if (!request.hasChanges) {
+        throw ApiException('Aucune modification à enregistrer', statusCode: 422);
+      }
+
+      final uri = Uri.parse('${ApiService.baseUrl}/api/orders/${request.orderId}');
+      final token = _apiService.token;
+
+      debugPrint('[OrderService] Updating order ${request.orderId}: ${jsonEncode(request.toJson())}');
+
+      final response = await http.put(
+        uri,
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode(request.toJson()),
+      );
+
+      debugPrint('[OrderService] Update order response status: ${response.statusCode}');
+
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+
+      if (response.statusCode == 200) {
+        return OrderDetailResponse.fromJson(body);
+      }
+
+      if (response.statusCode == 404) {
+        throw ApiException('Commande introuvable ou non autorisée', statusCode: 404);
+      }
+
+      if (response.statusCode == 422) {
+        final errors = body['errors'] as Map<String, dynamic>?;
+        if (errors != null && errors.isNotEmpty) {
+          final firstError = errors.values.first;
+          if (firstError is List && firstError.isNotEmpty) {
+            throw ApiException(firstError.first.toString(), statusCode: 422);
+          }
+        }
+        throw ApiException(body['message'] as String? ?? 'Erreur de validation', statusCode: 422);
+      }
+
+      final errorMessage = body['message'] as String? ?? 'Erreur lors de la mise à jour de la commande';
       throw ApiException(errorMessage, statusCode: response.statusCode);
     } on http.ClientException {
       throw ApiException('Erreur de connexion. Vérifiez votre connexion internet.');

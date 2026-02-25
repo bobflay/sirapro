@@ -13,10 +13,11 @@ class StockCommercialPage extends StatefulWidget {
   State<StockCommercialPage> createState() => _StockCommercialPageState();
 }
 
-class _StockCommercialPageState extends State<StockCommercialPage> {
+class _StockCommercialPageState extends State<StockCommercialPage>
+    with SingleTickerProviderStateMixin {
   final StockService _stockService = StockService();
+  late TabController _tabController;
   List<StockItem> _stockItems = [];
-  List<StockItem> _filteredItems = [];
   String _selectedCategory = 'Tous';
   String _selectedFilter = 'Tous';
   String _searchQuery = '';
@@ -27,11 +28,13 @@ class _StockCommercialPageState extends State<StockCommercialPage> {
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 2, vsync: this);
     _loadStock();
   }
 
   @override
   void dispose() {
+    _tabController.dispose();
     _searchController.dispose();
     super.dispose();
   }
@@ -47,7 +50,6 @@ class _StockCommercialPageState extends State<StockCommercialPage> {
       setState(() {
         _stockItems = response.items;
         _isLoading = false;
-        _applyFilters();
       });
     } catch (e) {
       setState(() {
@@ -57,8 +59,8 @@ class _StockCommercialPageState extends State<StockCommercialPage> {
     }
   }
 
-  void _applyFilters() {
-    var items = List<StockItem>.from(_stockItems);
+  List<StockItem> _applyFilters(List<StockItem> baseItems) {
+    var items = List<StockItem>.from(baseItems);
 
     // Apply category filter
     if (_selectedCategory != 'Tous') {
@@ -86,20 +88,22 @@ class _StockCommercialPageState extends State<StockCommercialPage> {
           (item.barcode?.contains(_searchQuery) ?? false)).toList();
     }
 
-    setState(() {
-      _filteredItems = items;
-    });
+    return items;
   }
 
-  List<String> _getCategories() {
-    final uniqueCategories = _stockItems.map((item) => item.category).toSet().toList();
+  List<StockItem> get _todayItems {
+    final now = DateTime.now();
+    return _stockItems.where((item) =>
+        item.lastUpdated.year == now.year &&
+        item.lastUpdated.month == now.month &&
+        item.lastUpdated.day == now.day).toList();
+  }
+
+  List<String> _getCategories(List<StockItem> items) {
+    final uniqueCategories = items.map((item) => item.category).toSet().toList();
     uniqueCategories.sort();
     return ['Tous', ...uniqueCategories];
   }
-
-  int get _lowStockCount => _stockItems.where((item) => item.isLowStock && !item.isOutOfStock).length;
-  int get _outOfStockCount => _stockItems.where((item) => item.isOutOfStock).length;
-  double get _totalStockValue => _stockItems.fold(0.0, (sum, item) => sum + item.totalValue);
 
   static final _currencyFormat = NumberFormat('#,##0', 'fr_FR');
   String _formatPrice(double value) => '${_currencyFormat.format(value.toInt())} FCFA';
@@ -193,192 +197,230 @@ class _StockCommercialPageState extends State<StockCommercialPage> {
             tooltip: 'Actualiser',
           ),
         ],
+        bottom: TabBar(
+          controller: _tabController,
+          indicatorColor: Colors.white,
+          labelColor: Colors.white,
+          unselectedLabelColor: Colors.white70,
+          tabs: [
+            Tab(
+              text: 'Stock du jour',
+              icon: Badge(
+                label: Text('${_todayItems.length}'),
+                child: const Icon(Icons.today),
+              ),
+            ),
+            Tab(
+              text: 'Stock global',
+              icon: Badge(
+                label: Text('${_stockItems.length}'),
+                child: const Icon(Icons.inventory),
+              ),
+            ),
+          ],
+        ),
       ),
-      body: Column(
+      body: TabBarView(
+        controller: _tabController,
         children: [
-          // Summary Cards
-          Container(
-            padding: const EdgeInsets.all(16),
-            color: Colors.white,
-            child: Row(
-              children: [
-                Expanded(
-                  child: _buildSummaryCard(
-                    'Total',
-                    '${_stockItems.length}',
-                    'articles',
-                    AppColors.primary,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _buildSummaryCard(
-                    'Stock bas',
-                    '$_lowStockCount',
-                    'alertes',
-                    AppColors.warning,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _buildSummaryCard(
-                    'Rupture',
-                    '$_outOfStockCount',
-                    'articles',
-                    AppColors.error,
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // Total Value
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            color: AppColors.primaryVeryLight,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  'Valeur totale du stock',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.black87,
-                  ),
-                ),
-                Text(
-                  _formatPrice(_totalStockValue),
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.primary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // Search Bar
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: TextField(
-              controller: _searchController,
-              decoration: InputDecoration(
-                hintText: 'Rechercher un produit...',
-                prefixIcon: const Icon(Icons.search),
-                suffixIcon: _searchQuery.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear),
-                        onPressed: () {
-                          _searchController.clear();
-                          setState(() {
-                            _searchQuery = '';
-                            _applyFilters();
-                          });
-                        },
-                      )
-                    : null,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
-                ),
-                filled: true,
-                fillColor: Colors.white,
-              ),
-              onChanged: (value) {
-                setState(() {
-                  _searchQuery = value;
-                  _applyFilters();
-                });
-              },
-            ),
-          ),
-
-          // Filter Chips
-          SizedBox(
-            height: 50,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              children: [
-                _buildFilterChip('Tous', _selectedFilter == 'Tous'),
-                const SizedBox(width: 8),
-                _buildFilterChip('Stock bas', _selectedFilter == 'Stock bas'),
-                const SizedBox(width: 8),
-                _buildFilterChip('Rupture', _selectedFilter == 'Rupture'),
-                const SizedBox(width: 8),
-                _buildFilterChip('Expiration proche', _selectedFilter == 'Expiration proche'),
-              ],
-            ),
-          ),
-
-          // Category Dropdown
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: DropdownButtonHideUnderline(
-                child: DropdownButton<String>(
-                  isExpanded: true,
-                  value: _selectedCategory,
-                  icon: const Icon(Icons.keyboard_arrow_down),
-                  items: _getCategories().map((category) {
-                    return DropdownMenuItem(
-                      value: category,
-                      child: Text(category),
-                    );
-                  }).toList(),
-                  onChanged: (value) {
-                    setState(() {
-                      _selectedCategory = value!;
-                      _applyFilters();
-                    });
-                  },
-                ),
-              ),
-            ),
-          ),
-
-          // Stock List
-          Expanded(
-            child: _filteredItems.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.inventory_2_outlined,
-                          size: 64,
-                          color: Colors.grey[400],
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          'Aucun article trouvé',
-                          style: TextStyle(
-                            fontSize: 16,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                      ],
-                    ),
-                  )
-                : ListView.builder(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: _filteredItems.length,
-                    itemBuilder: (context, index) {
-                      final item = _filteredItems[index];
-                      return _buildStockItemCard(item);
-                    },
-                  ),
-          ),
+          _buildStockTab(_todayItems),
+          _buildStockTab(_stockItems),
         ],
       ),
+    );
+  }
+
+  Widget _buildStockTab(List<StockItem> baseItems) {
+    final filteredItems = _applyFilters(baseItems);
+    final lowStockCount = baseItems.where((item) => item.isLowStock && !item.isOutOfStock).length;
+    final outOfStockCount = baseItems.where((item) => item.isOutOfStock).length;
+    final totalValue = baseItems.fold(0.0, (sum, item) => sum + item.totalValue);
+    final categories = _getCategories(baseItems);
+
+    // Reset category if not available in this tab's data
+    final effectiveCategory = categories.contains(_selectedCategory) ? _selectedCategory : 'Tous';
+
+    return Column(
+      children: [
+        // Summary Cards
+        Container(
+          padding: const EdgeInsets.all(16),
+          color: Colors.white,
+          child: Row(
+            children: [
+              Expanded(
+                child: _buildSummaryCard(
+                  'Total',
+                  '${baseItems.length}',
+                  'articles',
+                  AppColors.primary,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _buildSummaryCard(
+                  'Stock bas',
+                  '$lowStockCount',
+                  'alertes',
+                  AppColors.warning,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _buildSummaryCard(
+                  'Rupture',
+                  '$outOfStockCount',
+                  'articles',
+                  AppColors.error,
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        // Total Value
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          color: AppColors.primaryVeryLight,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Valeur totale du stock',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                  color: Colors.black87,
+                ),
+              ),
+              Text(
+                _formatPrice(totalValue),
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.primary,
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        // Search Bar
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: TextField(
+            controller: _searchController,
+            decoration: InputDecoration(
+              hintText: 'Rechercher un produit...',
+              prefixIcon: const Icon(Icons.search),
+              suffixIcon: _searchQuery.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.clear),
+                      onPressed: () {
+                        _searchController.clear();
+                        setState(() {
+                          _searchQuery = '';
+                        });
+                      },
+                    )
+                  : null,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+              filled: true,
+              fillColor: Colors.white,
+            ),
+            onChanged: (value) {
+              setState(() {
+                _searchQuery = value;
+              });
+            },
+          ),
+        ),
+
+        // Filter Chips
+        SizedBox(
+          height: 50,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            children: [
+              _buildFilterChip('Tous', _selectedFilter == 'Tous'),
+              const SizedBox(width: 8),
+              _buildFilterChip('Stock bas', _selectedFilter == 'Stock bas'),
+              const SizedBox(width: 8),
+              _buildFilterChip('Rupture', _selectedFilter == 'Rupture'),
+              const SizedBox(width: 8),
+              _buildFilterChip('Expiration proche', _selectedFilter == 'Expiration proche'),
+            ],
+          ),
+        ),
+
+        // Category Dropdown
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<String>(
+                isExpanded: true,
+                value: effectiveCategory,
+                icon: const Icon(Icons.keyboard_arrow_down),
+                items: categories.map((category) {
+                  return DropdownMenuItem(
+                    value: category,
+                    child: Text(category),
+                  );
+                }).toList(),
+                onChanged: (value) {
+                  setState(() {
+                    _selectedCategory = value!;
+                  });
+                },
+              ),
+            ),
+          ),
+        ),
+
+        // Stock List
+        Expanded(
+          child: filteredItems.isEmpty
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.inventory_2_outlined,
+                        size: 64,
+                        color: Colors.grey[400],
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Aucun article trouvé',
+                        style: TextStyle(
+                          fontSize: 16,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: filteredItems.length,
+                  itemBuilder: (context, index) {
+                    final item = filteredItems[index];
+                    return _buildStockItemCard(item);
+                  },
+                ),
+        ),
+      ],
     );
   }
 
@@ -426,7 +468,6 @@ class _StockCommercialPageState extends State<StockCommercialPage> {
       onSelected: (selected) {
         setState(() {
           _selectedFilter = label;
-          _applyFilters();
         });
       },
       selectedColor: AppColors.primary.withValues(alpha: 0.2),

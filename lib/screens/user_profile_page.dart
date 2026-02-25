@@ -884,109 +884,53 @@ class _UserProfilePageState extends State<UserProfilePage> {
               color: Colors.black87,
             ),
           ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: _buildMiniStat(
-                  icon: Icons.account_balance_wallet,
-                  color: Colors.blue,
-                  label: 'Non encaissé',
-                  value: _formatCurrency(report.wallet.cumulNonEncaisse),
-                ),
-              ),
-              Expanded(
-                child: _buildMiniStat(
-                  icon: Icons.savings,
-                  color: Colors.green,
-                  label: 'Solde',
-                  value: _formatCurrency(report.wallet.balance),
-                ),
-              ),
-            ],
+          const SizedBox(height: 12),
+          const Divider(height: 1),
+          const SizedBox(height: 8),
+          _buildReportRow('Commande Facturée', _formatCurrency(report.orders.commandeFacturee.total)),
+          _buildReportRow('Commande non facturée', _formatCurrency(report.orders.commandeNonFacturee.total)),
+          _buildReportRow('Valeur stock actuel', _formatCurrency(report.stock.valeurStockActuel), valueColor: Colors.green),
+          _buildReportRow(
+            'Cumul Non encaissé',
+            _formatCurrency(report.wallet.balance),
+            valueColor: Colors.red,
           ),
-          const Divider(height: 24),
-          Row(
-            children: [
-              Expanded(
-                child: _buildMiniStat(
-                  icon: Icons.inventory,
-                  color: Colors.purple,
-                  label: 'Valeur stock',
-                  value: _formatCurrency(report.stock.valeurStockActuel),
-                ),
-              ),
-              Expanded(
-                child: _buildMiniStat(
-                  icon: Icons.warning_amber,
-                  color: Colors.orange,
-                  label: 'Stock bas',
-                  value: '${report.stock.stockBas.count} produits',
-                ),
-              ),
-            ],
+          _buildReportRow('Stock bas', '${report.stock.stockBas.count}'),
+          _buildReportRow('Rupture', '${report.stock.rupture.count}'),
+          _buildReportRow(
+            'Temps terrain (debut-fin de journée)',
+            report.visits.tempsTerrain.daySpanFormatted,
+            valueBold: true,
           ),
-          if (report.stock.rupture.count > 0) ...[
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.red.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.error, color: Colors.red, size: 20),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      '${report.stock.rupture.count} produit(s) en rupture de stock',
-                      style: const TextStyle(
-                        color: Colors.red,
-                        fontWeight: FontWeight.w500,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
         ],
       ),
     );
   }
 
-  Widget _buildMiniStat({
-    required IconData icon,
-    required Color color,
-    required String label,
-    required String value,
-  }) {
-    return Column(
-      children: [
-        Icon(icon, color: color, size: 28),
-        const SizedBox(height: 8),
-        Text(
-          value,
-          style: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.bold,
-            color: Colors.black87,
+  Widget _buildReportRow(String label, String value, {Color? valueColor, bool valueBold = false}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 7),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(fontSize: 13, color: Colors.black87),
+            ),
           ),
-          textAlign: TextAlign.center,
-        ),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            color: Colors.grey[600],
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: valueBold ? FontWeight.bold : FontWeight.w600,
+              color: valueColor ?? Colors.black87,
+            ),
           ),
-          textAlign: TextAlign.center,
-        ),
-      ],
+        ],
+      ),
     );
   }
+
 
   Widget _buildInfoCard({
     required IconData icon,

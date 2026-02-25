@@ -303,6 +303,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 TextFormField(
                   controller: _phoneController,
                   focusNode: _phoneFocusNode,
+                  readOnly: true,
                   keyboardType: TextInputType.number,
                   inputFormatters: [
                     FilteringTextInputFormatter.digitsOnly,
@@ -353,6 +354,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 TextFormField(
                   controller: _passwordController,
                   focusNode: _passwordFocusNode,
+                  readOnly: true,
                   obscureText: _obscurePassword,
                   keyboardType: TextInputType.number,
                   inputFormatters: [
