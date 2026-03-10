@@ -12,6 +12,7 @@ import 'package:sirapro/screens/stock_commercial_page.dart';
 import 'package:sirapro/screens/carte_page.dart';
 import 'package:sirapro/screens/invoice_list_page.dart';
 import 'package:sirapro/screens/wallet_page.dart';
+import 'package:sirapro/screens/return_vouchers_list_page.dart';
 import 'package:sirapro/utils/app_colors.dart';
 import 'package:sirapro/services/auth_service.dart';
 import 'package:sirapro/services/home_service.dart';
@@ -37,6 +38,7 @@ class _HomePageState extends State<HomePage> {
 
   String? _userName;
   String? _userPhoto;
+  String? _magasinName;
   double _soldeDuJour = 0.0;
   double _soldeCumule = 0.0;
   int _clientsCount = 0;
@@ -83,6 +85,7 @@ class _HomePageState extends State<HomePage> {
         setState(() {
           _userName = user.name;
           _userPhoto = user.photoUrl;
+          _magasinName = user.magasinName;
           _isAgent = user.hasRole('ROLE_AGENT');
         });
       }
@@ -406,6 +409,31 @@ class _HomePageState extends State<HomePage> {
                               color: Colors.grey[600],
                             ),
                           ),
+                          if (_magasinName != null) ...[
+                            const SizedBox(height: 4),
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.store,
+                                  size: 12,
+                                  color: Colors.grey[500],
+                                ),
+                                const SizedBox(width: 4),
+                                Expanded(
+                                  child: Text(
+                                    _magasinName!,
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.grey[500],
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
                         ],
                       ),
                     ),
@@ -839,6 +867,20 @@ class _HomePageState extends State<HomePage> {
                         context,
                         MaterialPageRoute(
                           builder: (context) => const InvoiceListPage(),
+                        ),
+                      );
+                    },
+                  ),
+                  _buildActionButton(
+                    context,
+                    icon: Icons.assignment_return,
+                    label: 'Bons de\nRetour',
+                    color: AppColors.secondaryDark,
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const ReturnVouchersListPage(),
                         ),
                       );
                     },
