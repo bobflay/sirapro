@@ -29,6 +29,7 @@ class _TourneeDetailPageNewState extends State<TourneeDetailPageNew> {
   bool _isLoading = true;
   String? _errorMessage;
   ApiRoutingResponse? _routingResponse;
+  final Map<int, String> _clientNames = {};
 
   @override
   void initState() {
@@ -52,6 +53,8 @@ class _TourneeDetailPageNewState extends State<TourneeDetailPageNew> {
           _routingResponse = response;
           _isLoading = false;
         });
+        // Resolve client names for items where client data is missing
+        _resolveClientNames(response);
       }
     } on RoutingApiException catch (e) {
       if (mounted) {
@@ -68,6 +71,49 @@ class _TourneeDetailPageNewState extends State<TourneeDetailPageNew> {
         });
       }
     }
+  }
+
+  Future<void> _resolveClientNames(ApiRoutingResponse response) async {
+    final items = response.data.routing?.routingItems ?? [];
+    // Collect unique client IDs that need name resolution (placeholder names)
+    final idsToResolve = <int>{};
+    for (final item in items) {
+      if (item.client.name.startsWith('Client #')) {
+        idsToResolve.add(item.client.id);
+      }
+    }
+    if (idsToResolve.isEmpty) return;
+
+    // Fetch each client in parallel
+    final futures = idsToResolve.map((id) async {
+      try {
+        final client = await _clientService.getClient(id);
+        return MapEntry(id, client.name);
+      } catch (_) {
+        return MapEntry(id, null);
+      }
+    });
+
+    final results = await Future.wait(futures);
+    final resolved = <int, String>{};
+    for (final entry in results) {
+      if (entry.value != null) {
+        resolved[entry.key] = entry.value!;
+      }
+    }
+
+    if (resolved.isNotEmpty && mounted) {
+      setState(() {
+        _clientNames.addAll(resolved);
+      });
+    }
+  }
+
+  String _getClientDisplayName(ApiRoutingItem item) {
+    if (!item.client.name.startsWith('Client #')) {
+      return item.client.name;
+    }
+    return _clientNames[item.client.id] ?? item.client.name;
   }
 
   Future<void> _startVisitForClient(ApiRoutingItem item) async {
@@ -545,7 +591,7 @@ class _TourneeDetailPageNewState extends State<TourneeDetailPageNew> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        item.client.name,
+                        _getClientDisplayName(item),
                         style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,

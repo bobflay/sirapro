@@ -1,3 +1,5 @@
+import 'magasin.dart';
+
 class Role {
   final int id;
   final String code;
@@ -161,6 +163,8 @@ class User {
   final DateTime? createdAt;
   final DateTime? updatedAt;
   final List<Role> roles;
+  final int? magasinId;
+  final Magasin? magasin;
   final List<BaseCommerciale> basesCommerciales;
   final List<Zone> zones;
   final double balance;
@@ -175,6 +179,8 @@ class User {
     this.emailVerifiedAt,
     this.createdAt,
     this.updatedAt,
+    this.magasinId,
+    this.magasin,
     this.roles = const [],
     this.basesCommerciales = const [],
     this.zones = const [],
@@ -195,6 +201,10 @@ class User {
           : null,
       updatedAt: json['updated_at'] != null
           ? DateTime.tryParse(json['updated_at'] as String)
+          : null,
+      magasinId: json['magasin_id'] as int?,
+      magasin: json['magasin'] != null
+          ? Magasin.fromJson(json['magasin'] as Map<String, dynamic>)
           : null,
       roles: (json['roles'] as List<dynamic>?)
               ?.map((e) => Role.fromJson(e as Map<String, dynamic>))
@@ -223,6 +233,8 @@ class User {
       'email_verified_at': emailVerifiedAt,
       'created_at': createdAt?.toIso8601String(),
       'updated_at': updatedAt?.toIso8601String(),
+      'magasin_id': magasinId,
+      'magasin': magasin?.toJson(),
       'roles': roles.map((e) => e.toJson()).toList(),
       'bases_commerciales': basesCommerciales.map((e) => e.toJson()).toList(),
       'zones': zones.map((e) => e.toJson()).toList(),
@@ -247,6 +259,9 @@ class User {
 
   /// Get primary zone
   Zone? get primaryZone => zones.isNotEmpty ? zones.first : null;
+
+  /// Get magasin name
+  String? get magasinName => magasin?.name;
 
   /// Base URL for API
   static const String _baseUrl = 'https://sira.xpertbot.online';

@@ -11,6 +11,8 @@ class Client {
   final String address;
   final double? latitude;
   final double? longitude;
+  final int? magasinId;
+  final String? magasinName;
   final int? zoneId;
   final int? commercialId;
   final String? potential;
@@ -44,6 +46,8 @@ class Client {
     required this.address,
     this.latitude,
     this.longitude,
+    this.magasinId,
+    this.magasinName,
     this.zoneId,
     this.commercialId,
     this.potential,
@@ -164,6 +168,8 @@ class Client {
       address: json['address'] as String,
       latitude: (json['latitude'] as num?)?.toDouble(),
       longitude: (json['longitude'] as num?)?.toDouble(),
+      magasinId: json['magasin_id'] as int?,
+      magasinName: json['magasin_name'] as String?,
       zoneId: json['zone_id'] as int?,
       commercialId: json['commercial_id'] as int?,
       potential: json['potential'] as String?,
@@ -203,6 +209,8 @@ class Client {
       'address': address,
       'latitude': latitude,
       'longitude': longitude,
+      'magasin_id': magasinId,
+      'magasin_name': magasinName,
       'zone_id': zoneId,
       'commercial_id': commercialId,
       'potential': potential,
@@ -226,6 +234,8 @@ class Client {
     String? address,
     double? latitude,
     double? longitude,
+    int? magasinId,
+    String? magasinName,
     int? zoneId,
     int? commercialId,
     String? potential,
@@ -269,6 +279,8 @@ class Client {
       address: address ?? this.address,
       latitude: latitude ?? this.latitude,
       longitude: longitude ?? this.longitude,
+      magasinId: magasinId ?? this.magasinId,
+      magasinName: magasinName ?? this.magasinName,
       zoneId: zoneId ?? this.zoneId,
       commercialId: commercialId ?? this.commercialId,
       potential: potentiel ?? potential ?? this.potential,

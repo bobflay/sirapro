@@ -289,16 +289,29 @@ class ApiRoutingItem {
     print('[ApiRoutingItem] Parsing item id: ${json['id']}...');
 
     try {
-      final client = ApiRoutingClient.fromJson(json['client'] as Map<String, dynamic>);
-      final visit = json['visit'] != null
-          ? ApiRoutingVisit.fromJson(json['visit'] as Map<String, dynamic>)
+      final client = json['client'] != null
+          ? ApiRoutingClient.fromJson(json['client'] as Map<String, dynamic>)
+          : ApiRoutingClient(
+              id: json['client_id'] as int? ?? 0,
+              name: 'Client #${json['client_id'] ?? 0}',
+            );
+
+      // Prefer today_visit over visit for current day data
+      final todayVisit = json['today_visit'];
+      final visitJson = todayVisit ?? json['visit'];
+      final visit = visitJson != null
+          ? ApiRoutingVisit.fromJson(visitJson as Map<String, dynamic>)
           : null;
+
+      // Use today_visit flags if available, fallback to item-level flags
+      final isVisited = json['is_visited'] as bool? ?? false;
+      final isCompleted = json['is_completed'] as bool? ?? false;
 
       return ApiRoutingItem(
         id: json['id'] as int,
         sequenceOrder: json['sequence_order'] as int? ?? 0,
-        isVisited: json['is_visited'] as bool? ?? false,
-        isCompleted: json['is_completed'] as bool? ?? false,
+        isVisited: isVisited,
+        isCompleted: isCompleted,
         client: client,
         visit: visit,
       );

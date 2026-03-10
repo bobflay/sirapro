@@ -6,6 +6,8 @@ import '../models/user.dart';
 import '../models/daily_report.dart';
 import '../services/auth_service.dart';
 import '../services/daily_report_service.dart';
+import '../services/routing_api_service.dart';
+import '../models/api_routing.dart';
 import '../widgets/session_aware_app_bar.dart';
 import '../main.dart';
 import 'change_password_page.dart';
@@ -21,8 +23,10 @@ class UserProfilePage extends StatefulWidget {
 class _UserProfilePageState extends State<UserProfilePage> {
   final AuthService _authService = AuthService();
   final DailyReportService _dailyReportService = DailyReportService();
+  final RoutingApiService _routingApiService = RoutingApiService();
   User? _user;
   DailyReport? _dailyReport;
+  ApiRoutingSummary? _routingSummary;
   bool _isLoading = true;
   bool _isLoggingOut = false;
   bool _isLoadingReport = true;
@@ -33,6 +37,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
     super.initState();
     _loadUserData();
     _loadDailyReport();
+    _loadRoutingData();
   }
 
   Future<void> _loadUserData() async {
@@ -62,6 +67,22 @@ class _UserProfilePageState extends State<UserProfilePage> {
           _reportError = e.toString();
         });
       }
+    }
+  }
+
+  Future<void> _loadRoutingData() async {
+    try {
+      final response = await _routingApiService.getTodayRouting();
+      if (mounted && response.data.routing != null) {
+        setState(() {
+          _routingSummary = response.data.summary;
+        });
+        print('[Profile] Routing summary loaded: totalClients=${response.data.summary.totalClients}, completedClients=${response.data.summary.completedClients}');
+      } else {
+        print('[Profile] No routing data for today (routing is null)');
+      }
+    } catch (e) {
+      print('[Profile] Failed to load routing data: $e');
     }
   }
 
@@ -285,14 +306,21 @@ class _UserProfilePageState extends State<UserProfilePage> {
                           ? '${_user!.primaryZone!.name} - ${_user!.primaryZone!.city ?? ''}'
                           : '-',
                     ),
+                    const SizedBox(height: 12),
+                    _buildInfoCard(
+                      icon: Icons.store,
+                      iconColor: Colors.indigo,
+                      title: 'Magasin',
+                      value: _user?.magasinName ?? '-',
+                    ),
                     const SizedBox(height: 24),
 
-                    // Statistics Section
+                    // Daily Report Section
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         const Text(
-                          'Statistiques du jour',
+                          'Rapport journalier',
                           style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
@@ -309,6 +337,8 @@ class _UserProfilePageState extends State<UserProfilePage> {
                           ),
                       ],
                     ),
+                    const SizedBox(height: 16),
+                    _buildKpiSection(),
                     const SizedBox(height: 16),
                     _buildStatisticsSection(),
                     const SizedBox(height: 24),
@@ -423,6 +453,155 @@ class _UserProfilePageState extends State<UserProfilePage> {
     return '${formatter.format(amount)} F';
   }
 
+  Widget _buildKpiSection() {
+    if (_isLoadingReport || _dailyReport == null) {
+      return const SizedBox.shrink();
+    }
+
+    final report = _dailyReport!;
+    final visiteProg = _routingSummary?.totalClients ?? report.visits.visiteProgrammee;
+    final visiteEff = _routingSummary?.completedClients ?? report.visits.visiteEffective;
+    final tauxRealisation = visiteProg > 0
+        ? (visiteEff / visiteProg * 100)
+        : 0.0;
+    final clientsVisites = report.visits.clientsVisites;
+    final totalClients = report.visits.totalClients;
+    final tauxCouverture = totalClients > 0
+        ? (clientsVisites / totalClients * 100)
+        : 0.0;
+    final refVendue = report.sales.referenceVendue;
+    final totalItems = report.sales.totalItems;
+    final tauxRef = totalItems > 0
+        ? (refVendue / totalItems * 100)
+        : 0.0;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withValues(alpha: 0.1),
+            spreadRadius: 1,
+            blurRadius: 5,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          _buildKpiRow(
+            icon: Icons.calendar_today,
+            iconColor: Colors.blue,
+            label: 'Visite programmée',
+            count: '$visiteProg',
+            percentage: null,
+          ),
+          const Divider(height: 1),
+          _buildKpiRow(
+            icon: Icons.check_circle_outline,
+            iconColor: Colors.green,
+            label: 'Visite effective',
+            count: '$visiteEff / $visiteProg',
+            percentage: tauxRealisation,
+          ),
+          const Divider(height: 1),
+          _buildKpiRow(
+            icon: Icons.people_outline,
+            iconColor: Colors.orange,
+            label: 'Taux de couverture',
+            count: '$clientsVisites / $totalClients',
+            percentage: tauxCouverture,
+          ),
+          const Divider(height: 1),
+          _buildKpiRow(
+            icon: Icons.inventory_2_outlined,
+            iconColor: Colors.purple,
+            label: 'Référence vendue',
+            count: '$refVendue / $totalItems',
+            percentage: tauxRef,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildKpiRow({
+    required IconData icon,
+    required Color iconColor,
+    required String label,
+    required String count,
+    required double? percentage,
+  }) {
+    Color percentColor = Colors.grey;
+    if (percentage != null) {
+      if (percentage >= 75) {
+        percentColor = Colors.green;
+      } else if (percentage >= 50) {
+        percentColor = Colors.orange;
+      } else {
+        percentColor = Colors.red;
+      }
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: iconColor.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, color: iconColor, size: 20),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: Colors.black87,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  count,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (percentage != null)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: percentColor.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(
+                '${percentage.toStringAsFixed(1)}%',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: percentColor,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildStatisticsSection() {
     if (_isLoadingReport) {
       return const Center(
@@ -470,191 +649,12 @@ class _UserProfilePageState extends State<UserProfilePage> {
 
     return Column(
       children: [
-        // Visits Progress Chart
-        _buildVisitsChart(report),
-        const SizedBox(height: 16),
-
-        // Key Stats Row
-        Row(
-          children: [
-            Expanded(
-              child: _buildStatCard(
-                icon: Icons.shopping_cart,
-                iconColor: Colors.green,
-                title: 'Commandes',
-                value: '${report.orders.totalCount}',
-                subtitle: _formatCurrency(report.orders.totalAmount),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _buildStatCard(
-                icon: Icons.people,
-                iconColor: Colors.blue,
-                title: 'Clients visités',
-                value: '${report.visits.clientsVisites}',
-                subtitle: 'sur ${report.visits.totalClients}',
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(
-              child: _buildStatCard(
-                icon: Icons.access_time,
-                iconColor: Colors.orange,
-                title: 'Temps terrain',
-                value: report.visits.tempsTerrain.formatted,
-                subtitle: 'sur ${report.visits.tempsTerrain.daySpanFormatted}',
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _buildStatCard(
-                icon: Icons.inventory_2,
-                iconColor: Colors.purple,
-                title: 'Réf. vendues',
-                value: '${report.sales.referenceVendue}',
-                subtitle: '${report.sales.avgPerVisit.toStringAsFixed(1)}/visite',
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-
         // Orders Breakdown Chart
         _buildOrdersChart(report),
         const SizedBox(height: 16),
 
         // Wallet & Stock Summary
         _buildWalletStockCard(report),
-      ],
-    );
-  }
-
-  Widget _buildVisitsChart(DailyReport report) {
-    final tauxRealisation = report.visits.tauxRealisation;
-    final tauxCouverture = report.visits.tauxCouverture;
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withValues(alpha: 0.1),
-            spreadRadius: 1,
-            blurRadius: 5,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Performance des visites',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: Colors.black87,
-            ),
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: _buildCircularProgress(
-                  label: 'Réalisation',
-                  value: tauxRealisation,
-                  color: Colors.green,
-                  subtitle: '${report.visits.visiteEffective}/${report.visits.visiteProgrammee}',
-                ),
-              ),
-              Expanded(
-                child: _buildCircularProgress(
-                  label: 'Couverture',
-                  value: tauxCouverture,
-                  color: Colors.blue,
-                  subtitle: '${report.visits.clientsVisites}/${report.visits.totalClients}',
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildCircularProgress({
-    required String label,
-    required double value,
-    required Color color,
-    required String subtitle,
-  }) {
-    return Column(
-      children: [
-        SizedBox(
-          height: 100,
-          width: 100,
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              SizedBox(
-                height: 100,
-                width: 100,
-                child: PieChart(
-                  PieChartData(
-                    startDegreeOffset: -90,
-                    sectionsSpace: 0,
-                    centerSpaceRadius: 35,
-                    sections: [
-                      PieChartSectionData(
-                        value: value,
-                        color: color,
-                        radius: 12,
-                        showTitle: false,
-                      ),
-                      PieChartSectionData(
-                        value: 100 - value,
-                        color: Colors.grey[200],
-                        radius: 12,
-                        showTitle: false,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              Text(
-                '${value.toStringAsFixed(0)}%',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: color,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            color: Colors.black87,
-          ),
-        ),
-        Text(
-          subtitle,
-          style: TextStyle(
-            fontSize: 12,
-            color: Colors.grey[600],
-          ),
-        ),
       ],
     );
   }
@@ -995,65 +995,6 @@ class _UserProfilePageState extends State<UserProfilePage> {
     );
   }
 
-  Widget _buildStatCard({
-    required IconData icon,
-    required Color iconColor,
-    required String title,
-    required String value,
-    String? subtitle,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withValues(alpha: 0.1),
-            spreadRadius: 1,
-            blurRadius: 5,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          Icon(
-            icon,
-            color: iconColor,
-            size: 32,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: Colors.black87,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            title,
-            style: TextStyle(
-              fontSize: 12,
-              color: Colors.grey[600],
-            ),
-          ),
-          if (subtitle != null) ...[
-            const SizedBox(height: 2),
-            Text(
-              subtitle,
-              style: TextStyle(
-                fontSize: 11,
-                color: Colors.grey[500],
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
 
   Widget _buildSettingsItem(
     BuildContext context, {

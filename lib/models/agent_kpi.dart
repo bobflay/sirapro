@@ -34,7 +34,8 @@ class AgentKpi {
   final int fa;
   final double faRate;
 
-  // RV - Références Vendues: avg product references per order = cumul produits / TC
+  // RV - Références Vendues: avg distinct product references per client
+  // = sum of distinct references per client / number of clients who ordered
   final double rv;
 
   // CA by product category (in FCFA)

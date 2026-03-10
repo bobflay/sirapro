@@ -3,6 +3,7 @@ import 'package:sirapro/models/api_visit.dart';
 import 'package:sirapro/screens/api_visit_detail_page.dart';
 import 'package:sirapro/services/visit_api_service.dart';
 import 'package:sirapro/widgets/session_aware_app_bar.dart';
+import 'package:sirapro/utils/app_colors.dart';
 import 'package:intl/intl.dart';
 
 class VisitsPage extends StatefulWidget {
@@ -12,10 +13,13 @@ class VisitsPage extends StatefulWidget {
   State<VisitsPage> createState() => _VisitsPageState();
 }
 
-class _VisitsPageState extends State<VisitsPage> {
+class _VisitsPageState extends State<VisitsPage>
+    with SingleTickerProviderStateMixin {
   final VisitApiService _visitApiService = VisitApiService();
+  late final TabController _tabController;
   List<ApiVisit> _visits = [];
-  List<ApiVisit> _filteredVisits = [];
+  List<ApiVisit> _todayVisits = [];
+  List<ApiVisit> _previousVisits = [];
   final TextEditingController _searchController = TextEditingController();
   String _selectedStatusFilter = 'Tous';
   bool _isLoading = true;
@@ -24,12 +28,19 @@ class _VisitsPageState extends State<VisitsPage> {
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+    _tabController.addListener(() {
+      if (!_tabController.indexIsChanging) {
+        setState(() {});
+      }
+    });
     _searchController.addListener(_filterVisits);
     _loadVisits();
   }
 
   @override
   void dispose() {
+    _tabController.dispose();
     _searchController.dispose();
     super.dispose();
   }
@@ -44,7 +55,6 @@ class _VisitsPageState extends State<VisitsPage> {
       final response = await _visitApiService.getVisits();
       setState(() {
         _visits = response.data;
-        _filteredVisits = _visits;
         _isLoading = false;
       });
       _filterVisits();
@@ -62,8 +72,11 @@ class _VisitsPageState extends State<VisitsPage> {
   }
 
   void _filterVisits() {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+
     setState(() {
-      _filteredVisits = _visits.where((visit) {
+      final filtered = _visits.where((visit) {
         // Search filter
         final searchLower = _searchController.text.toLowerCase();
         final clientName = visit.client?.name ?? '';
@@ -77,6 +90,20 @@ class _VisitsPageState extends State<VisitsPage> {
             _getStatusLabel(visit.status) == _selectedStatusFilter;
 
         return matchesSearch && matchesStatus;
+      }).toList();
+
+      _todayVisits = filtered.where((visit) {
+        final visitDate = visit.startedAt ?? visit.createdAt;
+        if (visitDate == null) return false;
+        final visitDay = DateTime(visitDate.year, visitDate.month, visitDate.day);
+        return visitDay == today;
+      }).toList();
+
+      _previousVisits = filtered.where((visit) {
+        final visitDate = visit.startedAt ?? visit.createdAt;
+        if (visitDate == null) return true;
+        final visitDay = DateTime(visitDate.year, visitDate.month, visitDate.day);
+        return visitDay.isBefore(today);
       }).toList();
     });
   }
@@ -412,175 +439,258 @@ class _VisitsPageState extends State<VisitsPage> {
     );
   }
 
+  Widget _buildVisitsList(List<ApiVisit> visits, String emptyMessage) {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_errorMessage != null) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.error_outline, size: 64, color: Colors.red[300]),
+            const SizedBox(height: 16),
+            Text(
+              _errorMessage!,
+              style: TextStyle(fontSize: 16, color: Colors.grey[600]),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              onPressed: _loadVisits,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Réessayer'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (visits.isEmpty) {
+      return RefreshIndicator(
+        onRefresh: _loadVisits,
+        child: ListView(
+          children: [
+            Container(
+              height: 400,
+              alignment: Alignment.center,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.search_off, size: 64, color: Colors.grey[400]),
+                  const SizedBox(height: 16),
+                  Text(
+                    emptyMessage,
+                    style: TextStyle(fontSize: 18, color: Colors.grey[600]),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _loadVisits,
+      child: ListView.builder(
+        itemCount: visits.length,
+        itemBuilder: (context, index) {
+          return _buildVisitCard(visits[index]);
+        },
+      ),
+    );
+  }
+
+  List<ApiVisit> get _activeVisits =>
+      _tabController.index == 0 ? _todayVisits : _previousVisits;
+
   @override
   Widget build(BuildContext context) {
+    final activeVisits = _activeVisits;
+
     return Scaffold(
       backgroundColor: Colors.grey[100],
       appBar: const SessionAwareAppBar(
         title: 'Visites',
       ),
-      body: RefreshIndicator(
-        onRefresh: _loadVisits,
-        child: Column(
-          children: [
-            // Stats Section
-            Container(
-              padding: const EdgeInsets.all(16),
-              color: Colors.white,
-              child: Row(
-                children: [
-                  Expanded(
-                    child: _buildStatCard(
-                      'Total',
-                      _visits.length.toString(),
-                      Colors.blue,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _buildStatCard(
-                      'Complété',
-                      _visits
-                          .where((v) => v.status == 'completed')
-                          .length
-                          .toString(),
-                      Colors.green,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _buildStatCard(
-                      'En cours',
-                      _visits
-                          .where((v) => v.status == 'started')
-                          .length
-                          .toString(),
-                      Colors.orange,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _buildStatCard(
-                      'Annulé',
-                      _visits
-                          .where((v) => v.status == 'aborted')
-                          .length
-                          .toString(),
-                      Colors.red,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 8),
-            // Search and Filter Section
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Column(
-                children: [
-                  // Search Bar
-                  TextField(
-                    controller: _searchController,
-                    decoration: InputDecoration(
-                      hintText: 'Rechercher un client...',
-                      prefixIcon: const Icon(Icons.search),
-                      suffixIcon: _searchController.text.isNotEmpty
-                          ? IconButton(
-                              icon: const Icon(Icons.clear),
-                              onPressed: () {
-                                _searchController.clear();
-                              },
-                            )
-                          : null,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide.none,
-                      ),
-                      filled: true,
-                      fillColor: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  // Status Filter
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: [
-                        _buildFilterChip('Tous'),
-                        _buildFilterChip('En cours'),
-                        _buildFilterChip('Complété'),
-                        _buildFilterChip('Annulé'),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 8),
-            // Content
-            Expanded(
-              child: _isLoading
-                  ? const Center(
-                      child: CircularProgressIndicator(),
-                    )
-                  : _errorMessage != null
-                      ? Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.error_outline,
-                                size: 64,
-                                color: Colors.red[300],
-                              ),
-                              const SizedBox(height: 16),
-                              Text(
-                                _errorMessage!,
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  color: Colors.grey[600],
-                                ),
-                                textAlign: TextAlign.center,
-                              ),
-                              const SizedBox(height: 16),
-                              ElevatedButton.icon(
-                                onPressed: _loadVisits,
-                                icon: const Icon(Icons.refresh),
-                                label: const Text('Réessayer'),
-                              ),
-                            ],
+      body: Column(
+        children: [
+          // Tabs
+          Container(
+            color: Colors.white,
+            child: TabBar(
+              controller: _tabController,
+              labelColor: AppColors.primary,
+              unselectedLabelColor: Colors.grey,
+              indicatorColor: AppColors.primary,
+              indicatorWeight: 3,
+              tabs: [
+                Tab(
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Text("Aujourd'hui"),
+                      if (_todayVisits.isNotEmpty) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(10),
                           ),
-                        )
-                      : _filteredVisits.isEmpty
-                          ? Center(
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(
-                                    Icons.search_off,
-                                    size: 64,
-                                    color: Colors.grey[400],
-                                  ),
-                                  const SizedBox(height: 16),
-                                  Text(
-                                    'Aucune visite trouvée',
-                                    style: TextStyle(
-                                      fontSize: 18,
-                                      color: Colors.grey[600],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            )
-                          : ListView.builder(
-                              itemCount: _filteredVisits.length,
-                              itemBuilder: (context, index) {
-                                return _buildVisitCard(_filteredVisits[index]);
-                              },
+                          child: Text(
+                            '${_todayVisits.length}',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
                             ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                Tab(
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Text('Précédentes'),
+                      if (_previousVisits.isNotEmpty) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(
+                            '${_previousVisits.length}',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+
+          // Stats Section (values change based on active tab)
+          Container(
+            padding: const EdgeInsets.all(16),
+            color: Colors.white,
+            child: Row(
+              children: [
+                Expanded(
+                  child: _buildStatCard(
+                    'Total',
+                    activeVisits.length.toString(),
+                    Colors.blue,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildStatCard(
+                    'Complété',
+                    activeVisits
+                        .where((v) => v.status == 'completed')
+                        .length
+                        .toString(),
+                    Colors.green,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildStatCard(
+                    'En cours',
+                    activeVisits
+                        .where((v) => v.status == 'started')
+                        .length
+                        .toString(),
+                    Colors.orange,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildStatCard(
+                    'Annulé',
+                    activeVisits
+                        .where((v) => v.status == 'aborted')
+                        .length
+                        .toString(),
+                    Colors.red,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          // Search and Filter Section
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Column(
+              children: [
+                // Search Bar
+                TextField(
+                  controller: _searchController,
+                  decoration: InputDecoration(
+                    hintText: 'Rechercher un client...',
+                    prefixIcon: const Icon(Icons.search),
+                    suffixIcon: _searchController.text.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear),
+                            onPressed: () {
+                              _searchController.clear();
+                            },
+                          )
+                        : null,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                    filled: true,
+                    fillColor: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                // Status Filter
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      _buildFilterChip('Tous'),
+                      _buildFilterChip('En cours'),
+                      _buildFilterChip('Complété'),
+                      _buildFilterChip('Annulé'),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+
+          // Tab views
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              children: [
+                _buildVisitsList(
+                    _todayVisits, "Aucune visite aujourd'hui"),
+                _buildVisitsList(
+                    _previousVisits, 'Aucune visite précédente'),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
