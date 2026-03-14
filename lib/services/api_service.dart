@@ -73,6 +73,22 @@ class ApiService {
     String errorMessage = 'An error occurred';
     if (body != null && body is Map<String, dynamic>) {
       errorMessage = body['message'] as String? ?? errorMessage;
+
+      // For validation errors (422), include detailed field errors
+      if (response.statusCode == 422 && body['errors'] != null && body['errors'] is Map<String, dynamic>) {
+        final errors = body['errors'] as Map<String, dynamic>;
+        final errorDetails = <String>[];
+        errors.forEach((key, value) {
+          if (value is List) {
+            errorDetails.addAll(value.map((e) => e.toString()));
+          } else {
+            errorDetails.add(value.toString());
+          }
+        });
+        if (errorDetails.isNotEmpty) {
+          errorMessage = errorDetails.join('\n');
+        }
+      }
     }
 
     throw ApiException(

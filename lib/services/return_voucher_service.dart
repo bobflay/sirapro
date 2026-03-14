@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import '../models/return_voucher.dart';
 import 'api_service.dart';
 
@@ -53,19 +54,48 @@ class ReturnVoucherService {
       'items': items.map((item) => item.toCreateJson()).toList(),
     };
 
-    final response = await _apiService.post(
-      '/api/return-vouchers',
-      body: body,
-    );
-    final data = response as Map<String, dynamic>;
-
-    if (data['status'] == false) {
-      final message =
-          data['message'] as String? ?? 'Erreur lors de la création';
-      throw ApiException(message, statusCode: 422);
+    debugPrint('[ReturnVoucherService] Creating return voucher with body: $body');
+    for (int i = 0; i < items.length; i++) {
+      debugPrint('[ReturnVoucherService] Item[$i]: ${items[i].toCreateJson()}');
     }
 
-    return ReturnVoucher.fromJson(data['data'] as Map<String, dynamic>);
+    try {
+      final response = await _apiService.post(
+        '/api/return-vouchers',
+        body: body,
+      );
+      final data = response as Map<String, dynamic>;
+      debugPrint('[ReturnVoucherService] Create response: $data');
+
+      if (data['status'] == false) {
+        final message =
+            data['message'] as String? ?? 'Erreur lors de la création';
+        final errors = data['errors'];
+        debugPrint('[ReturnVoucherService] Validation errors: $errors');
+        if (errors != null && errors is Map<String, dynamic>) {
+          final errorMessages = <String>[];
+          errors.forEach((key, value) {
+            if (value is List) {
+              errorMessages.addAll(value.map((e) => e.toString()));
+            } else {
+              errorMessages.add(value.toString());
+            }
+          });
+          if (errorMessages.isNotEmpty) {
+            throw ApiException(errorMessages.join('\n'), statusCode: 422);
+          }
+        }
+        throw ApiException(message, statusCode: 422);
+      }
+
+      return ReturnVoucher.fromJson(data['data'] as Map<String, dynamic>);
+    } on ApiException catch (e) {
+      debugPrint('[ReturnVoucherService] ApiException: ${e.message} (status: ${e.statusCode})');
+      rethrow;
+    } catch (e) {
+      debugPrint('[ReturnVoucherService] Unexpected error: $e');
+      rethrow;
+    }
   }
 
   /// Update a draft return voucher
@@ -99,18 +129,30 @@ class ReturnVoucherService {
 
   /// Submit a draft return voucher
   Future<ReturnVoucher> submitReturnVoucher(int id) async {
-    final response = await _apiService.post(
-      '/api/return-vouchers/$id/submit',
-    );
-    final data = response as Map<String, dynamic>;
+    debugPrint('[ReturnVoucherService] Submitting return voucher id=$id');
 
-    if (data['status'] == false) {
-      final message =
-          data['message'] as String? ?? 'Erreur lors de la soumission';
-      throw ApiException(message, statusCode: 422);
+    try {
+      final response = await _apiService.post(
+        '/api/return-vouchers/$id/submit',
+      );
+      final data = response as Map<String, dynamic>;
+      debugPrint('[ReturnVoucherService] Submit response: $data');
+
+      if (data['status'] == false) {
+        final message =
+            data['message'] as String? ?? 'Erreur lors de la soumission';
+        debugPrint('[ReturnVoucherService] Submit error: $message');
+        throw ApiException(message, statusCode: 422);
+      }
+
+      return ReturnVoucher.fromJson(data['data'] as Map<String, dynamic>);
+    } on ApiException catch (e) {
+      debugPrint('[ReturnVoucherService] Submit ApiException: ${e.message} (status: ${e.statusCode})');
+      rethrow;
+    } catch (e) {
+      debugPrint('[ReturnVoucherService] Submit unexpected error: $e');
+      rethrow;
     }
-
-    return ReturnVoucher.fromJson(data['data'] as Map<String, dynamic>);
   }
 }
 

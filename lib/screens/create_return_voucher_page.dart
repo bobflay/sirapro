@@ -5,14 +5,16 @@ import '../models/product_api.dart';
 import '../services/return_voucher_service.dart';
 import '../services/client_service.dart';
 import '../services/product_service.dart';
+import '../services/order_service.dart';
 import '../services/api_service.dart';
 import '../utils/app_colors.dart';
 import '../widgets/session_aware_app_bar.dart';
 
 class CreateReturnVoucherPage extends StatefulWidget {
   final ReturnVoucher? editVoucher;
+  final Client? preselectedClient;
 
-  const CreateReturnVoucherPage({super.key, this.editVoucher});
+  const CreateReturnVoucherPage({super.key, this.editVoucher, this.preselectedClient});
 
   @override
   State<CreateReturnVoucherPage> createState() =>
@@ -74,10 +76,37 @@ class _EditableItem {
   }
 }
 
+class _ProductPickerItem {
+  final int productId;
+  final String name;
+  final String? sku;
+  final String? unit;
+  final String? packaging;
+  final double price;
+
+  _ProductPickerItem({
+    required this.productId,
+    required this.name,
+    this.sku,
+    this.unit,
+    this.packaging,
+    required this.price,
+  });
+
+  String get formattedPrice {
+    final formatted = price.toStringAsFixed(0).replaceAllMapped(
+      RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+      (Match m) => '${m[1]} ',
+    );
+    return '$formatted FCFA';
+  }
+}
+
 class _CreateReturnVoucherPageState extends State<CreateReturnVoucherPage> {
   final ReturnVoucherService _returnVoucherService = ReturnVoucherService();
   final ClientService _clientService = ClientService();
   final ProductService _productService = ProductService();
+  final OrderService _orderService = OrderService();
   final TextEditingController _notesController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
 
@@ -93,6 +122,8 @@ class _CreateReturnVoucherPageState extends State<CreateReturnVoucherPage> {
     super.initState();
     if (_isEditing) {
       _prefillFromVoucher();
+    } else if (widget.preselectedClient != null) {
+      _selectedClient = widget.preselectedClient;
     }
   }
 
@@ -238,12 +269,53 @@ class _CreateReturnVoucherPageState extends State<CreateReturnVoucherPage> {
     }
   }
 
+  /// Show product picker - loads previously ordered products and allows catalog search
   Future<void> _showProductPicker() async {
     final searchController = TextEditingController();
-    List<ApiProduct> products = [];
+    List<_ProductPickerItem> orderedProducts = [];
+    List<ApiProduct> catalogProducts = [];
     bool isLoading = true;
+    bool isSearching = false;
+    String searchQuery = '';
 
-    showModalBottomSheet<ApiProduct>(
+    // Load previously ordered products for this client
+    Future<List<_ProductPickerItem>> loadOrderedProducts() async {
+      if (_selectedClient == null) return [];
+      try {
+        final ordersResponse = await _orderService.listOrders(
+          clientId: _selectedClient!.id,
+          perPage: 100,
+        );
+        // Extract unique products from all order items
+        // Use base_product_id from order items as the product reference
+        final Map<int, _ProductPickerItem> uniqueProducts = {};
+        debugPrint('[ProductPicker] Orders found: ${ordersResponse.orders.length}');
+        for (final order in ordersResponse.orders) {
+          debugPrint('[ProductPicker] Order ${order.id}: ${order.orderItems.length} items');
+          for (final item in order.orderItems) {
+            // Use product_id from order item (falls back to base_product_id)
+            final productId = item.productId ?? item.baseProductId;
+            debugPrint('[ProductPicker] Item ${item.id}: productId=${item.productId}, baseProductId=${item.baseProductId}, using=$productId, name=${item.displayName}');
+            if (productId == null || productId == 0) continue;
+            if (!uniqueProducts.containsKey(productId)) {
+              uniqueProducts[productId] = _ProductPickerItem(
+                productId: productId,
+                name: item.displayName,
+                sku: item.skuSnapshot,
+                unit: item.unitSnapshot,
+                packaging: item.packagingSnapshot,
+                price: item.unitPriceSnapshot,
+              );
+            }
+          }
+        }
+        return uniqueProducts.values.toList();
+      } catch (e) {
+        return [];
+      }
+    }
+
+    showModalBottomSheet<dynamic>(
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
@@ -252,25 +324,47 @@ class _CreateReturnVoucherPageState extends State<CreateReturnVoucherPage> {
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setModalState) {
-            Future<void> loadProducts(String? search) async {
+            Future<void> loadInitial() async {
               setModalState(() => isLoading = true);
+              orderedProducts = await loadOrderedProducts();
+              debugPrint('[ProductPicker] Ordered products found: ${orderedProducts.length}');
+              // If no ordered products found, load catalog as default
+              if (orderedProducts.isEmpty) {
+                try {
+                  final response = await _productService.listProducts(perPage: 50);
+                  debugPrint('[ProductPicker] Catalog products found: ${response.products.length} (total: ${response.total})');
+                  setModalState(() {
+                    catalogProducts = response.products;
+                  });
+                } catch (e) {
+                  debugPrint('[ProductPicker] Error loading catalog: $e');
+                }
+              }
+              setModalState(() => isLoading = false);
+            }
+
+            Future<void> searchCatalog(String query) async {
+              setModalState(() {
+                isSearching = true;
+                searchQuery = query;
+              });
               try {
                 final response = await _productService.listProducts(
-                  search: search,
+                  search: query,
                   perPage: 50,
                 );
                 setModalState(() {
-                  products = response.products;
-                  isLoading = false;
+                  catalogProducts = response.products;
+                  isSearching = false;
                 });
               } catch (e) {
-                setModalState(() => isLoading = false);
+                setModalState(() => isSearching = false);
               }
             }
 
             // Load on first build
-            if (isLoading && products.isEmpty) {
-              loadProducts(null);
+            if (isLoading && orderedProducts.isEmpty) {
+              loadInitial();
             }
 
             return DraggableScrollableSheet(
@@ -279,6 +373,15 @@ class _CreateReturnVoucherPageState extends State<CreateReturnVoucherPage> {
               minChildSize: 0.4,
               expand: false,
               builder: (context, scrollController) {
+                // Filter ordered products by search
+                final filteredOrdered = searchQuery.isEmpty
+                    ? orderedProducts
+                    : orderedProducts
+                        .where((p) => p.name
+                            .toLowerCase()
+                            .contains(searchQuery.toLowerCase()))
+                        .toList();
+
                 return Column(
                   children: [
                     Container(
@@ -299,39 +402,145 @@ class _CreateReturnVoucherPageState extends State<CreateReturnVoucherPage> {
                           prefixIcon: Icon(Icons.search),
                         ),
                         onChanged: (query) {
-                          loadProducts(query.isEmpty ? null : query);
+                          setModalState(() => searchQuery = query);
+                          if (query.isNotEmpty) {
+                            searchCatalog(query);
+                          } else {
+                            setModalState(() => catalogProducts = []);
+                          }
                         },
                       ),
                     ),
                     Expanded(
                       child: isLoading
                           ? const Center(child: CircularProgressIndicator())
-                          : products.isEmpty
-                              ? Center(
-                                  child: Text(
-                                    'Aucun produit trouvé',
-                                    style: TextStyle(color: Colors.grey[600]),
-                                  ),
-                                )
-                              : ListView.builder(
-                                  controller: scrollController,
-                                  itemCount: products.length,
-                                  itemBuilder: (context, index) {
-                                    final product = products[index];
-                                    return ListTile(
-                                      title: Text(product.displayName),
-                                      subtitle: Text(
-                                        product.formattedPrice,
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          color: Colors.grey[600],
-                                        ),
+                          : ListView(
+                              controller: scrollController,
+                              children: [
+                                // Previously ordered products section
+                                if (filteredOrdered.isNotEmpty) ...[
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 16, vertical: 4),
+                                    child: Text(
+                                      'Produits commandés précédemment',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.grey[600],
                                       ),
-                                      onTap: () =>
-                                          Navigator.pop(context, product),
-                                    );
-                                  },
-                                ),
+                                    ),
+                                  ),
+                                  ...filteredOrdered.map((item) => ListTile(
+                                        leading: Container(
+                                          padding: const EdgeInsets.all(8),
+                                          decoration: BoxDecoration(
+                                            color: AppColors.secondaryDark
+                                                .withValues(alpha: 0.1),
+                                            borderRadius:
+                                                BorderRadius.circular(8),
+                                          ),
+                                          child: const Icon(
+                                            Icons.history,
+                                            color: AppColors.secondaryDark,
+                                            size: 20,
+                                          ),
+                                        ),
+                                        title: Text(item.name),
+                                        subtitle: Text(
+                                          item.formattedPrice,
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.grey[600],
+                                          ),
+                                        ),
+                                        onTap: () =>
+                                            Navigator.pop(context, item),
+                                      )),
+                                  const Divider(height: 24),
+                                ],
+
+                                // Catalog section (search results or default when no ordered products)
+                                if (catalogProducts.isNotEmpty) ...[
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 16, vertical: 4),
+                                    child: Text(
+                                      searchQuery.isNotEmpty ? 'Résultats de recherche' : 'Catalogue',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.grey[600],
+                                      ),
+                                    ),
+                                  ),
+                                  if (isSearching)
+                                    const Padding(
+                                      padding: EdgeInsets.all(24),
+                                      child: Center(
+                                          child:
+                                              CircularProgressIndicator()),
+                                    )
+                                  else
+                                    ...catalogProducts.map(
+                                        (product) => ListTile(
+                                              title: Text(
+                                                  product.displayName),
+                                              subtitle: Text(
+                                                product.formattedPrice,
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  color: Colors.grey[600],
+                                                ),
+                                              ),
+                                              onTap: () => Navigator.pop(
+                                                  context, product),
+                                            )),
+                                ],
+
+                                if (searchQuery.isNotEmpty && catalogProducts.isEmpty && !isSearching)
+                                  Padding(
+                                    padding: const EdgeInsets.all(24),
+                                    child: Center(
+                                      child: Text(
+                                        'Aucun produit trouvé',
+                                        style: TextStyle(
+                                            color: Colors.grey[600]),
+                                      ),
+                                    ),
+                                  ),
+
+                                // Empty state when no search and no ordered products and no catalog
+                                if (filteredOrdered.isEmpty &&
+                                    catalogProducts.isEmpty &&
+                                    searchQuery.isEmpty)
+                                  Padding(
+                                    padding: const EdgeInsets.all(32),
+                                    child: Center(
+                                      child: Column(
+                                        children: [
+                                          Icon(Icons.inventory_2,
+                                              size: 48,
+                                              color: Colors.grey[400]),
+                                          const SizedBox(height: 12),
+                                          Text(
+                                            'Aucun produit disponible',
+                                            style: TextStyle(
+                                                color: Colors.grey[600]),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            'Recherchez un produit dans le catalogue',
+                                            style: TextStyle(
+                                                fontSize: 12,
+                                                color: Colors.grey[400]),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
                     ),
                   ],
                 );
@@ -340,17 +549,32 @@ class _CreateReturnVoucherPageState extends State<CreateReturnVoucherPage> {
           },
         );
       },
-    ).then((product) {
-      if (product != null && mounted) {
-        setState(() {
-          _items.add(_EditableItem(
-            product: product,
-            productId: product.id,
-            productName: product.displayName,
-            quantity: 1,
-            unitPrice: product.effectivePackPrice ?? product.price ?? 0,
-          ));
-        });
+    ).then((result) {
+      if (result != null && mounted) {
+        if (result is _ProductPickerItem) {
+          // From ordered products - uses base_product_id
+          setState(() {
+            _items.add(_EditableItem(
+              productId: result.productId,
+              productName: result.name,
+              quantity: 1,
+              unitPrice: result.price,
+            ));
+          });
+        } else if (result is ApiProduct) {
+          // From catalog - use baseProductId (which maps to base_products table)
+          final productId = result.baseProductId ?? result.id;
+          debugPrint('[ProductPicker] Catalog product: name=${result.displayName}, id=${result.id}, baseProductId=${result.baseProductId}, using=$productId');
+          setState(() {
+            _items.add(_EditableItem(
+              product: result,
+              productId: productId,
+              productName: result.displayName,
+              quantity: 1,
+              unitPrice: result.effectivePackPrice ?? result.price ?? 0,
+            ));
+          });
+        }
       }
     });
   }
@@ -400,6 +624,17 @@ class _CreateReturnVoucherPageState extends State<CreateReturnVoucherPage> {
 
     try {
       final voucherItems = _items.map((e) => e.toItem()).toList();
+
+      debugPrint('[CreateReturnVoucher] Saving with andSubmit=$andSubmit, isEditing=$_isEditing');
+      debugPrint('[CreateReturnVoucher] Client: ${_selectedClient!.id} (${_selectedClient!.name})');
+      debugPrint('[CreateReturnVoucher] Notes: "${_notesController.text}"');
+      debugPrint('[CreateReturnVoucher] Items count: ${voucherItems.length}');
+      for (int i = 0; i < voucherItems.length; i++) {
+        final item = voucherItems[i];
+        debugPrint('[CreateReturnVoucher] Item[$i]: productId=${item.productId}, qty=${item.quantity}, price=${item.unitPriceSnapshot}, reason=${item.reason}, reasonNotes=${item.reasonNotes}');
+        debugPrint('[CreateReturnVoucher] Item[$i] toCreateJson: ${item.toCreateJson()}');
+      }
+
       ReturnVoucher voucher;
 
       if (_isEditing) {
@@ -419,8 +654,12 @@ class _CreateReturnVoucherPageState extends State<CreateReturnVoucherPage> {
         );
       }
 
+      debugPrint('[CreateReturnVoucher] Created voucher id=${voucher.id}, ref=${voucher.reference}');
+
       if (andSubmit) {
+        debugPrint('[CreateReturnVoucher] Now submitting voucher id=${voucher.id}');
         await _returnVoucherService.submitReturnVoucher(voucher.id);
+        debugPrint('[CreateReturnVoucher] Submit successful');
       }
 
       if (mounted) {
@@ -437,22 +676,26 @@ class _CreateReturnVoucherPageState extends State<CreateReturnVoucherPage> {
         Navigator.pop(context, true);
       }
     } on ApiException catch (e) {
+      debugPrint('[CreateReturnVoucher] ApiException: ${e.message} (status: ${e.statusCode})');
       if (mounted) {
         setState(() => _isSaving = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(e.message),
             backgroundColor: AppColors.primary,
+            duration: const Duration(seconds: 5),
           ),
         );
       }
     } catch (e) {
+      debugPrint('[CreateReturnVoucher] Unexpected error: $e');
       if (mounted) {
         setState(() => _isSaving = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Une erreur est survenue'),
+          SnackBar(
+            content: Text('Une erreur est survenue: $e'),
             backgroundColor: AppColors.primary,
+            duration: const Duration(seconds: 5),
           ),
         );
       }

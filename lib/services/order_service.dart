@@ -306,6 +306,19 @@ class OrderService {
       final body = jsonDecode(response.body) as Map<String, dynamic>;
 
       if (response.statusCode == 200) {
+        // Log first order item raw JSON to debug available fields
+        final dataMap = body['data'];
+        if (dataMap is Map<String, dynamic>) {
+          final dataList = dataMap['data'];
+          if (dataList is List && dataList.isNotEmpty) {
+            final firstOrder = dataList[0] as Map<String, dynamic>;
+            final orderItems = firstOrder['order_items'];
+            if (orderItems is List && orderItems.isNotEmpty) {
+              debugPrint('[OrderService] First order item raw JSON keys: ${(orderItems[0] as Map<String, dynamic>).keys.toList()}');
+              debugPrint('[OrderService] First order item raw JSON: ${orderItems[0]}');
+            }
+          }
+        }
         return OrderListResponse.fromJson(body);
       }
 

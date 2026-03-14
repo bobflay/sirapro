@@ -358,21 +358,19 @@ class _ReturnVouchersListPageState extends State<ReturnVouchersListPage> {
       backgroundColor: Colors.grey[100],
       appBar: SessionAwareAppBar(
         title: 'Bons de Retour',
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.add),
-            onPressed: () async {
-              final result = await Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const CreateReturnVoucherPage(),
-                ),
-              );
-              if (result == true) _loadVouchers();
-            },
-            tooltip: 'Nouveau bon de retour',
-          ),
-        ],
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () async {
+          final result = await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const CreateReturnVoucherPage(),
+            ),
+          );
+          if (result == true) _loadVouchers();
+        },
+        backgroundColor: AppColors.primary,
+        child: const Icon(Icons.add, color: Colors.white),
       ),
       body: Column(
         children: [

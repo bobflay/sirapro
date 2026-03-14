@@ -78,6 +78,7 @@ class ApiOrderItem {
 
   final int id;
   final int orderId;
+  final int? productId;
   final int? baseProductId;
   final String? productNameSnapshot;
   final String? skuSnapshot;
@@ -93,6 +94,7 @@ class ApiOrderItem {
   ApiOrderItem({
     required this.id,
     required this.orderId,
+    this.productId,
     this.baseProductId,
     this.productNameSnapshot,
     this.skuSnapshot,
@@ -110,6 +112,7 @@ class ApiOrderItem {
     return ApiOrderItem(
       id: _parseIntSafe(json['id']),
       orderId: _parseIntSafe(json['order_id']),
+      productId: json['product_id'] != null ? _parseIntSafe(json['product_id']) : null,
       baseProductId: json['base_product_id'] != null ? _parseIntSafe(json['base_product_id']) : null,
       productNameSnapshot: json['product_name_snapshot'] as String?,
       skuSnapshot: json['sku_snapshot'] as String?,

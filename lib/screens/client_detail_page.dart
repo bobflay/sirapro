@@ -28,6 +28,10 @@ import '../services/visit_service.dart';
 import '../services/visit_api_service.dart';
 import '../services/order_service.dart';
 import '../models/order_api.dart';
+import 'create_return_voucher_page.dart';
+import 'return_voucher_detail_page.dart';
+import '../models/return_voucher.dart';
+import '../services/return_voucher_service.dart';
 import '../widgets/session_aware_app_bar.dart';
 import 'visit_report_page.dart';
 import 'visit_report_detail_page.dart';
@@ -2659,6 +2663,12 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
                 color: Colors.orange,
                 onTap: _viewAlerts, // Always enabled to view and create alerts
               ),
+              _buildQuickActionButton(
+                icon: Icons.assignment_return,
+                label: 'Bon de\nRetour',
+                color: AppColors.secondaryDark,
+                onTap: _viewReturnVouchers,
+              ),
             ],
           ),
         ],
@@ -2978,6 +2988,45 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
         },
       ),
     );
+  }
+
+  void _viewReturnVouchers() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => _ReturnVouchersBottomSheet(
+        clientId: _client.id,
+        clientName: _client.name,
+        isVisitActive: _isVisitActive,
+        onCreateReturnVoucher: () {
+          Navigator.pop(context);
+          _createNewReturnVoucher();
+        },
+      ),
+    );
+  }
+
+  Future<void> _createNewReturnVoucher() async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => CreateReturnVoucherPage(
+          preselectedClient: _client,
+        ),
+      ),
+    );
+
+    if (result == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Bon de retour créé avec succès'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    }
   }
 
   void _viewAlerts() {
@@ -5685,6 +5734,405 @@ class _LocationPickerPageState extends State<_LocationPickerPage> {
                 ),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ============================================================
+// Return Vouchers Bottom Sheet
+// ============================================================
+
+class _ReturnVouchersBottomSheet extends StatefulWidget {
+  final int clientId;
+  final String clientName;
+  final bool isVisitActive;
+  final VoidCallback onCreateReturnVoucher;
+
+  const _ReturnVouchersBottomSheet({
+    required this.clientId,
+    required this.clientName,
+    required this.isVisitActive,
+    required this.onCreateReturnVoucher,
+  });
+
+  @override
+  State<_ReturnVouchersBottomSheet> createState() =>
+      _ReturnVouchersBottomSheetState();
+}
+
+class _ReturnVouchersBottomSheetState
+    extends State<_ReturnVouchersBottomSheet> {
+  final ReturnVoucherService _service = ReturnVoucherService();
+  List<ReturnVoucher> _vouchers = [];
+  bool _isLoading = true;
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadVouchers();
+  }
+
+  Future<void> _loadVouchers() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final response = await _service.getReturnVouchers(
+        clientId: widget.clientId,
+      );
+
+      if (mounted) {
+        setState(() {
+          _vouchers = response.vouchers;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = e.toString();
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  Color _getStatusColor(String status) {
+    switch (status) {
+      case 'draft':
+        return AppColors.gray;
+      case 'submitted':
+        return Colors.orange;
+      case 'validated':
+        return AppColors.success;
+      case 'cancelled':
+        return AppColors.primary;
+      default:
+        return AppColors.gray;
+    }
+  }
+
+  String _formatDate(DateTime date) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
+    final voucherDate = DateTime(date.year, date.month, date.day);
+
+    if (voucherDate == today) {
+      return "Aujourd'hui ${DateFormat('HH:mm').format(date)}";
+    } else if (voucherDate == yesterday) {
+      return 'Hier ${DateFormat('HH:mm').format(date)}';
+    } else {
+      return DateFormat('dd/MM/yyyy').format(date);
+    }
+  }
+
+  String _formatAmount(double amount) {
+    final formatted = amount.toStringAsFixed(0).replaceAllMapped(
+      RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+      (Match m) => '${m[1]} ',
+    );
+    return '$formatted FCFA';
+  }
+
+  Widget _buildVoucherCard(ReturnVoucher voucher) {
+    final statusColor = _getStatusColor(voucher.status);
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () {
+          Navigator.pop(context);
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) =>
+                  ReturnVoucherDetailPage(voucherId: voucher.id),
+            ),
+          );
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: AppColors.secondaryDark.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(
+                      Icons.assignment_return,
+                      color: AppColors.secondaryDark,
+                      size: 24,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                voucher.reference,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: statusColor.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: statusColor),
+                              ),
+                              child: Text(
+                                voucher.statusLabel,
+                                style: TextStyle(
+                                  color: statusColor,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          _formatAmount(voucher.totalAmount),
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.black87,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            Icon(Icons.access_time,
+                                size: 12, color: Colors.grey[400]),
+                            const SizedBox(width: 4),
+                            Text(
+                              _formatDate(voucher.createdAt),
+                              style: TextStyle(
+                                color: Colors.grey[500],
+                                fontSize: 11,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Icon(Icons.inventory_2,
+                                size: 12, color: Colors.grey[400]),
+                            const SizedBox(width: 4),
+                            Text(
+                              '${voucher.items.length} article${voucher.items.length > 1 ? 's' : ''}',
+                              style: TextStyle(
+                                color: Colors.grey[500],
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.7,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      expand: false,
+      builder: (context, scrollController) => Column(
+        children: [
+          // Handle
+          Container(
+            margin: const EdgeInsets.symmetric(vertical: 12),
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: Colors.grey[300],
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          // Header
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Bons de Retour',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close),
+                ),
+              ],
+            ),
+          ),
+          const Divider(),
+
+          // New Return Voucher Button
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+            child: SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: widget.isVisitActive
+                    ? widget.onCreateReturnVoucher
+                    : null,
+                icon: const Icon(Icons.add),
+                label: const Text('Nouveau Bon de Retour'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: widget.isVisitActive
+                      ? AppColors.secondaryDark
+                      : Colors.grey,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            ),
+          ),
+
+          // Warning message if visit not active
+          if (!widget.isVisitActive)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border:
+                      Border.all(color: Colors.orange.withValues(alpha: 0.3)),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline,
+                        color: Colors.orange[700], size: 20),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        'Démarrez la visite pour créer un nouveau bon de retour',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.black87,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+          const Divider(),
+
+          // Vouchers List
+          Expanded(
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _errorMessage != null
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.error_outline,
+                              size: 64,
+                              color: Colors.red[300],
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'Erreur de chargement',
+                              style: TextStyle(
+                                fontSize: 16,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            TextButton.icon(
+                              onPressed: _loadVouchers,
+                              icon: const Icon(Icons.refresh),
+                              label: const Text('Réessayer'),
+                            ),
+                          ],
+                        ),
+                      )
+                    : _vouchers.isEmpty
+                        ? Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.assignment_return,
+                                  size: 64,
+                                  color: Colors.grey[400],
+                                ),
+                                const SizedBox(height: 16),
+                                Text(
+                                  'Aucun bon de retour',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  'Créez votre premier bon de retour',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: Colors.grey[500],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )
+                        : ListView.builder(
+                            controller: scrollController,
+                            padding:
+                                const EdgeInsets.symmetric(horizontal: 20),
+                            itemCount: _vouchers.length,
+                            itemBuilder: (context, index) {
+                              return _buildVoucherCard(_vouchers[index]);
+                            },
+                          ),
           ),
         ],
       ),
