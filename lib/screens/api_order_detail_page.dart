@@ -9,6 +9,7 @@ import '../services/api_service.dart';
 import '../utils/app_colors.dart';
 import '../utils/html_stub.dart'
     if (dart.library.html) 'dart:html' as html;
+import '../services/sunmi_print_service.dart';
 import 'edit_order_page.dart';
 
 class ApiOrderDetailPage extends StatefulWidget {
@@ -27,6 +28,8 @@ class ApiOrderDetailPage extends StatefulWidget {
 
 class _ApiOrderDetailPageState extends State<ApiOrderDetailPage> {
   final OrderService _orderService = OrderService();
+  final SunmiPrintService _printService = SunmiPrintService();
+  bool _isPrinting = false;
 
   ApiOrder? _order;
   bool _isLoading = true;
@@ -246,6 +249,21 @@ class _ApiOrderDetailPageState extends State<ApiOrderDetailPage> {
       appBar: AppBar(
         title: Text(_order?.reference ?? 'Commande #${widget.orderId}'),
         actions: [
+          if (_order != null)
+            IconButton(
+              icon: _isPrinting
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    )
+                  : const Icon(Icons.print),
+              onPressed: _isPrinting ? null : () => _printInvoice(context),
+              tooltip: 'Imprimer la facture',
+            ),
           if (_order != null)
             IconButton(
               icon: const Icon(Icons.edit),
@@ -886,6 +904,88 @@ class _ApiOrderDetailPageState extends State<ApiOrderDetailPage> {
     );
     if (result == true) {
       _loadOrder();
+    }
+  }
+
+  Future<void> _printInvoice(BuildContext context) async {
+    if (_order == null) return;
+
+    // Ask user which invoice type they want
+    final normalized = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Type de facture'),
+        content: const Text('Quel type de facture souhaitez-vous imprimer ?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Standard'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Normalisée'),
+          ),
+        ],
+      ),
+    );
+
+    if (normalized == null) return;
+
+    setState(() => _isPrinting = true);
+
+    try {
+      // Fetch print data from server
+      final printData = await _orderService.fetchInvoicePrintData(
+        _order!.id,
+        normalized: normalized,
+      );
+
+      // Print via Sunmi
+      final success = await _printService.printOrderInvoice(printData);
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                Icon(
+                  success ? Icons.check_circle : Icons.error,
+                  color: Colors.white,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  success
+                      ? 'Facture imprimée avec succès'
+                      : 'Erreur lors de l\'impression',
+                ),
+              ],
+            ),
+            backgroundColor: success ? Colors.green : Colors.red,
+          ),
+        );
+      }
+    } on ApiException catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.message),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isPrinting = false);
+      }
     }
   }
 

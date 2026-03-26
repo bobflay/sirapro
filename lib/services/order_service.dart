@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '../models/order_api.dart';
+import '../models/invoice_print_data.dart';
 import 'api_service.dart';
 
 /// Response from listing orders
@@ -502,6 +503,55 @@ class OrderService {
 
       final errorMessage = body['message'] as String? ?? 'Erreur lors de la mise à jour du statut';
       throw ApiException(errorMessage, statusCode: response.statusCode);
+    } on http.ClientException {
+      throw ApiException('Erreur de connexion. Vérifiez votre connexion internet.');
+    } catch (e) {
+      if (e is ApiException) rethrow;
+      throw ApiException('Une erreur inattendue est survenue: $e');
+    }
+  }
+
+  /// Fetch invoice print data as JSON for thermal printing
+  Future<InvoicePrintData> fetchInvoicePrintData(int orderId, {bool normalized = false}) async {
+    try {
+      final queryParam = normalized ? '?normalized=true' : '';
+      final uri = Uri.parse('${ApiService.baseUrl}/api/orders/$orderId/invoice-print$queryParam');
+      final token = _apiService.token;
+
+      debugPrint('[OrderService] Fetching invoice print data for order: $orderId (normalized: $normalized)');
+
+      final response = await http.get(
+        uri,
+        headers: {
+          'Accept': 'application/json',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+      );
+
+      debugPrint('[OrderService] Invoice print data response status: ${response.statusCode}');
+
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body) as Map<String, dynamic>;
+        if (body['status'] == true && body['data'] != null) {
+          return InvoicePrintData.fromJson(body['data'] as Map<String, dynamic>);
+        }
+        throw ApiException(body['message'] as String? ?? 'Erreur lors de la récupération des données');
+      }
+
+      if (response.statusCode == 401) {
+        throw ApiException('Non autorisé. Veuillez vous reconnecter.', statusCode: 401);
+      }
+      if (response.statusCode == 404) {
+        throw ApiException('Commande introuvable.', statusCode: 404);
+      }
+
+      try {
+        final body = jsonDecode(response.body) as Map<String, dynamic>;
+        throw ApiException(body['message'] as String? ?? 'Erreur serveur', statusCode: response.statusCode);
+      } catch (e) {
+        if (e is ApiException) rethrow;
+        throw ApiException('Erreur lors de la récupération des données', statusCode: response.statusCode);
+      }
     } on http.ClientException {
       throw ApiException('Erreur de connexion. Vérifiez votre connexion internet.');
     } catch (e) {
