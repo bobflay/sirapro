@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/invoice_service.dart';
 import '../services/api_service.dart';
+import '../services/sunmi_print_service.dart';
 import '../utils/app_colors.dart';
 
 class InvoiceDetailPage extends StatefulWidget {
@@ -14,6 +15,8 @@ class InvoiceDetailPage extends StatefulWidget {
 
 class _InvoiceDetailPageState extends State<InvoiceDetailPage> {
   final InvoiceService _invoiceService = InvoiceService();
+  final SunmiPrintService _printService = SunmiPrintService();
+  bool _isPrinting = false;
 
   bool _isEditMode = false;
   bool _isSaving = false;
@@ -142,6 +145,40 @@ class _InvoiceDetailPageState extends State<InvoiceDetailPage> {
     });
   }
 
+  Future<void> _printInvoice() async {
+    setState(() => _isPrinting = true);
+
+    try {
+      final success = await _printService.printInvoice(widget.invoice);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                Icon(
+                  success ? Icons.check_circle : Icons.error,
+                  color: Colors.white,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  success
+                      ? 'Bon de livraison imprimé avec succès'
+                      : 'Erreur lors de l\'impression',
+                ),
+              ],
+            ),
+            backgroundColor: success ? Colors.green : Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isPrinting = false);
+      }
+    }
+  }
+
   Future<void> _saveInvoice() async {
     setState(() {
       _isSaving = true;
@@ -259,6 +296,21 @@ class _InvoiceDetailPageState extends State<InvoiceDetailPage> {
       appBar: AppBar(
         title: Text(widget.invoice.invoiceNumber ?? 'Détail Bon de livraison'),
         actions: [
+          if (!_isEditMode)
+            IconButton(
+              icon: _isPrinting
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    )
+                  : const Icon(Icons.print),
+              onPressed: _isPrinting ? null : _printInvoice,
+              tooltip: 'Imprimer',
+            ),
           if (_isEditMode)
             IconButton(
               icon: _isSaving
