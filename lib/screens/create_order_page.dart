@@ -82,6 +82,10 @@ class _CreateOrderPageState extends State<CreateOrderPage> {
   Future<void> _loadInitialData() async {
     // Load current user first for base_commerciale_id
     _currentUser = await _authService.getCurrentUser();
+    debugPrint('[CreateOrderPage] currentUser: ${_currentUser?.id}, name: ${_currentUser?.name}');
+    debugPrint('[CreateOrderPage] basesCommerciales count: ${_currentUser?.basesCommerciales.length}');
+    debugPrint('[CreateOrderPage] basesCommerciales: ${_currentUser?.basesCommerciales.map((b) => '${b.id}:${b.name}').toList()}');
+    debugPrint('[CreateOrderPage] primaryBase: ${_currentUser?.primaryBase?.id} - ${_currentUser?.primaryBase?.name}');
 
     await Future.wait([
       _loadProducts(refresh: true),
@@ -601,8 +605,12 @@ class _CreateOrderPageState extends State<CreateOrderPage> {
       return;
     }
 
-    // Get base_commerciale_id from current user
+    // Ensure user is loaded
+    _currentUser ??= await _authService.getCurrentUser();
+    debugPrint('[CreateOrderPage] Validating order - currentUser: ${_currentUser?.id}');
+    debugPrint('[CreateOrderPage] basesCommerciales: ${_currentUser?.basesCommerciales.map((b) => '${b.id}:${b.name}').toList()}');
     final baseCommercialeId = _currentUser?.primaryBase?.id;
+    debugPrint('[CreateOrderPage] baseCommercialeId: $baseCommercialeId');
     if (baseCommercialeId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(

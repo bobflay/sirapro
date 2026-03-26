@@ -513,9 +513,10 @@ class OrderService {
   /// Download invoice PDF for an order from the server
   ///
   /// Returns the PDF file bytes
-  Future<List<int>> downloadInvoice(int orderId) async {
+  Future<List<int>> downloadInvoice(int orderId, {bool normalized = false}) async {
     try {
-      final uri = Uri.parse('${ApiService.baseUrl}/api/orders/$orderId/invoice');
+      final queryParam = normalized ? '?normalized=true' : '';
+      final uri = Uri.parse('${ApiService.baseUrl}/api/orders/$orderId/invoice$queryParam');
       final token = _apiService.token;
 
       debugPrint('[OrderService] Downloading invoice for order: $orderId');

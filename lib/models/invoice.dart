@@ -209,6 +209,7 @@ class InvoiceItem {
   final int? quantityPacks;
   final int? quantityUnits;
   final int? unitsPerPack;
+  final double? unitPriceUnit;
 
   // Item status for delivery tracking
   final String? status; // 'charged', 'delivered', 'not_delivered'
@@ -224,6 +225,7 @@ class InvoiceItem {
     this.quantityPacks,
     this.quantityUnits,
     this.unitsPerPack,
+    this.unitPriceUnit,
     this.status,
   });
 
@@ -239,6 +241,7 @@ class InvoiceItem {
       quantityPacks: json['quantity_packs'] != null ? _parseInt(json['quantity_packs']) : null,
       quantityUnits: json['quantity_units'] != null ? _parseInt(json['quantity_units']) : null,
       unitsPerPack: json['units_per_pack'] != null ? _parseInt(json['units_per_pack']) : null,
+      unitPriceUnit: json['unit_price'] != null ? _parseDouble(json['unit_price']) : null,
       status: json['status'] as String?,
     );
   }
@@ -255,6 +258,7 @@ class InvoiceItem {
       if (quantityPacks != null) 'quantity_packs': quantityPacks,
       if (quantityUnits != null) 'quantity_units': quantityUnits,
       if (unitsPerPack != null) 'units_per_pack': unitsPerPack,
+      if (unitPriceUnit != null) 'unit_price': unitPriceUnit,
       if (status != null) 'status': status,
     };
   }

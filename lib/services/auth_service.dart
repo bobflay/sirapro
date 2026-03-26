@@ -137,6 +137,8 @@ class AuthService {
 
     final prefs = await SharedPreferences.getInstance();
     final userJson = prefs.getString(_userKey);
+    print('[AuthService] getCurrentUser - userJson is null: ${userJson == null}');
+    print('[AuthService] getCurrentUser - all keys: ${prefs.getKeys()}');
 
     if (userJson == null) {
       return null;
@@ -144,9 +146,12 @@ class AuthService {
 
     try {
       final userData = jsonDecode(userJson) as Map<String, dynamic>;
+      print('[AuthService] Raw bases_commerciales from storage: ${userData['bases_commerciales']}');
       _cachedUser = User.fromJson(userData);
+      print('[AuthService] Parsed basesCommerciales count: ${_cachedUser?.basesCommerciales.length}');
       return _cachedUser;
     } catch (e) {
+      print('[AuthService] Error parsing user from storage: $e');
       return null;
     }
   }
@@ -164,10 +169,21 @@ class AuthService {
       _apiService.setToken(token);
 
       final response = await _apiService.get('/api/me');
+      print('[AuthService] validateToken /api/me response keys: ${response is Map ? (response as Map).keys.toList() : response.runtimeType}');
 
       // Update cached user with fresh data
       if (response != null && response is Map<String, dynamic>) {
-        final user = User.fromJson(response);
+        // Handle wrapped response (e.g. { "data": { ... } } or { "user": { ... } })
+        Map<String, dynamic> userData = response;
+        if (response.containsKey('data') && response['data'] is Map<String, dynamic>) {
+          userData = response['data'] as Map<String, dynamic>;
+        } else if (response.containsKey('user') && response['user'] is Map<String, dynamic>) {
+          userData = response['user'] as Map<String, dynamic>;
+        }
+        print('[AuthService] validateToken userData keys: ${userData.keys.toList()}');
+        print('[AuthService] validateToken bases_commerciales: ${userData['bases_commerciales']}');
+        final user = User.fromJson(userData);
+        print('[AuthService] validateToken parsed user: ${user.id}, basesCommerciales: ${user.basesCommerciales.length}');
         await _saveUser(user);
         _cachedUser = user;
       }
@@ -177,12 +193,14 @@ class AuthService {
 
       return true;
     } on ApiException catch (e) {
+      print('[AuthService] validateToken ApiException: ${e.statusCode} - ${e.message}');
       if (e.statusCode == 401) {
         // Token is invalid, clear stored data
         await _clearAll();
       }
       return false;
     } catch (e) {
+      print('[AuthService] validateToken error: $e');
       // Network error - token might still be valid
       // Return true to allow offline access
       return await isLoggedIn();

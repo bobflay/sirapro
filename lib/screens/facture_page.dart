@@ -148,8 +148,12 @@ class _FacturePageState extends State<FacturePage> {
         'quantityPacks': TextEditingController(text: item.quantityPacks != null ? _formatInt(item.quantityPacks!) : '0'),
         'quantityUnits': TextEditingController(text: item.quantityUnits != null ? _formatInt(item.quantityUnits!) : '0'),
         'unitsPerPack': TextEditingController(text: item.unitsPerPack != null ? _formatInt(item.unitsPerPack!) : '1'),
+        'unitPriceUnit': TextEditingController(text: item.unitPriceUnit != null ? _formatNumber(item.unitPriceUnit!) : '0'),
       };
     }).toList();
+
+    // Pre-fill pack/unit details from designations
+    _prefillPackUnitDetails();
 
     // Taxes
     _taxControllers = data.taxes.map((tax) {
@@ -160,6 +164,69 @@ class _FacturePageState extends State<FacturePage> {
         'taxAmount': TextEditingController(text: _formatNumber(tax.taxAmount)),
       };
     }).toList();
+  }
+
+  /// Extracts the number of units per pack from a designation string
+  /// and computes the unit price from the pack price.
+  ///
+  /// Patterns matched:
+  ///   "1100GR X 6 Sachets"  → 6
+  ///   "ketchy alyssa 12X340G" → 12
+  ///   "lait laity bleu sachets 18G X 120" → 120
+  ///
+  /// The number attached to a weight/volume suffix (G, GR, KG, ML, CL, L)
+  /// is the measurement; the other number is the quantity per pack.
+  static int? _extractUnitsPerPack(String designation) {
+    final regex = RegExp(
+      r'(\d+)\s*([A-Za-z]*)\s*[Xx]\s*(\d+)\s*([A-Za-z]*)',
+    );
+    final match = regex.firstMatch(designation.toUpperCase());
+    if (match == null) return null;
+
+    final num1 = int.tryParse(match.group(1)!);
+    final suffix1 = match.group(2)!;
+    final num2 = int.tryParse(match.group(3)!);
+    final suffix2 = match.group(4)!;
+
+    if (num1 == null || num2 == null) return null;
+
+    const weightSuffixes = {'G', 'GR', 'KG', 'MG', 'ML', 'CL', 'L', 'DL'};
+
+    final suffix1IsWeight = weightSuffixes.contains(suffix1);
+    final suffix2IsWeight = weightSuffixes.contains(suffix2);
+
+    // If one side has a weight suffix, the other is the quantity
+    if (suffix1IsWeight && !suffix2IsWeight) return num2;
+    if (suffix2IsWeight && !suffix1IsWeight) return num1;
+
+    // If neither has a suffix, pick the smaller as quantity (heuristic)
+    if (!suffix1IsWeight && !suffix2IsWeight) {
+      return num1 < num2 ? num1 : num2;
+    }
+
+    return null;
+  }
+
+  /// Pre-fills unitsPerPack and unitPriceUnit for each item based on designation.
+  void _prefillPackUnitDetails() {
+    for (final item in _itemControllers) {
+      final designation = item['designation']!.text;
+      final units = _extractUnitsPerPack(designation);
+      final packPrice = _parseFormattedDouble(item['unitPrice']!.text);
+      if (units != null && units > 0) {
+        item['unitsPerPack']!.text = _formatInt(units);
+        if (packPrice > 0) {
+          final pricePerUnit = (packPrice / units * 100).roundToDouble() / 100;
+          item['unitPriceUnit']!.text = _formatNumber(pricePerUnit);
+        }
+      } else {
+        // Single unit product — unit price equals pack price
+        item['unitsPerPack']!.text = '1';
+        if (packPrice > 0) {
+          item['unitPriceUnit']!.text = _formatNumber(packPrice);
+        }
+      }
+    }
   }
 
   void _addNewItem() {
@@ -174,6 +241,7 @@ class _FacturePageState extends State<FacturePage> {
         'quantityPacks': TextEditingController(text: '0'),
         'quantityUnits': TextEditingController(text: '0'),
         'unitsPerPack': TextEditingController(text: '1'),
+        'unitPriceUnit': TextEditingController(text: '0'),
       });
     });
   }
@@ -444,6 +512,7 @@ class _FacturePageState extends State<FacturePage> {
         final quantityPacks = item['quantityPacks'] != null ? _parseFormattedInt(item['quantityPacks']!.text) : null;
         final quantityUnits = item['quantityUnits'] != null ? _parseFormattedInt(item['quantityUnits']!.text) : null;
         final unitsPerPack = item['unitsPerPack'] != null ? _parseFormattedInt(item['unitsPerPack']!.text) : null;
+        final unitPriceUnit = item['unitPriceUnit'] != null ? _parseFormattedDouble(item['unitPriceUnit']!.text) : null;
 
         return CreateInvoiceItemRequest(
           reference: item['reference']!.text.isNotEmpty ? item['reference']!.text : null,
@@ -455,6 +524,7 @@ class _FacturePageState extends State<FacturePage> {
           quantityPacks: quantityPacks != null && quantityPacks > 0 ? quantityPacks : null,
           quantityUnits: quantityUnits != null && quantityUnits > 0 ? quantityUnits : null,
           unitsPerPack: unitsPerPack != null && unitsPerPack > 0 ? unitsPerPack : null,
+          unitPriceUnit: unitPriceUnit != null && unitPriceUnit > 0 ? unitPriceUnit : null,
         );
       }).toList();
 
@@ -1274,12 +1344,11 @@ class _FacturePageState extends State<FacturePage> {
                     const SizedBox(height: 8),
                     Row(
                       children: [
-                        Expanded(child: _buildCompactField('Qté Packs', item['quantityPacks']!, isNumber: true)),
+                        Expanded(child: _buildCompactField('Units/Pack', item['unitsPerPack']!, isNumber: true)),
                         const SizedBox(width: 8),
-                        Expanded(child: _buildCompactField('Qté Units', item['quantityUnits']!, isNumber: true)),
+                        Expanded(child: _buildCompactField('Prix unit. (unité)', item['unitPriceUnit']!, isNumber: true)),
                       ],
                     ),
-                    _buildCompactField('Units/Pack', item['unitsPerPack']!, isNumber: true),
                   ],
                 ),
               );

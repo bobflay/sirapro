@@ -505,6 +505,7 @@ class CreateInvoiceItemRequest {
   final int? quantityPacks;
   final int? quantityUnits;
   final int? unitsPerPack;
+  final double? unitPriceUnit;
 
   CreateInvoiceItemRequest({
     this.reference,
@@ -516,6 +517,7 @@ class CreateInvoiceItemRequest {
     this.quantityPacks,
     this.quantityUnits,
     this.unitsPerPack,
+    this.unitPriceUnit,
   });
 
   Map<String, dynamic> toJson() {
@@ -535,6 +537,9 @@ class CreateInvoiceItemRequest {
     }
     if (unitsPerPack != null) {
       json['units_per_pack'] = unitsPerPack;
+    }
+    if (unitPriceUnit != null) {
+      json['unit_price'] = unitPriceUnit;
     }
     return json;
   }

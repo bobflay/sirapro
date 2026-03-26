@@ -892,6 +892,27 @@ class _ApiOrderDetailPageState extends State<ApiOrderDetailPage> {
   Future<void> _exportToPdf(BuildContext context) async {
     if (_order == null) return;
 
+    // Ask user which invoice type they want
+    final normalized = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Type de facture'),
+        content: const Text('Quel type de facture souhaitez-vous télécharger ?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Standard'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Normalisée'),
+          ),
+        ],
+      ),
+    );
+
+    if (normalized == null) return; // User dismissed the dialog
+
     try {
       // Show loading indicator
       if (context.mounted) {
@@ -919,7 +940,7 @@ class _ApiOrderDetailPageState extends State<ApiOrderDetailPage> {
       final order = _order!;
 
       // Download PDF from server
-      final pdfBytes = await _orderService.downloadInvoice(order.id);
+      final pdfBytes = await _orderService.downloadInvoice(order.id, normalized: normalized);
       final fileName = 'commande_${order.reference ?? order.id}.pdf';
 
       if (kIsWeb) {
@@ -947,10 +968,12 @@ class _ApiOrderDetailPageState extends State<ApiOrderDetailPage> {
         await file.writeAsBytes(pdfBytes);
 
         if (context.mounted) {
+          final box = context.findRenderObject() as RenderBox?;
           await Share.shareXFiles(
             [XFile(file.path, mimeType: 'application/pdf')],
             subject: 'Commande ${order.reference ?? order.id}',
             text: 'Commande pour ${order.client?.name ?? 'client'} - Total: ${_formatAmount(order.totalAmount)} ${order.currency}',
+            sharePositionOrigin: box != null ? box.localToGlobal(Offset.zero) & box.size : const Rect.fromLTWH(0, 0, 100, 100),
           );
         }
       }
