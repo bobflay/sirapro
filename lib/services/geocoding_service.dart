@@ -26,7 +26,7 @@ class AddressComponents {
 /// Uses Google Geocoding API directly for cross-platform support (including web)
 class GeocodingService {
   // Using the same API key as Google Maps
-  static const String _apiKey = 'AIzaSyA238p3KJbo7dv8cPfl_v9iQjd_dqKLbZ8';
+  static const String _apiKey = 'AIzaSyBPCg0Ub9yH6crrhZfyY6OzJErbjmtrNxs';
 
   /// Reverse geocode coordinates to get address components
   /// Returns null if geocoding fails
