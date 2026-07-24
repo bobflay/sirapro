@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:sirapro/services/visit_service.dart';
 import 'package:sirapro/services/client_service.dart';
 import 'package:sirapro/screens/client_detail_page.dart';
@@ -34,6 +35,9 @@ class SessionAwareAppBar extends StatefulWidget implements PreferredSizeWidget {
 }
 
 class _SessionAwareAppBarState extends State<SessionAwareAppBar> {
+  // Loaded once per app run, shared by every app bar instance.
+  static String? _appVersion;
+
   final VisitService _visitService = VisitService();
   final ClientService _clientService = ClientService();
   Timer? _timer;
@@ -43,10 +47,23 @@ class _SessionAwareAppBarState extends State<SessionAwareAppBar> {
   @override
   void initState() {
     super.initState();
+    _loadAppVersion();
     _checkSession();
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       _updateState();
     });
+  }
+
+  Future<void> _loadAppVersion() async {
+    if (_appVersion != null) return;
+    final info = await PackageInfo.fromPlatform();
+    if (mounted) {
+      setState(() {
+        _appVersion = 'v${info.version}';
+      });
+    } else {
+      _appVersion = 'v${info.version}';
+    }
   }
 
   @override
@@ -146,9 +163,34 @@ class _SessionAwareAppBarState extends State<SessionAwareAppBar> {
     return _buildNormalAppBar(context);
   }
 
+  /// The version tag only accompanies the app name, not page-specific titles.
+  bool get _showVersion => widget.title == 'SIRA PRO' && _appVersion != null;
+
+  Widget _buildVersionTag({double fontSize = 12}) {
+    return Text(
+      _appVersion!,
+      style: TextStyle(
+        fontSize: fontSize,
+        fontWeight: FontWeight.w500,
+        color: Colors.white.withValues(alpha: 0.8),
+      ),
+    );
+  }
+
   Widget _buildNormalAppBar(BuildContext context) {
     return AppBar(
-      title: Text(widget.title),
+      title: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.baseline,
+        textBaseline: TextBaseline.alphabetic,
+        children: [
+          Text(widget.title),
+          if (_showVersion) ...[
+            const SizedBox(width: 6),
+            _buildVersionTag(),
+          ],
+        ],
+      ),
       leading: widget.leading,
       automaticallyImplyLeading: widget.automaticallyImplyLeading,
       actions: widget.actions,
@@ -188,6 +230,10 @@ class _SessionAwareAppBarState extends State<SessionAwareAppBar> {
                           color: Colors.white,
                         ),
                       ),
+                      if (_showVersion) ...[
+                        const SizedBox(width: 5),
+                        _buildVersionTag(fontSize: 10),
+                      ],
                       const SizedBox(width: 8),
                       Container(
                         padding: const EdgeInsets.symmetric(
