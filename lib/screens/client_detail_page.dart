@@ -26,6 +26,7 @@ import '../services/api_service.dart';
 import '../services/client_service.dart';
 import '../services/visit_service.dart';
 import '../services/visit_api_service.dart';
+import '../services/offline_queue_service.dart';
 import '../services/order_service.dart';
 import '../models/order_api.dart';
 import 'create_return_voucher_page.dart';
@@ -1009,6 +1010,37 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
     }
   }
 
+  /// Mode hors ligne : la fin de visite est enregistrée localement et sera
+  /// rejouée automatiquement au retour du réseau.
+  Future<void> _queueTerminateOffline(
+    int visitId,
+    TerminateVisitRequest request,
+    String status,
+  ) async {
+    await OfflineQueueService().enqueue(OfflineOperation.json(
+      label: 'Fin de visite — ${_client.name}',
+      method: 'POST',
+      path: '/api/visits/$visitId/terminate',
+      body: request.toJson(),
+    ));
+
+    // La visite est considérée terminée côté app.
+    await _visitService.endApiVisit();
+    _stopVisitLocally(status == 'completed');
+    _visitWasCompleted = true;
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+              'Pas de réseau : fin de visite enregistrée localement. Elle sera synchronisée automatiquement au retour de la connexion.'),
+          backgroundColor: Colors.orange,
+          duration: Duration(seconds: 4),
+        ),
+      );
+    }
+  }
+
   /// Call the API to terminate the visit
   Future<void> _callTerminateVisitApi(int visitId, String status, Position position) async {
     // Show loading dialog
@@ -1029,13 +1061,13 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
       ),
     );
 
-    try {
-      final request = TerminateVisitRequest(
-        status: status,
-        latitude: position.latitude,
-        longitude: position.longitude,
-      );
+    final request = TerminateVisitRequest(
+      status: status,
+      latitude: position.latitude,
+      longitude: position.longitude,
+    );
 
+    try {
       final result = await _visitApiService.terminateVisit(visitId, request);
 
       // Clear local storage
@@ -1068,6 +1100,11 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
     } on VisitApiException catch (e) {
       if (mounted) Navigator.pop(context);
       setState(() => _isLoadingVisit = false);
+
+      if (OfflineQueueService.isNetworkError(e)) {
+        await _queueTerminateOffline(visitId, request, status);
+        return;
+      }
 
       if (e.isReasonRequired) {
         // Distance exceeded - show reason selection dialog
@@ -1127,6 +1164,10 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
     } catch (e) {
       if (mounted) Navigator.pop(context);
       setState(() => _isLoadingVisit = false);
+      if (OfflineQueueService.isNetworkError(e)) {
+        await _queueTerminateOffline(visitId, request, status);
+        return;
+      }
       _showLocationError(
         'Erreur',
         'Une erreur inattendue s\'est produite: $e',
@@ -1160,15 +1201,15 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
       ),
     );
 
-    try {
-      final request = TerminateVisitRequest(
-        status: status,
-        latitude: position.latitude,
-        longitude: position.longitude,
-        distanceExceedReason: reason,
-        distanceExceedReasonOther: otherText,
-      );
+    final request = TerminateVisitRequest(
+      status: status,
+      latitude: position.latitude,
+      longitude: position.longitude,
+      distanceExceedReason: reason,
+      distanceExceedReasonOther: otherText,
+    );
 
+    try {
       final result = await _visitApiService.terminateVisit(visitId, request);
 
       // Clear local storage
@@ -1201,10 +1242,18 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
     } on VisitApiException catch (e) {
       if (mounted) Navigator.pop(context);
       setState(() => _isLoadingVisit = false);
+      if (OfflineQueueService.isNetworkError(e)) {
+        await _queueTerminateOffline(visitId, request, status);
+        return;
+      }
       _showLocationError('Erreur', e.message);
     } catch (e) {
       if (mounted) Navigator.pop(context);
       setState(() => _isLoadingVisit = false);
+      if (OfflineQueueService.isNetworkError(e)) {
+        await _queueTerminateOffline(visitId, request, status);
+        return;
+      }
       _showLocationError(
         'Erreur',
         'Une erreur inattendue s\'est produite: $e',
@@ -2449,13 +2498,13 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
             const SizedBox(height: 16),
             _buildTextField(
               controller: _phoneController,
-              label: 'Téléphone *',
+              label: 'Téléphone',
               keyboardType: TextInputType.phone,
               prefixIcon: Icons.phone,
-              hintText: '05 XX XX XX XX',
+              hintText: '05 XX XX XX XX (facultatif)',
               inputFormatters: [PhoneNumberFormatter()],
               validator: (value) {
-                return PhoneUtils.validate(value ?? '');
+                return PhoneUtils.validateOptional(value ?? '');
               },
             ),
             const SizedBox(height: 16),

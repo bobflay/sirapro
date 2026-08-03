@@ -1,6 +1,6 @@
 import 'package:flutter/services.dart';
 
-/// Phone number formatter for Moroccan phone numbers.
+/// Phone number formatter for Ivorian phone numbers.
 ///
 /// Format: XX XX XX XX XX (10 digits with spaces between each pair)
 /// Valid prefixes: 01, 05, 07
@@ -78,6 +78,23 @@ class PhoneUtils {
       return 'Ce champ est requis';
     }
 
+    return _validateFormat(digitsOnly);
+  }
+
+  /// Validates the phone number format, allowing an empty value.
+  /// Certains clients refusent de communiquer leur numéro : la mise à jour
+  /// d'un PDV ne doit pas être bloquée pour autant.
+  static String? validateOptional(String phone) {
+    final digitsOnly = stripSpaces(phone);
+
+    if (digitsOnly.isEmpty) {
+      return null;
+    }
+
+    return _validateFormat(digitsOnly);
+  }
+
+  static String? _validateFormat(String digitsOnly) {
     if (digitsOnly.length != 10) {
       return 'Le numéro doit contenir 10 chiffres';
     }

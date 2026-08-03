@@ -1,4 +1,8 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:mockito/annotations.dart';
 import 'package:mockito/mockito.dart';
 import 'package:sirapro/models/api_visit.dart';
@@ -14,10 +18,22 @@ void main() {
   late MockApiService mockApiService;
   late VisitApiService visitApiService;
 
+  // Handler for the raw HTTP calls (terminateVisit bypasses ApiService).
+  http.Response Function(http.Request request)? httpHandler;
+
   setUp(() {
     VisitApiService.resetInstance();
     mockApiService = MockApiService();
-    visitApiService = VisitApiService(apiService: mockApiService);
+    when(mockApiService.token).thenReturn('test-token');
+    httpHandler = null;
+    final mockHttpClient = MockClient((request) async {
+      if (httpHandler != null) return httpHandler!(request);
+      return http.Response('{"message":"No handler configured"}', 500);
+    });
+    visitApiService = VisitApiService(
+      apiService: mockApiService,
+      httpClient: mockHttpClient,
+    );
   });
 
   tearDown(() {
@@ -252,8 +268,7 @@ void main() {
           },
         };
 
-        when(mockApiService.post('/api/visits/1/terminate', body: anyNamed('body')))
-            .thenAnswer((_) async => responseData);
+        httpHandler = (req) => http.Response(jsonEncode(responseData), 200);
 
         final result = await visitApiService.terminateVisit(1, request);
 
@@ -289,8 +304,7 @@ void main() {
           },
         };
 
-        when(mockApiService.post('/api/visits/1/terminate', body: anyNamed('body')))
-            .thenAnswer((_) async => responseData);
+        httpHandler = (req) => http.Response(jsonEncode(responseData), 200);
 
         final result = await visitApiService.terminateVisit(1, request);
 
@@ -319,8 +333,7 @@ void main() {
           },
         };
 
-        when(mockApiService.post('/api/visits/1/terminate', body: anyNamed('body')))
-            .thenAnswer((_) async => responseData);
+        httpHandler = (req) => http.Response(jsonEncode(responseData), 200);
 
         final result = await visitApiService.terminateVisit(1, request);
 
@@ -362,8 +375,7 @@ void main() {
           'data': null,
         };
 
-        when(mockApiService.post('/api/visits/1/terminate', body: anyNamed('body')))
-            .thenAnswer((_) async => responseData);
+        httpHandler = (req) => http.Response(jsonEncode(responseData), 200);
 
         expect(
           () => visitApiService.terminateVisit(1, request),
@@ -380,11 +392,15 @@ void main() {
           longitude: -7.5898,
         );
 
-        when(mockApiService.post('/api/visits/1/terminate', body: anyNamed('body')))
-            .thenThrow(ApiException(
-          'Visit is already terminated.',
-          statusCode: 422,
-        ));
+        httpHandler = (req) => http.Response(
+              jsonEncode({
+                'message': 'Visit is already terminated.',
+                'errors': {
+                  'status': ['Visit is already terminated.'],
+                },
+              }),
+              422,
+            );
 
         try {
           await visitApiService.terminateVisit(1, request);
@@ -401,11 +417,8 @@ void main() {
           longitude: -7.5898,
         );
 
-        when(mockApiService.post('/api/visits/999/terminate', body: anyNamed('body')))
-            .thenThrow(ApiException(
-          'Visit not found.',
-          statusCode: 404,
-        ));
+        httpHandler = (req) =>
+            http.Response(jsonEncode({'message': 'Visit not found.'}), 404);
 
         try {
           await visitApiService.terminateVisit(999, request);
@@ -422,11 +435,9 @@ void main() {
           longitude: -7.5898,
         );
 
-        when(mockApiService.post('/api/visits/1/terminate', body: anyNamed('body')))
-            .thenThrow(ApiException(
-          'Not authorized to terminate this visit.',
-          statusCode: 403,
-        ));
+        httpHandler = (req) => http.Response(
+            jsonEncode({'message': 'Not authorized to terminate this visit.'}),
+            403);
 
         try {
           await visitApiService.terminateVisit(1, request);

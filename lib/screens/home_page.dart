@@ -18,6 +18,7 @@ import 'package:sirapro/services/auth_service.dart';
 import 'package:sirapro/services/home_service.dart';
 import 'package:sirapro/services/wallet_service.dart';
 import 'package:sirapro/services/api_service.dart';
+import 'package:sirapro/services/offline_queue_service.dart';
 import 'package:sirapro/services/routing_api_service.dart';
 import 'package:sirapro/models/api_routing.dart';
 import 'package:sirapro/models/wallet.dart';
@@ -54,6 +55,9 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
+    // Mode hors ligne : recharge la file d'attente persistée et branche la
+    // resynchronisation automatique au retour du réseau.
+    OfflineQueueService().init();
     _loadData();
   }
 

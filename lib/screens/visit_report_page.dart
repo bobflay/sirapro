@@ -1,11 +1,15 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 import '../models/visit.dart';
 import '../models/visit_report.dart';
 import '../models/client.dart';
 import '../services/photo_capture_service.dart';
 import '../services/product_service.dart';
 import '../services/visit_api_service.dart';
+import '../services/offline_queue_service.dart';
 import '../widgets/session_aware_app_bar.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -322,10 +326,15 @@ class _VisitReportPageState extends State<VisitReportPage> {
       _isSubmitting = true;
     });
 
+    Position? position;
+    String? stockShortagesText;
+    String? competitorActivityText;
+    int? visitId = widget.apiVisitId;
+
     try {
       // Obtenir la position GPS actuelle pour la validation
       debugPrint('Getting current GPS position...');
-      Position? position = await _photoService.getCurrentPosition();
+      position = await _photoService.getCurrentPosition();
 
       if (position == null) {
         debugPrint('GPS position is null');
@@ -334,7 +343,6 @@ class _VisitReportPageState extends State<VisitReportPage> {
       debugPrint('GPS position: ${position.latitude}, ${position.longitude}');
 
       // Build stock shortages string
-      String? stockShortagesText;
       if (_selectedStockShortages.isNotEmpty) {
         List<String> shortages = List.from(_selectedStockShortages);
         if (_selectedStockShortages.contains('Autre') && _stockShortagesOtherController.text.trim().isNotEmpty) {
@@ -347,7 +355,6 @@ class _VisitReportPageState extends State<VisitReportPage> {
 
       // Build competitor activity string
       debugPrint('Building competitor activity text...');
-      String? competitorActivityText;
       if (_selectedCompetitorActivities.isNotEmpty) {
         List<String> activities = List.from(_selectedCompetitorActivities);
         if (_selectedCompetitorActivities.contains('Autre') && _competitorActivityOtherController.text.trim().isNotEmpty) {
@@ -378,7 +385,6 @@ class _VisitReportPageState extends State<VisitReportPage> {
       }
 
       // Get API visit ID - prefer explicit apiVisitId, fallback to parsing from visit.id
-      int? visitId = widget.apiVisitId;
       debugPrint('Initial visitId from widget.apiVisitId: $visitId');
 
       if (visitId == null) {
@@ -428,38 +434,7 @@ class _VisitReportPageState extends State<VisitReportPage> {
       );
 
       // Create the local report object for backwards compatibility
-      final report = VisitReport(
-        id: widget.existingReport?.id ?? DateTime.now().millisecondsSinceEpoch.toString(),
-        visitId: widget.visit.id,
-        clientId: widget.visit.clientId,
-        clientName: widget.visit.clientName,
-        startTime: widget.visit.actualStartTime ?? DateTime.now(),
-        endTime: DateTime.now(),
-        validationLatitude: position.latitude,
-        validationLongitude: position.longitude,
-        validationTime: DateTime.now(),
-        shelfPhotos: _shelfPhotos,
-        additionalPhotos: _additionalPhotos,
-        gerantPresent: _gerantPresent,
-        orderPlaced: _orderPlaced,
-        needsOrder: _needsOrder,
-        orderAmount: _orderPlaced == true && _orderAmountController.text.trim().isNotEmpty
-            ? double.tryParse(_orderAmountController.text.trim())
-            : null,
-        orderReference: _orderReferenceController.text.trim().isNotEmpty
-            ? _orderReferenceController.text.trim()
-            : null,
-        stockShortageObserved: _selectedStockShortages.isNotEmpty,
-        stockShortages: stockShortagesText,
-        competitorActivityObserved: _selectedCompetitorActivities.isNotEmpty,
-        competitorActivity: competitorActivityText,
-        comments: _commentsController.text.trim().isNotEmpty
-            ? _commentsController.text.trim()
-            : null,
-        status: VisitReportStatus.validated,
-        createdAt: widget.existingReport?.createdAt ?? DateTime.now(),
-        updatedAt: DateTime.now(),
-      );
+      final report = _buildLocalReport(position, stockShortagesText, competitorActivityText);
 
       // Retourner le rapport validé
       if (mounted) {
@@ -478,6 +453,14 @@ class _VisitReportPageState extends State<VisitReportPage> {
       debugPrint('Status code: ${e.statusCode}');
       debugPrint('Error key: ${e.errorKey}');
       debugPrint('Errors: ${e.errors}');
+      if (!kIsWeb &&
+          visitId != null &&
+          position != null &&
+          OfflineQueueService.isNetworkError(e)) {
+        await _queueReportOffline(
+            visitId, position, stockShortagesText, competitorActivityText);
+        return;
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -492,6 +475,14 @@ class _VisitReportPageState extends State<VisitReportPage> {
       debugPrint('Exception type: ${e.runtimeType}');
       debugPrint('Exception: $e');
       debugPrint('Stack trace: $stackTrace');
+      if (!kIsWeb &&
+          visitId != null &&
+          position != null &&
+          OfflineQueueService.isNetworkError(e)) {
+        await _queueReportOffline(
+            visitId, position, stockShortagesText, competitorActivityText);
+        return;
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -507,6 +498,120 @@ class _VisitReportPageState extends State<VisitReportPage> {
           _isSubmitting = false;
         });
       }
+    }
+  }
+
+  /// Construit l'objet rapport local (compatibilité avec le flux existant).
+  VisitReport _buildLocalReport(
+    Position position,
+    String? stockShortagesText,
+    String? competitorActivityText,
+  ) {
+    return VisitReport(
+      id: widget.existingReport?.id ?? DateTime.now().millisecondsSinceEpoch.toString(),
+      visitId: widget.visit.id,
+      clientId: widget.visit.clientId,
+      clientName: widget.visit.clientName,
+      startTime: widget.visit.actualStartTime ?? DateTime.now(),
+      endTime: DateTime.now(),
+      validationLatitude: position.latitude,
+      validationLongitude: position.longitude,
+      validationTime: DateTime.now(),
+      shelfPhotos: _shelfPhotos,
+      additionalPhotos: _additionalPhotos,
+      gerantPresent: _gerantPresent,
+      orderPlaced: _orderPlaced,
+      needsOrder: _needsOrder,
+      orderAmount: _orderPlaced == true && _orderAmountController.text.trim().isNotEmpty
+          ? double.tryParse(_orderAmountController.text.trim())
+          : null,
+      orderReference: _orderReferenceController.text.trim().isNotEmpty
+          ? _orderReferenceController.text.trim()
+          : null,
+      stockShortageObserved: _selectedStockShortages.isNotEmpty,
+      stockShortages: stockShortagesText,
+      competitorActivityObserved: _selectedCompetitorActivities.isNotEmpty,
+      competitorActivity: competitorActivityText,
+      comments: _commentsController.text.trim().isNotEmpty
+          ? _commentsController.text.trim()
+          : null,
+      status: VisitReportStatus.validated,
+      createdAt: widget.existingReport?.createdAt ?? DateTime.now(),
+      updatedAt: DateTime.now(),
+    );
+  }
+
+  /// Mode hors ligne : le rapport (photos comprises) est enregistré localement
+  /// et sera envoyé automatiquement au retour du réseau.
+  Future<void> _queueReportOffline(
+    int visitId,
+    Position position,
+    String? stockShortagesText,
+    String? competitorActivityText,
+  ) async {
+    final docsDir = await getApplicationDocumentsDirectory();
+    final photosDir = Directory('${docsDir.path}/offline_photos');
+    if (!await photosDir.exists()) {
+      await photosDir.create(recursive: true);
+    }
+
+    // Les photos sont copiées dans le stockage de l'app : les fichiers
+    // temporaires de la caméra peuvent être purgés avant la synchronisation.
+    final files = <Map<String, String>>[];
+    Future<void> savePhotos(List<GeotaggedPhoto> photos, String field) async {
+      for (final photo in photos) {
+        final bytes = photo.bytes;
+        if (bytes == null) continue;
+        final filePath =
+            '${photosDir.path}/${DateTime.now().microsecondsSinceEpoch}_${photo.effectiveFileName}';
+        await File(filePath).writeAsBytes(bytes);
+        files.add({'field': field, 'path': filePath});
+      }
+    }
+
+    await savePhotos(_shelfPhotos, 'photo_shelves[]');
+    await savePhotos(_additionalPhotos, 'photos_other[]');
+
+    final fields = <String, String>{
+      'visit_id': visitId.toString(),
+      'latitude': position.latitude.toString(),
+      'longitude': position.longitude.toString(),
+      if (_gerantPresent != null) 'manager_present': _gerantPresent! ? '1' : '0',
+      if (_orderPlaced != null) 'order_made': _orderPlaced! ? '1' : '0',
+      if (_needsOrder != null) 'needs_order': _needsOrder! ? '1' : '0',
+      'stock_shortage_observed': _selectedStockShortages.isNotEmpty ? '1' : '0',
+      'competitor_activity_observed':
+          _selectedCompetitorActivities.isNotEmpty ? '1' : '0',
+      if (_orderReferenceController.text.trim().isNotEmpty)
+        'order_reference': _orderReferenceController.text.trim(),
+      if (_orderPlaced == true && _orderAmountController.text.trim().isNotEmpty)
+        'order_estimated_amount': _orderAmountController.text.trim(),
+      if (stockShortagesText != null && stockShortagesText.isNotEmpty)
+        'stock_issues': stockShortagesText,
+      if (competitorActivityText != null && competitorActivityText.isNotEmpty)
+        'competitor_activity': competitorActivityText,
+      if (_commentsController.text.trim().isNotEmpty)
+        'comments': _commentsController.text.trim(),
+    };
+
+    await OfflineQueueService().enqueue(OfflineOperation.multipart(
+      label: 'Rapport de visite — ${widget.visit.clientName}',
+      path: '/api/visits/$visitId/report',
+      fields: fields,
+      files: files,
+    ));
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+              'Pas de réseau : rapport enregistré localement. Il sera synchronisé automatiquement au retour de la connexion.'),
+          backgroundColor: Colors.orange,
+          duration: Duration(seconds: 4),
+        ),
+      );
+      Navigator.of(context).pop(
+          _buildLocalReport(position, stockShortagesText, competitorActivityText));
     }
   }
 

@@ -367,14 +367,17 @@ class CartItem {
 /// Matches: POST /api/orders
 class CreateOrderRequest {
   final int clientId;
-  final int baseCommercialeId;
+
+  /// Facultatif : si absent, le backend déduit la base de l'agent
+  /// (ou celle du client servi).
+  final int? baseCommercialeId;
   final int? visitId;
   final int? zoneId;
   final List<CartItem> items;
 
   CreateOrderRequest({
     required this.clientId,
-    required this.baseCommercialeId,
+    this.baseCommercialeId,
     this.visitId,
     this.zoneId,
     required this.items,
@@ -412,7 +415,7 @@ class CreateOrderRequest {
   Map<String, dynamic> toJson() {
     return {
       'client_id': clientId,
-      'base_commerciale_id': baseCommercialeId,
+      if (baseCommercialeId != null) 'base_commerciale_id': baseCommercialeId,
       if (visitId != null) 'visit_id': visitId,
       if (zoneId != null) 'zone_id': zoneId,
       'items': items.map((item) => item.toOrderItemPayload()).toList(),

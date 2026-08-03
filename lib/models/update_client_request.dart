@@ -29,6 +29,7 @@ class UpdateClientRequest {
   final String? managerName;
 
   /// Phone number (optional, max:255)
+  /// An empty string is allowed and means "numéro non communiqué".
   final String? phone;
 
   /// WhatsApp number (optional, max:255, nullable)
@@ -203,12 +204,10 @@ class UpdateClientRequest {
       }
     }
 
-    if (phone != null) {
-      if (phone!.isEmpty) {
-        errors.add('Le numéro de téléphone ne peut pas être vide');
-      } else if (phone!.length > 255) {
-        errors.add('Le numéro de téléphone ne peut pas dépasser 255 caractères');
-      }
+    // Un téléphone vide est accepté : certains clients refusent de
+    // communiquer leur numéro, la mise à jour du PDV ne doit pas être bloquée.
+    if (phone != null && phone!.length > 255) {
+      errors.add('Le numéro de téléphone ne peut pas dépasser 255 caractères');
     }
 
     if (city != null) {

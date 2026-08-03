@@ -177,15 +177,21 @@ class VisitTerminationResult {
 class VisitApiService {
   final ApiService _apiService;
 
+  /// Injectable HTTP client for the raw calls (testable).
+  final http.Client _httpClient;
+
   // Singleton pattern
   static VisitApiService? _instance;
 
-  factory VisitApiService({ApiService? apiService}) {
-    _instance ??= VisitApiService._internal(apiService ?? ApiService());
+  factory VisitApiService({ApiService? apiService, http.Client? httpClient}) {
+    _instance ??= VisitApiService._internal(
+      apiService ?? ApiService(),
+      httpClient ?? http.Client(),
+    );
     return _instance!;
   }
 
-  VisitApiService._internal(this._apiService);
+  VisitApiService._internal(this._apiService, this._httpClient);
 
   /// Start a new visit for a client
   ///
@@ -247,7 +253,7 @@ class VisitApiService {
       final uri = Uri.parse('${ApiService.baseUrl}/api/visits/$visitId/terminate');
       final token = _apiService.token;
 
-      final response = await http.post(
+      final response = await _httpClient.post(
         uri,
         headers: {
           'Content-Type': 'application/json',

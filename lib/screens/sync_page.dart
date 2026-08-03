@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:sirapro/services/offline_queue_service.dart';
 import 'package:sirapro/widgets/session_aware_app_bar.dart';
 
+/// Page de synchronisation : affiche la file d'attente hors ligne réelle
+/// (ventes, visites, rapports saisis sans réseau) et permet de forcer
+/// la synchronisation.
 class SyncPage extends StatefulWidget {
   const SyncPage({super.key});
 
@@ -9,81 +13,51 @@ class SyncPage extends StatefulWidget {
 }
 
 class _SyncPageState extends State<SyncPage> {
+  final _queueService = OfflineQueueService();
+
   bool _isSyncing = false;
-  DateTime _lastSyncTime = DateTime.now().subtract(const Duration(minutes: 15));
+  List<OfflineOperation> _pending = [];
+  List<OfflineOperation> _failed = [];
 
-  final List<SyncItem> _syncItems = [
-    SyncItem(
-      name: 'Clients',
-      icon: Icons.people,
-      iconColor: Colors.blue,
-      status: SyncStatus.synced,
-      lastSync: DateTime.now().subtract(const Duration(minutes: 15)),
-      itemCount: 45,
-    ),
-    SyncItem(
-      name: 'Commandes',
-      icon: Icons.shopping_cart,
-      iconColor: Colors.green,
-      status: SyncStatus.synced,
-      lastSync: DateTime.now().subtract(const Duration(minutes: 15)),
-      itemCount: 124,
-    ),
-    SyncItem(
-      name: 'Produits',
-      icon: Icons.inventory,
-      iconColor: Colors.orange,
-      status: SyncStatus.synced,
-      lastSync: DateTime.now().subtract(const Duration(minutes: 15)),
-      itemCount: 350,
-    ),
-    SyncItem(
-      name: 'Tournées',
-      icon: Icons.route,
-      iconColor: Colors.purple,
-      status: SyncStatus.synced,
-      lastSync: DateTime.now().subtract(const Duration(minutes: 15)),
-      itemCount: 12,
-    ),
-    SyncItem(
-      name: 'Visites',
-      icon: Icons.location_on,
-      iconColor: Colors.red,
-      status: SyncStatus.synced,
-      lastSync: DateTime.now().subtract(const Duration(minutes: 15)),
-      itemCount: 289,
-    ),
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _queueService.lastSync.addListener(_reload);
+    _queueService.pendingCount.addListener(_reload);
+    _reload();
+  }
 
-  Future<void> _syncAll() async {
-    setState(() {
-      _isSyncing = true;
-      for (var item in _syncItems) {
-        item.status = SyncStatus.syncing;
-      }
-    });
+  @override
+  void dispose() {
+    _queueService.lastSync.removeListener(_reload);
+    _queueService.pendingCount.removeListener(_reload);
+    super.dispose();
+  }
 
-    // Simulate syncing each item
-    for (var item in _syncItems) {
-      await Future.delayed(const Duration(seconds: 1));
-      if (mounted) {
-        setState(() {
-          item.status = SyncStatus.synced;
-          item.lastSync = DateTime.now();
-        });
-      }
-    }
-
+  Future<void> _reload() async {
+    final pending = await _queueService.pendingOperations();
+    final failed = await _queueService.failedOperations();
     if (mounted) {
       setState(() {
-        _isSyncing = false;
-        _lastSyncTime = DateTime.now();
+        _pending = pending;
+        _failed = failed;
       });
+    }
+  }
 
+  Future<void> _syncNow() async {
+    setState(() => _isSyncing = true);
+    await _queueService.flush();
+    await _reload();
+    if (mounted) {
+      setState(() => _isSyncing = false);
+      final remaining = _pending.length;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Synchronisation terminée avec succès'),
-          backgroundColor: Colors.green,
+        SnackBar(
+          content: Text(remaining == 0
+              ? 'Synchronisation terminée avec succès'
+              : 'Réseau indisponible : $remaining opération(s) toujours en attente'),
+          backgroundColor: remaining == 0 ? Colors.green : Colors.orange,
         ),
       );
     }
@@ -103,8 +77,18 @@ class _SyncPageState extends State<SyncPage> {
     }
   }
 
+  IconData _iconFor(OfflineOperation op) {
+    if (op.label.startsWith('Commande')) return Icons.shopping_cart;
+    if (op.label.startsWith('Rapport')) return Icons.assignment;
+    if (op.label.startsWith('Fin de visite')) return Icons.location_on;
+    return Icons.cloud_upload;
+  }
+
   @override
   Widget build(BuildContext context) {
+    final upToDate = _pending.isEmpty && _failed.isEmpty;
+    final lastSync = _queueService.lastSync.value;
+
     return Scaffold(
       backgroundColor: Colors.grey[100],
       appBar: const SessionAwareAppBar(
@@ -126,7 +110,6 @@ class _SyncPageState extends State<SyncPage> {
               ),
               child: Column(
                 children: [
-                  // Sync Icon
                   Container(
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
@@ -134,15 +117,20 @@ class _SyncPageState extends State<SyncPage> {
                       shape: BoxShape.circle,
                     ),
                     child: Icon(
-                      _isSyncing ? Icons.sync : Icons.cloud_done,
+                      _isSyncing
+                          ? Icons.sync
+                          : (upToDate ? Icons.cloud_done : Icons.cloud_queue),
                       size: 60,
                       color: Colors.white,
                     ),
                   ),
                   const SizedBox(height: 16),
-                  // Status Text
                   Text(
-                    _isSyncing ? 'Synchronisation en cours...' : 'Tout est à jour',
+                    _isSyncing
+                        ? 'Synchronisation en cours...'
+                        : upToDate
+                            ? 'Tout est à jour'
+                            : '${_pending.length + _failed.length} opération(s) à synchroniser',
                     style: const TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
@@ -150,9 +138,10 @@ class _SyncPageState extends State<SyncPage> {
                     ),
                   ),
                   const SizedBox(height: 8),
-                  // Last Sync Time
                   Text(
-                    'Dernière synchro: ${_getTimeAgo(_lastSyncTime)}',
+                    lastSync != null
+                        ? 'Dernière synchro: ${_getTimeAgo(lastSync)}'
+                        : 'Aucune synchronisation effectuée',
                     style: TextStyle(
                       fontSize: 14,
                       color: Colors.white.withValues(alpha: 0.9),
@@ -164,28 +153,45 @@ class _SyncPageState extends State<SyncPage> {
 
             const SizedBox(height: 20),
 
-            // Sync Items List
             Expanded(
-              child: ListView.builder(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                itemCount: _syncItems.length,
-                itemBuilder: (context, index) {
-                  final item = _syncItems[index];
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: _buildSyncItemCard(item),
-                  );
-                },
-              ),
+              child: upToDate
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.check_circle_outline,
+                              size: 64, color: Colors.green[300]),
+                          const SizedBox(height: 12),
+                          Text(
+                            'Aucune opération en attente.\nLes saisies hors ligne apparaîtront ici.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: Colors.grey[600]),
+                          ),
+                        ],
+                      ),
+                    )
+                  : ListView(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      children: [
+                        ..._pending.map((op) => Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: _buildPendingCard(op),
+                            )),
+                        ..._failed.map((op) => Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: _buildFailedCard(op),
+                            )),
+                      ],
+                    ),
             ),
 
-            // Sync All Button
+            // Sync Now Button
             Padding(
               padding: const EdgeInsets.all(16),
               child: SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
-                  onPressed: _isSyncing ? null : _syncAll,
+                  onPressed: (_isSyncing || _pending.isEmpty) ? null : _syncNow,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Theme.of(context).primaryColor,
                     foregroundColor: Colors.white,
@@ -203,7 +209,8 @@ class _SyncPageState extends State<SyncPage> {
                               height: 20,
                               child: CircularProgressIndicator(
                                 strokeWidth: 2,
-                                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                valueColor:
+                                    AlwaysStoppedAnimation<Color>(Colors.white),
                               ),
                             ),
                             SizedBox(width: 12),
@@ -222,7 +229,7 @@ class _SyncPageState extends State<SyncPage> {
                             Icon(Icons.sync),
                             SizedBox(width: 8),
                             Text(
-                              'Synchroniser tout',
+                              'Synchroniser maintenant',
                               style: TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
@@ -239,7 +246,7 @@ class _SyncPageState extends State<SyncPage> {
     );
   }
 
-  Widget _buildSyncItemCard(SyncItem item) {
+  Widget _buildPendingCard(OfflineOperation op) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -256,27 +263,25 @@ class _SyncPageState extends State<SyncPage> {
       ),
       child: Row(
         children: [
-          // Icon
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: item.iconColor.withValues(alpha: 0.1),
+              color: Colors.orange.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Icon(
-              item.icon,
-              color: item.iconColor,
+              _iconFor(op),
+              color: Colors.orange,
               size: 28,
             ),
           ),
           const SizedBox(width: 16),
-          // Content
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  item.name,
+                  op.label,
                   style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
@@ -285,7 +290,7 @@ class _SyncPageState extends State<SyncPage> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '${item.itemCount} éléments • ${_getTimeAgo(item.lastSync)}',
+                  'Saisie ${_getTimeAgo(op.createdAt)} • en attente de réseau',
                   style: TextStyle(
                     fontSize: 12,
                     color: Colors.grey[600],
@@ -294,73 +299,88 @@ class _SyncPageState extends State<SyncPage> {
               ],
             ),
           ),
-          // Status Icon
-          _buildStatusIcon(item.status),
+          const Icon(Icons.hourglass_top, color: Colors.orange, size: 20),
         ],
       ),
     );
   }
 
-  Widget _buildStatusIcon(SyncStatus status) {
-    switch (status) {
-      case SyncStatus.syncing:
-        return const SizedBox(
-          width: 24,
-          height: 24,
-          child: CircularProgressIndicator(
-            strokeWidth: 2,
+  Widget _buildFailedCard(OfflineOperation op) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.red.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  _iconFor(op),
+                  color: Colors.red,
+                  size: 28,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      op.label,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Refusée par le serveur${op.error != null && op.error!.isNotEmpty ? ' : ${op.error}' : ''}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.red[700],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-        );
-      case SyncStatus.synced:
-        return Container(
-          padding: const EdgeInsets.all(6),
-          decoration: BoxDecoration(
-            color: Colors.green.withValues(alpha: 0.1),
-            shape: BoxShape.circle,
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              TextButton.icon(
+                onPressed: () async {
+                  await _queueService.retryFailed(op.id);
+                  await _reload();
+                },
+                icon: const Icon(Icons.refresh, size: 18),
+                label: const Text('Réessayer'),
+              ),
+              TextButton.icon(
+                onPressed: () async {
+                  await _queueService.discardFailed(op.id);
+                  await _reload();
+                },
+                icon: const Icon(Icons.delete_outline, size: 18),
+                label: const Text('Supprimer'),
+                style: TextButton.styleFrom(foregroundColor: Colors.red),
+              ),
+            ],
           ),
-          child: const Icon(
-            Icons.check,
-            color: Colors.green,
-            size: 16,
-          ),
-        );
-      case SyncStatus.error:
-        return Container(
-          padding: const EdgeInsets.all(6),
-          decoration: BoxDecoration(
-            color: Colors.red.withValues(alpha: 0.1),
-            shape: BoxShape.circle,
-          ),
-          child: const Icon(
-            Icons.error,
-            color: Colors.red,
-            size: 16,
-          ),
-        );
-    }
+        ],
+      ),
+    );
   }
-}
-
-enum SyncStatus {
-  syncing,
-  synced,
-  error,
-}
-
-class SyncItem {
-  final String name;
-  final IconData icon;
-  final Color iconColor;
-  SyncStatus status;
-  DateTime lastSync;
-  final int itemCount;
-
-  SyncItem({
-    required this.name,
-    required this.icon,
-    required this.iconColor,
-    required this.status,
-    required this.lastSync,
-    required this.itemCount,
-  });
 }

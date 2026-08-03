@@ -6,6 +6,7 @@ import '../services/product_service.dart';
 import '../services/client_service.dart';
 import '../services/auth_service.dart';
 import '../services/api_service.dart';
+import '../services/offline_queue_service.dart';
 import '../utils/app_colors.dart';
 
 class CreateOrderPage extends StatefulWidget {
@@ -607,15 +608,29 @@ class _CreateOrderPageState extends State<CreateOrderPage> {
 
     // Ensure user is loaded
     _currentUser ??= await _authService.getCurrentUser();
+    if (!mounted) return;
     debugPrint('[CreateOrderPage] Validating order - currentUser: ${_currentUser?.id}');
     debugPrint('[CreateOrderPage] basesCommerciales: ${_currentUser?.basesCommerciales.map((b) => '${b.id}:${b.name}').toList()}');
+    // Peut être null : le backend déduit alors la base de l'agent ou du client
+    // au lieu de bloquer la conception de la commande.
     final baseCommercialeId = _currentUser?.primaryBase?.id;
     debugPrint('[CreateOrderPage] baseCommercialeId: $baseCommercialeId');
-    if (baseCommercialeId == null) {
+
+    final request = CreateOrderRequest(
+      clientId: _selectedClient!.id,
+      baseCommercialeId: baseCommercialeId,
+      visitId: widget.visitId,
+      zoneId: _selectedClient!.zoneId,
+      items: _cart.values.toList(),
+    );
+
+    // Validate request before submission
+    final preValidationError = request.validate();
+    if (preValidationError != null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Erreur: Base commerciale non configurée'),
-          backgroundColor: Colors.orange,
+        SnackBar(
+          content: Text(preValidationError),
+          backgroundColor: AppColors.error,
         ),
       );
       return;
@@ -626,20 +641,6 @@ class _CreateOrderPageState extends State<CreateOrderPage> {
     });
 
     try {
-      final request = CreateOrderRequest(
-        clientId: _selectedClient!.id,
-        baseCommercialeId: baseCommercialeId,
-        visitId: widget.visitId,
-        zoneId: _selectedClient!.zoneId,
-        items: _cart.values.toList(),
-      );
-
-      // Validate request before submission
-      final validationError = request.validate();
-      if (validationError != null) {
-        throw ApiException(validationError);
-      }
-
       final response = await _productService.createOrder(request);
 
       if (response.status) {
@@ -659,7 +660,27 @@ class _CreateOrderPageState extends State<CreateOrderPage> {
         throw ApiException(response.message ?? 'Erreur lors de la création');
       }
     } on ApiException catch (e) {
-      if (mounted) {
+      if (OfflineQueueService.isNetworkError(e)) {
+        // Mode hors ligne : la commande est enregistrée localement et sera
+        // synchronisée automatiquement au retour du réseau.
+        await OfflineQueueService().enqueue(OfflineOperation.json(
+          label: 'Commande — ${_selectedClient!.name}',
+          method: 'POST',
+          path: '/api/orders',
+          body: request.toJson(),
+        ));
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                  'Pas de réseau : commande enregistrée localement. Elle sera synchronisée automatiquement au retour de la connexion.'),
+              backgroundColor: Colors.orange,
+              duration: Duration(seconds: 4),
+            ),
+          );
+          Navigator.pop(context);
+        }
+      } else if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(e.message),

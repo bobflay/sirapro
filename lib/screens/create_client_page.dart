@@ -410,7 +410,7 @@ class _CreateClientPageState extends State<CreateClientPage> {
         if (_gerantNameController.text.trim().isEmpty) {
           _fieldErrors['gerantName'] = 'Ce champ est requis';
         }
-        final phoneError = PhoneUtils.validate(_phoneController.text);
+        final phoneError = PhoneUtils.validateOptional(_phoneController.text);
         if (phoneError != null) {
           _fieldErrors['phone'] = phoneError;
         }
