@@ -1,3 +1,4 @@
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -6,6 +7,8 @@ import 'package:sirapro/firebase_options.dart';
 import 'package:sirapro/screens/login_screen.dart';
 import 'package:sirapro/screens/home_page.dart';
 import 'package:sirapro/services/auth_service.dart';
+import 'package:sirapro/services/data_sync_service.dart';
+import 'package:sirapro/services/offline_queue_service.dart';
 import 'package:sirapro/services/visit_service.dart';
 import 'package:sirapro/services/push_notification_service.dart';
 import 'package:sirapro/utils/app_colors.dart';
@@ -108,6 +111,90 @@ class _AuthCheckerState extends State<AuthChecker> {
 
     // Ne plus afficher automatiquement la page de permissions
     // Les permissions seront demandées quand l'utilisateur en a besoin
-    return _isLoggedIn ? const HomePage() : const LoginScreen();
+    return _isLoggedIn ? const StartupSyncScreen() : const LoginScreen();
+  }
+}
+
+/// Écran de chargement au démarrage : envoie les saisies en attente puis
+/// télécharge les données de travail (clients, catalogue, tournée…) avec une
+/// barre de progression, pour que l'app soit utilisable hors ligne ensuite.
+/// Sans réseau, l'écran est sauté immédiatement (données en cache).
+class StartupSyncScreen extends StatefulWidget {
+  const StartupSyncScreen({super.key});
+
+  @override
+  State<StartupSyncScreen> createState() => _StartupSyncScreenState();
+}
+
+class _StartupSyncScreenState extends State<StartupSyncScreen> {
+  final _syncService = DataSyncService();
+  bool _done = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _run();
+  }
+
+  Future<void> _run() async {
+    await OfflineQueueService().init();
+
+    final connectivity = await Connectivity().checkConnectivity();
+    final online = connectivity.any((r) => r != ConnectivityResult.none);
+
+    if (online) {
+      await _syncService.fullSync();
+    }
+
+    if (mounted) {
+      setState(() {
+        _done = true;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_done) {
+      return const HomePage();
+    }
+
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 48),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Image.asset('images/logo.png', width: 140,
+                  errorBuilder: (_, __, ___) => const Icon(Icons.storefront,
+                      size: 80, color: AppColors.primary)),
+              const SizedBox(height: 40),
+              ValueListenableBuilder<double>(
+                valueListenable: _syncService.progress,
+                builder: (context, value, _) => ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: LinearProgressIndicator(
+                    value: value == 0 ? null : value,
+                    minHeight: 8,
+                    backgroundColor: Colors.grey[200],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              ValueListenableBuilder<String>(
+                valueListenable: _syncService.currentStep,
+                builder: (context, step, _) => Text(
+                  step.isEmpty ? 'Préparation…' : step,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }

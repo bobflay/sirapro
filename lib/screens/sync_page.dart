@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:sirapro/services/data_sync_service.dart';
 import 'package:sirapro/services/offline_queue_service.dart';
 import 'package:sirapro/widgets/session_aware_app_bar.dart';
 
@@ -14,6 +15,7 @@ class SyncPage extends StatefulWidget {
 
 class _SyncPageState extends State<SyncPage> {
   final _queueService = OfflineQueueService();
+  final _syncService = DataSyncService();
 
   bool _isSyncing = false;
   List<OfflineOperation> _pending = [];
@@ -45,19 +47,25 @@ class _SyncPageState extends State<SyncPage> {
     }
   }
 
+  /// Synchronisation complète : envoi des saisies locales d'abord, puis
+  /// téléchargement des données de travail (clients, catalogue, tournée…)
+  /// pour préparer le mode hors ligne. L'ordre garantit que le
+  /// téléchargement n'écrase jamais les saisies locales.
   Future<void> _syncNow() async {
     setState(() => _isSyncing = true);
-    await _queueService.flush();
+    final ok = await _syncService.fullSync();
     await _reload();
     if (mounted) {
       setState(() => _isSyncing = false);
       final remaining = _pending.length;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(remaining == 0
-              ? 'Synchronisation terminée avec succès'
-              : 'Réseau indisponible : $remaining opération(s) toujours en attente'),
-          backgroundColor: remaining == 0 ? Colors.green : Colors.orange,
+          content: Text(remaining > 0
+              ? 'Réseau indisponible : $remaining opération(s) toujours en attente'
+              : ok
+                  ? 'Synchronisation terminée : saisies envoyées et données téléchargées'
+                  : 'Synchronisation partielle : certaines données n\'ont pas pu être téléchargées'),
+          backgroundColor: remaining == 0 && ok ? Colors.green : Colors.orange,
         ),
       );
     }
@@ -185,13 +193,44 @@ class _SyncPageState extends State<SyncPage> {
                     ),
             ),
 
-            // Sync Now Button
+            // Progression de la synchronisation complète
+            if (_isSyncing)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Column(
+                  children: [
+                    ValueListenableBuilder<double>(
+                      valueListenable: _syncService.progress,
+                      builder: (context, value, _) => ClipRRect(
+                        borderRadius: BorderRadius.circular(4),
+                        child: LinearProgressIndicator(
+                          value: value == 0 ? null : value,
+                          minHeight: 8,
+                          backgroundColor: Colors.grey[300],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    ValueListenableBuilder<String>(
+                      valueListenable: _syncService.currentStep,
+                      builder: (context, step, _) => Text(
+                        step,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 13, color: Colors.grey[700]),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+            // Sync Now Button — envoi des saisies puis téléchargement des
+            // données ; utile même sans opération en attente.
             Padding(
               padding: const EdgeInsets.all(16),
               child: SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
-                  onPressed: (_isSyncing || _pending.isEmpty) ? null : _syncNow,
+                  onPressed: _isSyncing ? null : _syncNow,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Theme.of(context).primaryColor,
                     foregroundColor: Colors.white,
@@ -223,16 +262,29 @@ class _SyncPageState extends State<SyncPage> {
                             ),
                           ],
                         )
-                      : const Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
+                      : const Column(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.sync),
-                            SizedBox(width: 8),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.sync),
+                                SizedBox(width: 8),
+                                Text(
+                                  'Synchroniser maintenant',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            SizedBox(height: 2),
                             Text(
-                              'Synchroniser maintenant',
+                              'Envoie les saisies puis télécharge les données',
                               style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
+                                fontSize: 11,
+                                fontWeight: FontWeight.normal,
                               ),
                             ),
                           ],
