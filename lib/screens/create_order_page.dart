@@ -636,6 +636,33 @@ class _CreateOrderPageState extends State<CreateOrderPage> {
       return;
     }
 
+    // Commande passée pendant une visite démarrée hors ligne (id local
+    // négatif) : le serveur ne connaît pas encore la visite, la commande part
+    // directement dans la file d'attente avec une référence {ref:visit_...}
+    // résolue après la synchronisation du début de visite.
+    if (widget.visitId != null && widget.visitId! < 0) {
+      final body = request.toJson();
+      body['visit_id'] = '{ref:visit_${widget.visitId}}';
+      await OfflineQueueService().enqueue(OfflineOperation.json(
+        label: 'Commande — ${_selectedClient!.name}',
+        method: 'POST',
+        path: '/api/orders',
+        body: body,
+      ));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+                'Commande enregistrée localement (visite hors ligne). Elle sera synchronisée automatiquement au retour de la connexion.'),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 4),
+          ),
+        );
+        Navigator.pop(context);
+      }
+      return;
+    }
+
     setState(() {
       _isSubmitting = true;
     });

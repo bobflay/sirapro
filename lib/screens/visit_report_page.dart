@@ -405,6 +405,15 @@ class _VisitReportPageState extends State<VisitReportPage> {
         throw Exception('Aucune visite API active. Veuillez démarrer une visite depuis la fiche client.');
       }
 
+      // Visite démarrée hors ligne (id local négatif) : le rapport part
+      // directement dans la file d'attente, l'id serveur sera résolu à la
+      // synchronisation via {ref:visit_...}.
+      if (!kIsWeb && visitId < 0) {
+        await _queueReportOffline(
+            visitId, position, stockShortagesText, competitorActivityText);
+        return;
+      }
+
       debugPrint('Final visitId for API: $visitId');
       debugPrint('Submitting report to API...');
 
@@ -572,8 +581,11 @@ class _VisitReportPageState extends State<VisitReportPage> {
     await savePhotos(_shelfPhotos, 'photo_shelves[]');
     await savePhotos(_additionalPhotos, 'photos_other[]');
 
+    // Visite locale : id serveur résolu à la synchronisation.
+    final visitRef = visitId < 0 ? '{ref:visit_$visitId}' : visitId.toString();
+
     final fields = <String, String>{
-      'visit_id': visitId.toString(),
+      'visit_id': visitRef,
       'latitude': position.latitude.toString(),
       'longitude': position.longitude.toString(),
       if (_gerantPresent != null) 'manager_present': _gerantPresent! ? '1' : '0',
@@ -596,7 +608,7 @@ class _VisitReportPageState extends State<VisitReportPage> {
 
     await OfflineQueueService().enqueue(OfflineOperation.multipart(
       label: 'Rapport de visite — ${widget.visit.clientName}',
-      path: '/api/visits/$visitId/report',
+      path: '/api/visits/$visitRef/report',
       fields: fields,
       files: files,
     ));

@@ -20,6 +20,7 @@ import 'package:sirapro/models/terminate_visit_request.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'dart:math' as math;
+import '../constants.dart';
 import '../models/visit.dart';
 import '../models/visit_report.dart';
 import '../services/api_service.dart';
@@ -568,13 +569,13 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
       ),
     );
 
-    try {
-      final request = StartVisitRequest(
-        clientId: _client.id,
-        latitude: position.latitude,
-        longitude: position.longitude,
-      );
+    final request = StartVisitRequest(
+      clientId: _client.id,
+      latitude: position.latitude,
+      longitude: position.longitude,
+    );
 
+    try {
       final visit = await _visitApiService.startVisit(request);
 
       // Save to local storage with client for quick navigation
@@ -615,6 +616,8 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
           'Non autorisé',
           'Vous n\'êtes pas autorisé à visiter ce client.',
         );
+      } else if (OfflineQueueService.isNetworkError(e)) {
+        await _startVisitOffline(position, request);
       } else {
         _showLocationError(
           'Erreur',
@@ -624,9 +627,79 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
     } catch (e) {
       if (mounted) Navigator.pop(context);
       setState(() => _isLoadingVisit = false);
+      if (OfflineQueueService.isNetworkError(e)) {
+        await _startVisitOffline(position, request);
+        return;
+      }
       _showLocationError(
         'Erreur',
         'Une erreur inattendue s\'est produite: $e',
+      );
+    }
+  }
+
+  /// Mode hors ligne : la visite démarre localement après un contrôle de
+  /// proximité fait sur le téléphone (même règle que le serveur), puis le
+  /// démarrage est rejoué au retour du réseau. La fin de visite et le rapport
+  /// retrouveront l'id serveur via la référence {ref:visit_...}.
+  Future<void> _startVisitOffline(
+    Position position,
+    StartVisitRequest request,
+  ) async {
+    if (_client.latitude != null && _client.longitude != null) {
+      final distance = Geolocator.distanceBetween(
+        position.latitude,
+        position.longitude,
+        _client.latitude!,
+        _client.longitude!,
+      );
+      if (distance > kVisitProximityThresholdMeters) {
+        _showLocationError(
+          'Trop loin du client',
+          'Vous êtes à ${distance.toStringAsFixed(0)} m du point de vente '
+          '(maximum ${kVisitProximityThresholdMeters.toStringAsFixed(0)} m). '
+          'Rapprochez-vous pour démarrer la visite.',
+        );
+        return;
+      }
+    }
+
+    final startedAt = DateTime.now();
+    // Id local négatif : jamais confondu avec un id serveur.
+    final localId = -startedAt.millisecondsSinceEpoch;
+
+    await OfflineQueueService().enqueue(OfflineOperation.json(
+      label: 'Début de visite — ${_client.name}',
+      method: 'POST',
+      path: '/api/visits',
+      body: {
+        ...request.toJson(),
+        'started_at': startedAt.toIso8601String(),
+      },
+      provides: 'visit_$localId',
+    ));
+
+    final localVisit = ApiVisit(
+      id: localId,
+      clientId: _client.id,
+      userId: 0,
+      status: 'started',
+      startedAt: startedAt,
+      latitude: position.latitude,
+      longitude: position.longitude,
+    );
+    await _visitService.startApiVisit(localVisit, client: _client);
+
+    _startVisitTimer();
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+              'Pas de réseau : visite démarrée hors ligne. Elle sera synchronisée automatiquement au retour de la connexion.'),
+          backgroundColor: Colors.orange,
+          duration: Duration(seconds: 4),
+        ),
       );
     }
   }
@@ -1011,17 +1084,23 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
   }
 
   /// Mode hors ligne : la fin de visite est enregistrée localement et sera
-  /// rejouée automatiquement au retour du réseau.
+  /// rejouée automatiquement au retour du réseau. Une visite démarrée hors
+  /// ligne (id local négatif) est référencée via {ref:visit_...}, résolu à la
+  /// synchronisation ; l'heure de fin réelle est transmise au serveur.
   Future<void> _queueTerminateOffline(
     int visitId,
     TerminateVisitRequest request,
     String status,
   ) async {
+    final pathSegment = visitId < 0 ? '{ref:visit_$visitId}' : '$visitId';
     await OfflineQueueService().enqueue(OfflineOperation.json(
       label: 'Fin de visite — ${_client.name}',
       method: 'POST',
-      path: '/api/visits/$visitId/terminate',
-      body: request.toJson(),
+      path: '/api/visits/$pathSegment/terminate',
+      body: {
+        ...request.toJson(),
+        'ended_at': DateTime.now().toIso8601String(),
+      },
     ));
 
     // La visite est considérée terminée côté app.
@@ -1043,6 +1122,18 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
 
   /// Call the API to terminate the visit
   Future<void> _callTerminateVisitApi(int visitId, String status, Position position) async {
+    // Visite démarrée hors ligne, pas encore synchronisée : ne pas appeler
+    // l'API avec l'id local — tout passe par la file d'attente.
+    if (visitId < 0) {
+      final request = TerminateVisitRequest(
+        status: status,
+        latitude: position.latitude,
+        longitude: position.longitude,
+      );
+      await _queueTerminateOffline(visitId, request, status);
+      return;
+    }
+
     // Show loading dialog
     showDialog(
       context: context,

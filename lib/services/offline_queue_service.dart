@@ -399,14 +399,14 @@ class OfflineQueueService {
     }
   }
 
-  /// Remplace les {ref:NOM} du chemin par les ids serveur résolus.
-  /// Une référence encore inconnue (création parente refusée ou non rejouée)
-  /// écarte l'opération vers la liste des échecs.
-  Future<String> _resolvePath(String path) async {
-    if (!path.contains('{ref:')) return path;
+  /// Remplace les {ref:NOM} d'une valeur (chemin, champ, body) par les ids
+  /// serveur résolus. Une référence encore inconnue (création parente refusée
+  /// ou non rejouée) écarte l'opération vers la liste des échecs.
+  Future<String> _resolveRefs(String value) async {
+    if (!value.contains('{ref:')) return value;
     final prefs = await SharedPreferences.getInstance();
     final refs = _loadRefs(prefs);
-    final resolved = path.replaceAllMapped(
+    final resolved = value.replaceAllMapped(
       RegExp(r'\{ref:([^}]+)\}'),
       (m) => refs[m.group(1)!] ?? m.group(0)!,
     );
@@ -419,25 +419,38 @@ class OfflineQueueService {
     return resolved;
   }
 
+  /// Résout les {ref:NOM} dans les valeurs texte d'un body JSON.
+  Future<Map<String, dynamic>?> _resolveBody(Map<String, dynamic>? body) async {
+    if (body == null) return null;
+    final resolved = <String, dynamic>{};
+    for (final entry in body.entries) {
+      final value = entry.value;
+      resolved[entry.key] =
+          value is String ? await _resolveRefs(value) : value;
+    }
+    return resolved;
+  }
+
   Future<dynamic> _execute(OfflineOperation op) async {
     if (op.kind == 'multipart') {
       return _executeMultipart(op);
     }
 
-    final path = await _resolvePath(op.path);
+    final path = await _resolveRefs(op.path);
+    final body = await _resolveBody(op.body);
     switch (op.method.toUpperCase()) {
       case 'PUT':
-        return _apiService.put(path, body: op.body);
+        return _apiService.put(path, body: body);
       case 'PATCH':
-        return _apiService.patch(path, body: op.body);
+        return _apiService.patch(path, body: body);
       case 'POST':
       default:
-        return _apiService.post(path, body: op.body);
+        return _apiService.post(path, body: body);
     }
   }
 
   Future<dynamic> _executeMultipart(OfflineOperation op) async {
-    final uri = Uri.parse('${ApiService.baseUrl}${await _resolvePath(op.path)}');
+    final uri = Uri.parse('${ApiService.baseUrl}${await _resolveRefs(op.path)}');
     final request = http.MultipartRequest('POST', uri);
 
     final token = _apiService.token;
@@ -446,8 +459,8 @@ class OfflineQueueService {
     }
     request.headers['Accept'] = 'application/json';
 
-    if (op.fields != null) {
-      request.fields.addAll(op.fields!);
+    for (final entry in (op.fields ?? const <String, String>{}).entries) {
+      request.fields[entry.key] = await _resolveRefs(entry.value);
     }
 
     for (final file in op.files ?? const <Map<String, String>>[]) {
