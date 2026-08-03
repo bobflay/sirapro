@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:sirapro/services/visit_service.dart';
 import 'package:sirapro/services/client_service.dart';
+import 'package:sirapro/services/offline_queue_service.dart';
 import 'package:sirapro/screens/client_detail_page.dart';
+import 'package:sirapro/screens/sync_page.dart';
 import 'package:sirapro/utils/app_colors.dart';
 
 /// A unified app bar that adapts when there's an active visit session.
@@ -40,6 +42,7 @@ class _SessionAwareAppBarState extends State<SessionAwareAppBar> {
 
   final VisitService _visitService = VisitService();
   final ClientService _clientService = ClientService();
+  final OfflineQueueService _queueService = OfflineQueueService();
   Timer? _timer;
   Duration _elapsed = Duration.zero;
   bool _hasActiveSession = false;
@@ -52,6 +55,14 @@ class _SessionAwareAppBarState extends State<SessionAwareAppBar> {
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       _updateState();
     });
+    // Indicateur « hors ligne » : suit la connectivité et la file d'attente.
+    _queueService.init();
+    _queueService.isOffline.addListener(_onOfflineChanged);
+    _queueService.pendingCount.addListener(_onOfflineChanged);
+  }
+
+  void _onOfflineChanged() {
+    if (mounted) setState(() {});
   }
 
   Future<void> _loadAppVersion() async {
@@ -69,6 +80,8 @@ class _SessionAwareAppBarState extends State<SessionAwareAppBar> {
   @override
   void dispose() {
     _timer?.cancel();
+    _queueService.isOffline.removeListener(_onOfflineChanged);
+    _queueService.pendingCount.removeListener(_onOfflineChanged);
     super.dispose();
   }
 
@@ -177,7 +190,55 @@ class _SessionAwareAppBarState extends State<SessionAwareAppBar> {
     );
   }
 
+  /// Pastille « Hors ligne » (avec compteur de saisies en attente) affichée
+  /// dans la barre dès que la connexion est perdue. Un appui ouvre la page
+  /// Synchronisation.
+  Widget? _buildOfflineChip() {
+    final offline = _queueService.isOffline.value;
+    final pending = _queueService.pendingCount.value;
+    if (!offline && pending == 0) return null;
+
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => const SyncPage()),
+        );
+      },
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: offline ? Colors.orange : Colors.white.withValues(alpha: 0.2),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              offline ? Icons.cloud_off : Icons.cloud_upload,
+              color: Colors.white,
+              size: 14,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              offline
+                  ? (pending > 0 ? 'Hors ligne ($pending)' : 'Hors ligne')
+                  : '$pending à synchroniser',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildNormalAppBar(BuildContext context) {
+    final offlineChip = _buildOfflineChip();
     return AppBar(
       title: Row(
         mainAxisSize: MainAxisSize.min,
@@ -193,13 +254,18 @@ class _SessionAwareAppBarState extends State<SessionAwareAppBar> {
       ),
       leading: widget.leading,
       automaticallyImplyLeading: widget.automaticallyImplyLeading,
-      actions: widget.actions,
+      actions: [
+        if (offlineChip != null) offlineChip,
+        if (widget.actions != null) ...widget.actions!,
+        if (offlineChip != null) const SizedBox(width: 8),
+      ],
       bottom: widget.bottom,
     );
   }
 
   Widget _buildActiveSessionAppBar(BuildContext context) {
     final clientName = _visitService.activeClientName ?? 'Client';
+    final offlineChip = _buildOfflineChip();
 
     return GestureDetector(
       onTap: _navigateToActiveClient,
@@ -285,6 +351,10 @@ class _SessionAwareAppBarState extends State<SessionAwareAppBar> {
           ],
         ),
         actions: [
+          if (offlineChip != null) ...[
+            offlineChip,
+            const SizedBox(width: 6),
+          ],
           // Timer display
           Container(
             margin: const EdgeInsets.symmetric(vertical: 10),

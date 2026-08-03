@@ -175,10 +175,10 @@ void main() {
       });
 
       group('phone validation', () {
-        test('returns error when phone is empty', () {
+        test('accepts empty phone (numéro non communiqué)', () {
           final request = createValidRequest(phone: '');
           final errors = request.validate();
-          expect(errors, contains('Le numéro de téléphone est requis'));
+          expect(errors, isEmpty);
         });
 
         test('returns error when phone exceeds 255 characters', () {
@@ -380,7 +380,7 @@ void main() {
           expect(errors, contains('Le nom du client est requis'));
           expect(errors, contains('Type de client invalide'));
           expect(errors, contains('Potentiel invalide'));
-          expect(errors, contains('Le numéro de téléphone est requis'));
+          // Un téléphone vide est accepté (numéro non communiqué).
           expect(errors, contains('La ville est requise'));
           expect(errors, contains('Latitude invalide (doit être entre -90 et 90)'));
           expect(

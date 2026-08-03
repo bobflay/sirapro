@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import 'package:dio/dio.dart' as dio;
 import '../models/visit_report.dart';
+import 'offline_cache_service.dart';
 
 /// Callback for tracking upload progress
 /// [sent] - bytes sent so far
@@ -98,17 +99,29 @@ class ApiService {
   }
 
   /// Perform GET request
+  ///
+  /// Les réponses réussies sont mises en cache localement ; en cas de panne
+  /// réseau, la dernière réponse connue est resservie pour que les écrans
+  /// restent utilisables hors ligne.
   Future<dynamic> get(String endpoint, {bool includeAuth = true}) async {
     try {
       final response = await http.get(
         Uri.parse('$baseUrl$endpoint'),
         headers: _getHeaders(includeAuth: includeAuth),
       );
-      return _handleResponse(response);
+      final result = _handleResponse(response);
+      await OfflineCacheService().put('GET:$endpoint', result);
+      return result;
     } on http.ClientException {
+      final cached = await OfflineCacheService().get('GET:$endpoint');
+      if (cached != null) return cached;
       throw ApiException('Connection failed. Please check your internet.');
     } catch (e) {
+      // Une ApiException porte une vraie réponse serveur (4xx/5xx) : pas de
+      // cache. Le reste (SocketException…) est traité comme une panne réseau.
       if (e is ApiException) rethrow;
+      final cached = await OfflineCacheService().get('GET:$endpoint');
+      if (cached != null) return cached;
       throw ApiException('An unexpected error occurred');
     }
   }

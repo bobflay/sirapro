@@ -1,6 +1,9 @@
+import 'dart:io';
 import 'dart:math' as math;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:sirapro/models/create_client_request.dart';
 import 'package:sirapro/models/user.dart';
@@ -8,6 +11,7 @@ import 'package:sirapro/models/visit_report.dart';
 import 'package:sirapro/services/api_service.dart';
 import 'package:sirapro/services/auth_service.dart';
 import 'package:sirapro/services/client_service.dart';
+import 'package:sirapro/services/offline_queue_service.dart';
 import 'package:sirapro/utils/app_colors.dart';
 import 'package:sirapro/utils/phone_formatter.dart';
 import 'package:sirapro/widgets/session_aware_app_bar.dart';
@@ -782,6 +786,33 @@ class _CreateClientPageState extends State<CreateClientPage> {
       return;
     }
 
+    // Create the client request
+    final request = CreateClientRequest(
+      code: _codeController.text.trim(),
+      name: _boutiqueNameController.text.trim(),
+      type: _selectedType ?? 'Boutique',
+      clientType: _selectedClientType == 'Aucun' || _selectedClientType == null ? null : _selectedClientType,
+      potential: _potentiel ?? 'C',
+      baseCommercialeId: baseCommercialeId,
+      zoneId: zoneId,
+      managerName: _gerantNameController.text.trim(),
+      phone: PhoneUtils.stripSpaces(_phoneController.text.trim()),
+      whatsapp: _whatsappController.text.trim().isNotEmpty
+          ? PhoneUtils.stripSpaces(_whatsappController.text.trim())
+          : null,
+      email: null,
+      city: _selectedVille!,
+      district: _selectedQuartier,
+      addressDescription: _addressController.text.trim().isNotEmpty
+          ? _addressController.text.trim()
+          : null,
+      latitude: latitude,
+      longitude: longitude,
+      visitFrequency: CreateClientRequest.frequencyToApiValue(_frequenceVisite ?? 'Autre'),
+      visitDay: CreateClientRequest.dayToApiValue(_visitDay),
+      isActive: true,
+    );
+
     setState(() {
       _isLoading = true;
     });
@@ -790,33 +821,6 @@ class _CreateClientPageState extends State<CreateClientPage> {
     _showLoadingDialog('Création du client en cours...');
 
     try {
-      // Create the client request
-      final request = CreateClientRequest(
-        code: _codeController.text.trim(),
-        name: _boutiqueNameController.text.trim(),
-        type: _selectedType ?? 'Boutique',
-        clientType: _selectedClientType == 'Aucun' || _selectedClientType == null ? null : _selectedClientType,
-        potential: _potentiel ?? 'C',
-        baseCommercialeId: baseCommercialeId,
-        zoneId: zoneId,
-        managerName: _gerantNameController.text.trim(),
-        phone: PhoneUtils.stripSpaces(_phoneController.text.trim()),
-        whatsapp: _whatsappController.text.trim().isNotEmpty
-            ? PhoneUtils.stripSpaces(_whatsappController.text.trim())
-            : null,
-        email: null,
-        city: _selectedVille!,
-        district: _selectedQuartier,
-        addressDescription: _addressController.text.trim().isNotEmpty
-            ? _addressController.text.trim()
-            : null,
-        latitude: latitude,
-        longitude: longitude,
-        visitFrequency: CreateClientRequest.frequencyToApiValue(_frequenceVisite ?? 'Autre'),
-        visitDay: CreateClientRequest.dayToApiValue(_visitDay),
-        isActive: true,
-      );
-
       // Create the client via API
       final createdClient = await _clientService.createClient(request);
 
@@ -853,6 +857,11 @@ class _CreateClientPageState extends State<CreateClientPage> {
       if (!mounted) return;
       Navigator.of(context).pop(); // Close loading dialog
 
+      if (!kIsWeb && OfflineQueueService.isNetworkError(e)) {
+        await _queueClientCreationOffline(request);
+        return;
+      }
+
       // Handle validation errors
       if (e.statusCode == 422) {
         _showValidationErrorDialog(e.message);
@@ -864,6 +873,10 @@ class _CreateClientPageState extends State<CreateClientPage> {
     } catch (e) {
       if (!mounted) return;
       Navigator.of(context).pop(); // Close loading dialog
+      if (!kIsWeb && OfflineQueueService.isNetworkError(e)) {
+        await _queueClientCreationOffline(request);
+        return;
+      }
       _showErrorSnackbar('Une erreur inattendue s\'est produite: $e');
     } finally {
       if (mounted) {
@@ -871,6 +884,85 @@ class _CreateClientPageState extends State<CreateClientPage> {
           _isLoading = false;
         });
       }
+    }
+  }
+
+  /// Mode hors ligne : le client (et ses photos) est enregistré localement.
+  /// À la resynchronisation, la création est rejouée d'abord, puis les photos
+  /// sont envoyées avec l'id serveur obtenu (chaînage {ref:...}).
+  Future<void> _queueClientCreationOffline(CreateClientRequest request) async {
+    final localRef = 'client_${DateTime.now().microsecondsSinceEpoch}';
+    final clientName = _boutiqueNameController.text.trim();
+
+    await OfflineQueueService().enqueue(OfflineOperation.json(
+      label: 'Nouveau client — $clientName',
+      method: 'POST',
+      path: '/api/clients',
+      body: request.toJson(),
+      provides: localRef,
+    ));
+
+    // Photos : copiées dans le stockage de l'app (les fichiers temporaires de
+    // la caméra peuvent être purgés avant la synchronisation).
+    final docsDir = await getApplicationDocumentsDirectory();
+    final photosDir = Directory('${docsDir.path}/offline_photos');
+    if (!await photosDir.exists()) {
+      await photosDir.create(recursive: true);
+    }
+
+    Future<void> queuePhotoTask(
+      List<GeotaggedPhoto> photos,
+      String type,
+      String title,
+    ) async {
+      final files = <Map<String, String>>[];
+      for (final photo in photos) {
+        final bytes = photo.bytes;
+        if (bytes == null) continue;
+        final filePath =
+            '${photosDir.path}/${DateTime.now().microsecondsSinceEpoch}_${photo.effectiveFileName}';
+        await File(filePath).writeAsBytes(bytes);
+        files.add({'field': 'photos[]', 'path': filePath});
+      }
+      if (files.isEmpty) return;
+      await OfflineQueueService().enqueue(OfflineOperation.multipart(
+        label: 'Photos $title — $clientName',
+        path: '/api/clients/{ref:$localRef}/photos',
+        fields: {
+          'type': type,
+          'title': title,
+          'description': 'Photo $title de $clientName',
+        },
+        files: files,
+      ));
+    }
+
+    if (_facadePhoto != null) {
+      await queuePhotoTask([_facadePhoto!], 'facade', 'Façade');
+    }
+    if (_rayonsPhoto != null) {
+      await queuePhotoTask([_rayonsPhoto!], 'shelves', 'Rayons');
+    }
+    if (_additionalPhotos.isNotEmpty) {
+      for (int i = 0; i < _additionalPhotos.length; i += 10) {
+        await queuePhotoTask(
+          _additionalPhotos.skip(i).take(10).toList(),
+          'other',
+          'Photos additionnelles',
+        );
+      }
+    }
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+              'Pas de réseau : client "$clientName" enregistré localement. Il sera synchronisé automatiquement au retour de la connexion.'),
+          backgroundColor: Colors.orange,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+      Navigator.of(context).pop();
     }
   }
 

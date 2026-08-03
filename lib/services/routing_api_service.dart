@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/api_routing.dart';
 import 'api_service.dart';
+import 'offline_cache_service.dart';
 
 /// Exception for routing-related API errors
 class RoutingApiException implements Exception {
@@ -124,6 +125,7 @@ class RoutingApiService {
         try {
           final result = ApiRoutingResponse.fromJson(body);
           print('[RoutingAPI] Successfully parsed routing response');
+          await OfflineCacheService().put('GET:/api/routing/my?date=$date', body);
           return result;
         } catch (e, stackTrace) {
           print('[RoutingAPI] ERROR parsing ApiRoutingResponse: $e');
@@ -173,9 +175,20 @@ class RoutingApiService {
         errors: errors,
       );
     } on http.ClientException {
+      // Hors ligne : resservir la dernière tournée connue pour cette date.
+      final cached =
+          await OfflineCacheService().get('GET:/api/routing/my?date=$date');
+      if (cached != null) {
+        return ApiRoutingResponse.fromJson(cached as Map<String, dynamic>);
+      }
       throw RoutingApiException('Connection failed. Please check your internet.');
     } catch (e) {
       if (e is RoutingApiException) rethrow;
+      final cached =
+          await OfflineCacheService().get('GET:/api/routing/my?date=$date');
+      if (cached != null) {
+        return ApiRoutingResponse.fromJson(cached as Map<String, dynamic>);
+      }
       throw RoutingApiException('An unexpected error occurred: $e');
     }
   }

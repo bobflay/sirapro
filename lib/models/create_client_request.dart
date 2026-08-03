@@ -27,7 +27,8 @@ class CreateClientRequest {
   /// Manager/Gérant name (optional, max:255)
   final String? managerName;
 
-  /// Phone number (required, max:255)
+  /// Phone number (optional, max:255)
+  /// An empty string is allowed and means "numéro non communiqué".
   final String phone;
 
   /// WhatsApp number (optional, max:255)
@@ -170,9 +171,10 @@ class CreateClientRequest {
       errors.add('Potentiel invalide');
     }
 
-    if (phone.isEmpty) {
-      errors.add('Le numéro de téléphone est requis');
-    } else if (phone.length > 255) {
+    // Un téléphone vide est accepté : certains clients refusent de
+    // communiquer leur numéro, l'enregistrement du PDV (et de sa
+    // localisation) ne doit pas être bloqué.
+    if (phone.length > 255) {
       errors.add('Le numéro de téléphone ne peut pas dépasser 255 caractères');
     }
 

@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '../models/product_api.dart';
 import 'api_service.dart';
+import 'offline_cache_service.dart';
 
 // Helper function for safe int parsing
 int _parseIntSafe(dynamic value) {
@@ -246,24 +247,24 @@ class ProductService {
     int? categoryId,
     String? search,
   }) async {
+    // Build query parameters
+    final queryParams = <String, String>{
+      'page': page.toString(),
+      'per_page': perPage.toString(),
+    };
+
+    if (categoryId != null) {
+      queryParams['category_id'] = categoryId.toString();
+    }
+    if (search != null && search.isNotEmpty) {
+      queryParams['search'] = search;
+    }
+
+    final queryString = queryParams.entries
+        .map((e) => '${Uri.encodeComponent(e.key)}=${Uri.encodeComponent(e.value)}')
+        .join('&');
+
     try {
-      // Build query parameters
-      final queryParams = <String, String>{
-        'page': page.toString(),
-        'per_page': perPage.toString(),
-      };
-
-      if (categoryId != null) {
-        queryParams['category_id'] = categoryId.toString();
-      }
-      if (search != null && search.isNotEmpty) {
-        queryParams['search'] = search;
-      }
-
-      final queryString = queryParams.entries
-          .map((e) => '${Uri.encodeComponent(e.key)}=${Uri.encodeComponent(e.value)}')
-          .join('&');
-
       final uri = Uri.parse('${ApiService.baseUrl}/api/products?$queryString');
       final token = _apiService.token;
 
@@ -282,15 +283,28 @@ class ProductService {
       final body = jsonDecode(response.body) as Map<String, dynamic>;
 
       if (response.statusCode == 200) {
+        await OfflineCacheService().put('GET:/api/products?$queryString', body);
         return ProductListResponse.fromJson(body);
       }
 
       final errorMessage = body['message'] as String? ?? 'Erreur lors de la récupération des produits';
       throw ApiException(errorMessage, statusCode: response.statusCode);
     } on http.ClientException {
+      // Hors ligne : resservir le dernier catalogue connu pour permettre la
+      // conception de commandes sans réseau.
+      final cached =
+          await OfflineCacheService().get('GET:/api/products?$queryString');
+      if (cached != null) {
+        return ProductListResponse.fromJson(cached as Map<String, dynamic>);
+      }
       throw ApiException('Erreur de connexion. Vérifiez votre connexion internet.');
     } catch (e) {
       if (e is ApiException) rethrow;
+      final cached =
+          await OfflineCacheService().get('GET:/api/products?$queryString');
+      if (cached != null) {
+        return ProductListResponse.fromJson(cached as Map<String, dynamic>);
+      }
       throw ApiException('Une erreur inattendue est survenue: $e');
     }
   }
@@ -303,21 +317,21 @@ class ProductService {
     bool? topLevel,
     int? parentId,
   }) async {
+    final queryParams = <String, String>{};
+
+    if (topLevel == true) {
+      queryParams['top_level'] = 'true';
+    }
+    if (parentId != null) {
+      queryParams['parent_id'] = parentId.toString();
+    }
+
+    String queryString = '';
+    if (queryParams.isNotEmpty) {
+      queryString = '?${queryParams.entries.map((e) => '${Uri.encodeComponent(e.key)}=${Uri.encodeComponent(e.value)}').join('&')}';
+    }
+
     try {
-      final queryParams = <String, String>{};
-
-      if (topLevel == true) {
-        queryParams['top_level'] = 'true';
-      }
-      if (parentId != null) {
-        queryParams['parent_id'] = parentId.toString();
-      }
-
-      String queryString = '';
-      if (queryParams.isNotEmpty) {
-        queryString = '?${queryParams.entries.map((e) => '${Uri.encodeComponent(e.key)}=${Uri.encodeComponent(e.value)}').join('&')}';
-      }
-
       final uri = Uri.parse('${ApiService.baseUrl}/api/products/categories$queryString');
       final token = _apiService.token;
 
@@ -336,15 +350,27 @@ class ProductService {
       final body = jsonDecode(response.body) as Map<String, dynamic>;
 
       if (response.statusCode == 200) {
+        await OfflineCacheService()
+            .put('GET:/api/products/categories$queryString', body);
         return CategoryListResponse.fromJson(body);
       }
 
       final errorMessage = body['message'] as String? ?? 'Erreur lors de la récupération des catégories';
       throw ApiException(errorMessage, statusCode: response.statusCode);
     } on http.ClientException {
+      final cached = await OfflineCacheService()
+          .get('GET:/api/products/categories$queryString');
+      if (cached != null) {
+        return CategoryListResponse.fromJson(cached as Map<String, dynamic>);
+      }
       throw ApiException('Erreur de connexion. Vérifiez votre connexion internet.');
     } catch (e) {
       if (e is ApiException) rethrow;
+      final cached = await OfflineCacheService()
+          .get('GET:/api/products/categories$queryString');
+      if (cached != null) {
+        return CategoryListResponse.fromJson(cached as Map<String, dynamic>);
+      }
       throw ApiException('Une erreur inattendue est survenue: $e');
     }
   }

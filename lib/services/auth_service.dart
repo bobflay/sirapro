@@ -197,6 +197,13 @@ class AuthService {
       if (e.statusCode == 401) {
         // Token is invalid, clear stored data
         await _clearAll();
+        return false;
+      }
+      if (e.statusCode == null) {
+        // Panne réseau (pas de réponse serveur) : le token est peut-être
+        // encore valide — autoriser l'accès hors ligne au lieu de renvoyer
+        // l'utilisateur à l'écran de connexion.
+        return await isLoggedIn();
       }
       return false;
     } catch (e) {

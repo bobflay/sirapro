@@ -32,6 +32,15 @@ class OfflineOperation {
   /// Le champ peut différer par fichier (ex: photo_shelves[] / photos_other[]).
   final List<Map<String, String>>? files;
 
+  /// Chaînage d'opérations : nom de référence locale que cette opération
+  /// résout à la synchronisation (ex: une création de client fournit
+  /// 'client_...' = id serveur). Les opérations suivantes peuvent utiliser
+  /// `{ref:client_...}` dans leur chemin.
+  final String? provides;
+
+  /// Chemin (séparé par des points) de l'id serveur dans la réponse JSON.
+  final String idPath;
+
   /// Message d'erreur serveur si l'opération a été refusée lors d'un rejeu.
   final String? error;
 
@@ -45,6 +54,8 @@ class OfflineOperation {
     this.body,
     this.fields,
     this.files,
+    this.provides,
+    this.idPath = 'data.id',
     this.error,
   });
 
@@ -53,6 +64,8 @@ class OfflineOperation {
     required String method,
     required String path,
     required Map<String, dynamic> body,
+    String? provides,
+    String idPath = 'data.id',
   }) {
     return OfflineOperation(
       id: 'op_${DateTime.now().microsecondsSinceEpoch}',
@@ -62,6 +75,8 @@ class OfflineOperation {
       method: method,
       path: path,
       body: body,
+      provides: provides,
+      idPath: idPath,
     );
   }
 
@@ -94,6 +109,8 @@ class OfflineOperation {
       body: body,
       fields: fields,
       files: files,
+      provides: provides,
+      idPath: idPath,
       error: message,
     );
   }
@@ -108,6 +125,8 @@ class OfflineOperation {
         if (body != null) 'body': body,
         if (fields != null) 'fields': fields,
         if (files != null) 'files': files,
+        if (provides != null) 'provides': provides,
+        'id_path': idPath,
         if (error != null) 'error': error,
       };
 
@@ -126,6 +145,8 @@ class OfflineOperation {
           ?.map((e) => (e as Map<String, dynamic>)
               .map((k, v) => MapEntry(k, v.toString())))
           .toList(),
+      provides: json['provides'] as String?,
+      idPath: json['id_path'] as String? ?? 'data.id',
       error: json['error'] as String?,
     );
   }
@@ -142,6 +163,7 @@ class OfflineQueueService {
   static const String _queueKey = 'offline_queue_v1';
   static const String _failedKey = 'offline_queue_failed_v1';
   static const String _lastSyncKey = 'offline_queue_last_sync_v1';
+  static const String _refsKey = 'offline_queue_refs_v1';
 
   static OfflineQueueService? _instance;
 
@@ -160,6 +182,10 @@ class OfflineQueueService {
   /// Notifie la fin d'un rejeu (réussi ou non) pour rafraîchir les listes.
   final ValueNotifier<DateTime?> lastSync = ValueNotifier<DateTime?>(null);
 
+  /// Vrai quand l'appareil n'a pas de connectivité — à écouter pour afficher
+  /// l'indicateur « hors ligne » dans l'interface.
+  final ValueNotifier<bool> isOffline = ValueNotifier<bool>(false);
+
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
   bool _flushing = false;
   bool _initialized = false;
@@ -177,9 +203,14 @@ class OfflineQueueService {
       lastSync.value = DateTime.tryParse(lastSyncRaw);
     }
 
+    Connectivity().checkConnectivity().then((results) {
+      isOffline.value = !results.any((r) => r != ConnectivityResult.none);
+    });
+
     _connectivitySub =
         Connectivity().onConnectivityChanged.listen((results) {
       final online = results.any((r) => r != ConnectivityResult.none);
+      isOffline.value = !online;
       if (online) {
         flush();
       }
@@ -300,7 +331,10 @@ class OfflineQueueService {
       while (queue.isNotEmpty) {
         final op = queue.first;
         try {
-          await _execute(op);
+          final response = await _execute(op);
+          if (op.provides != null) {
+            await _storeRef(prefs, op.provides!, response, op.idPath);
+          }
           queue.removeAt(0);
           await _saveQueue(prefs, queue);
           debugPrint('[OfflineQueue] Synced: ${op.label}');
@@ -328,27 +362,82 @@ class OfflineQueueService {
     }
   }
 
-  Future<void> _execute(OfflineOperation op) async {
-    if (op.kind == 'multipart') {
-      await _executeMultipart(op);
+  /// Extrait l'id serveur de la réponse (chemin type 'data.id') et le
+  /// mémorise pour résoudre les opérations chaînées ({ref:...}).
+  Future<void> _storeRef(
+    SharedPreferences prefs,
+    String ref,
+    dynamic response,
+    String idPath,
+  ) async {
+    dynamic value = response;
+    for (final segment in idPath.split('.')) {
+      if (value is Map<String, dynamic>) {
+        value = value[segment];
+      } else {
+        value = null;
+        break;
+      }
+    }
+    if (value == null) {
+      debugPrint('[OfflineQueue] Could not resolve "$idPath" for ref "$ref"');
       return;
     }
+    final refs = _loadRefs(prefs);
+    refs[ref] = value.toString();
+    await prefs.setString(_refsKey, jsonEncode(refs));
+  }
 
-    switch (op.method.toUpperCase()) {
-      case 'PUT':
-        await _apiService.put(op.path, body: op.body);
-        break;
-      case 'PATCH':
-        await _apiService.patch(op.path, body: op.body);
-        break;
-      case 'POST':
-      default:
-        await _apiService.post(op.path, body: op.body);
+  Map<String, String> _loadRefs(SharedPreferences prefs) {
+    final raw = prefs.getString(_refsKey);
+    if (raw == null || raw.isEmpty) return {};
+    try {
+      return (jsonDecode(raw) as Map<String, dynamic>)
+          .map((k, v) => MapEntry(k, v.toString()));
+    } catch (_) {
+      return {};
     }
   }
 
-  Future<void> _executeMultipart(OfflineOperation op) async {
-    final uri = Uri.parse('${ApiService.baseUrl}${op.path}');
+  /// Remplace les {ref:NOM} du chemin par les ids serveur résolus.
+  /// Une référence encore inconnue (création parente refusée ou non rejouée)
+  /// écarte l'opération vers la liste des échecs.
+  Future<String> _resolvePath(String path) async {
+    if (!path.contains('{ref:')) return path;
+    final prefs = await SharedPreferences.getInstance();
+    final refs = _loadRefs(prefs);
+    final resolved = path.replaceAllMapped(
+      RegExp(r'\{ref:([^}]+)\}'),
+      (m) => refs[m.group(1)!] ?? m.group(0)!,
+    );
+    if (resolved.contains('{ref:')) {
+      throw ApiException(
+        'Opération liée à une création non synchronisée (référence manquante)',
+        statusCode: 424,
+      );
+    }
+    return resolved;
+  }
+
+  Future<dynamic> _execute(OfflineOperation op) async {
+    if (op.kind == 'multipart') {
+      return _executeMultipart(op);
+    }
+
+    final path = await _resolvePath(op.path);
+    switch (op.method.toUpperCase()) {
+      case 'PUT':
+        return _apiService.put(path, body: op.body);
+      case 'PATCH':
+        return _apiService.patch(path, body: op.body);
+      case 'POST':
+      default:
+        return _apiService.post(path, body: op.body);
+    }
+  }
+
+  Future<dynamic> _executeMultipart(OfflineOperation op) async {
+    final uri = Uri.parse('${ApiService.baseUrl}${await _resolvePath(op.path)}');
     final request = http.MultipartRequest('POST', uri);
 
     final token = _apiService.token;
@@ -378,7 +467,11 @@ class OfflineQueueService {
     final response = await http.Response.fromStream(streamedResponse);
 
     if (response.statusCode >= 200 && response.statusCode < 300) {
-      return;
+      try {
+        return jsonDecode(response.body);
+      } catch (_) {
+        return null;
+      }
     }
 
     String message = 'Erreur serveur (${response.statusCode})';
