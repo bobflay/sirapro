@@ -1825,35 +1825,35 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
       ),
     );
 
-    try {
-      // Build the update request with only changed fields
-      final request = UpdateClientRequest(
-        name: _boutiqueNameController.text.trim(),
-        type: _selectedType,
-        clientType: _selectedClientType == 'Aucun' ? null : _selectedClientType,
-        managerName: _gerantNameController.text.trim(),
-        phone: PhoneUtils.stripSpaces(_phoneController.text.trim()),
-        whatsapp: _whatsappController.text.trim().isNotEmpty
-            ? PhoneUtils.stripSpaces(_whatsappController.text.trim())
-            : null,
-        email: _emailController.text.trim().isNotEmpty
-            ? _emailController.text.trim()
-            : null,
-        addressDescription: _addressController.text.trim(),
-        district: _quartierController.text.trim().isNotEmpty
-            ? _quartierController.text.trim()
-            : null,
-        city: _villeController.text.trim(),
-        potential: _selectedPotentiel,
-        visitFrequency: _selectedFrequence != null
-            ? UpdateClientRequest.frequencyToApiValue(_selectedFrequence!)
-            : null,
-        visitDay: UpdateClientRequest.dayToApiValue(_selectedVisitDay),
-        // Include GPS coordinates if updated
-        latitude: _updatedGpsPosition?.latitude,
-        longitude: _updatedGpsPosition?.longitude,
-      );
+    // Build the update request with only changed fields
+    final request = UpdateClientRequest(
+      name: _boutiqueNameController.text.trim(),
+      type: _selectedType,
+      clientType: _selectedClientType == 'Aucun' ? null : _selectedClientType,
+      managerName: _gerantNameController.text.trim(),
+      phone: PhoneUtils.stripSpaces(_phoneController.text.trim()),
+      whatsapp: _whatsappController.text.trim().isNotEmpty
+          ? PhoneUtils.stripSpaces(_whatsappController.text.trim())
+          : null,
+      email: _emailController.text.trim().isNotEmpty
+          ? _emailController.text.trim()
+          : null,
+      addressDescription: _addressController.text.trim(),
+      district: _quartierController.text.trim().isNotEmpty
+          ? _quartierController.text.trim()
+          : null,
+      city: _villeController.text.trim(),
+      potential: _selectedPotentiel,
+      visitFrequency: _selectedFrequence != null
+          ? UpdateClientRequest.frequencyToApiValue(_selectedFrequence!)
+          : null,
+      visitDay: UpdateClientRequest.dayToApiValue(_selectedVisitDay),
+      // Include GPS coordinates if updated
+      latitude: _updatedGpsPosition?.latitude,
+      longitude: _updatedGpsPosition?.longitude,
+    );
 
+    try {
       // Call the API to update the client
       final updatedClient = await _clientService.updateClient(_client.id, request);
 
@@ -1894,6 +1894,11 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
         _isSaving = false;
       });
 
+      if (OfflineQueueService.isNetworkError(e)) {
+        await _queueClientUpdateOffline(request);
+        return;
+      }
+
       // Handle specific error codes
       if (e.statusCode == 403) {
         _showErrorDialog(
@@ -1922,7 +1927,63 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
         _isSaving = false;
       });
 
+      if (OfflineQueueService.isNetworkError(e)) {
+        await _queueClientUpdateOffline(request);
+        return;
+      }
+
       _showErrorSnackbar('Une erreur inattendue s\'est produite: $e');
+    }
+  }
+
+  /// Mode hors ligne : la mise à jour du PDV est enregistrée localement et
+  /// rejouée automatiquement au retour du réseau. La fiche affiche
+  /// immédiatement les nouvelles valeurs (application optimiste).
+  Future<void> _queueClientUpdateOffline(UpdateClientRequest request) async {
+    await OfflineQueueService().enqueue(OfflineOperation.json(
+      label: 'Mise à jour client — ${_client.name}',
+      method: 'PUT',
+      path: '/api/clients/${_client.id}',
+      body: request.toJson(),
+    ));
+
+    setState(() {
+      _client = _client.copyWith(
+        name: request.name,
+        type: request.type,
+        clientType: request.clientType,
+        managerName: request.managerName,
+        // Un téléphone vidé signifie « numéro non communiqué ».
+        phones: (request.phone != null && request.phone!.isEmpty)
+            ? <String>[]
+            : null,
+        phone: (request.phone?.isNotEmpty ?? false) ? request.phone : null,
+        whatsapp: request.whatsapp,
+        email: request.email,
+        address: request.addressDescription,
+        quartier: request.district,
+        city: request.city,
+        potential: request.potential,
+        visitFrequency: request.visitFrequency,
+        visitDay: request.visitDay,
+        latitude: request.latitude,
+        longitude: request.longitude,
+      );
+      _isEditing = false;
+      _isSaving = false;
+      _updatedGpsPosition = null;
+    });
+    _initControllers();
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+              'Pas de réseau : modifications enregistrées localement. Elles seront synchronisées automatiquement au retour de la connexion.'),
+          backgroundColor: Colors.orange,
+          duration: Duration(seconds: 4),
+        ),
+      );
     }
   }
 
