@@ -277,11 +277,8 @@ class _VisitReportPageState extends State<VisitReportPage> {
   }
 
   bool _validateForm() {
-    if (_shelfPhotos.isEmpty) {
-      _showError('Au moins une photo des rayons est obligatoire');
-      return false;
-    }
-
+    // La photo des rayons est souhaitée mais pas bloquante : le rapport doit
+    // pouvoir être soumis sans photo (demande terrain CODCI 05).
     if (_gerantPresent == null) {
       _showError('Veuillez indiquer la présence du gérant');
       return false;
@@ -782,13 +779,14 @@ class _VisitReportPageState extends State<VisitReportPage> {
             ),
             const SizedBox(height: 16),
 
-            // Photos rayons (multiple)
+            // Photos rayons (multiple) — facultatif : le rapport ne doit pas
+            // être bloqué quand la photo n'est pas possible.
             _buildMultiPhotoSection(
               title: 'Photos Rayons / Linéaires',
               photos: _shelfPhotos,
               type: PhotoType.shelf,
-              required: true,
-              subtitle: 'Présentoirs et produits',
+              required: false,
+              subtitle: 'Présentoirs et produits (facultatif)',
             ),
           ],
         ),
