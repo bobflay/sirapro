@@ -1552,6 +1552,7 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
                   const SizedBox(height: 8),
                   TextField(
                     controller: otherTextController,
+                    onChanged: (_) => setDialogState(() {}),
                     decoration: InputDecoration(
                       labelText: 'Précisez',
                       hintText: 'Entrez la raison...',
