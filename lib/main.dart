@@ -12,6 +12,7 @@ import 'package:sirapro/services/offline_queue_service.dart';
 import 'package:sirapro/services/visit_service.dart';
 import 'package:sirapro/services/push_notification_service.dart';
 import 'package:sirapro/utils/app_colors.dart';
+import 'package:sirapro/utils/app_scroll_behavior.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
 void main() async {
@@ -45,6 +46,7 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'SIRA PRO - Carré d\'Or',
       theme: AppTheme.lightTheme,
+      scrollBehavior: AppScrollBehavior(),
       home: const AuthChecker(),
     );
   }
