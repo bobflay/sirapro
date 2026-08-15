@@ -103,11 +103,12 @@ class ApiService {
   /// Les réponses réussies sont mises en cache localement ; en cas de panne
   /// réseau, la dernière réponse connue est resservie pour que les écrans
   /// restent utilisables hors ligne.
-  Future<dynamic> get(String endpoint, {bool includeAuth = true}) async {
+  Future<dynamic> get(String endpoint,
+      {bool includeAuth = true, Map<String, String>? extraHeaders}) async {
     try {
       final response = await http.get(
         Uri.parse('$baseUrl$endpoint'),
-        headers: _getHeaders(includeAuth: includeAuth),
+        headers: {..._getHeaders(includeAuth: includeAuth), ...?extraHeaders},
       );
       final result = _handleResponse(response);
       await OfflineCacheService().put('GET:$endpoint', result);
@@ -131,11 +132,12 @@ class ApiService {
     String endpoint, {
     Map<String, dynamic>? body,
     bool includeAuth = true,
+    Map<String, String>? extraHeaders,
   }) async {
     try {
       final response = await http.post(
         Uri.parse('$baseUrl$endpoint'),
-        headers: _getHeaders(includeAuth: includeAuth),
+        headers: {..._getHeaders(includeAuth: includeAuth), ...?extraHeaders},
         body: body != null ? jsonEncode(body) : null,
       );
       return _handleResponse(response);
@@ -152,11 +154,12 @@ class ApiService {
     String endpoint, {
     Map<String, dynamic>? body,
     bool includeAuth = true,
+    Map<String, String>? extraHeaders,
   }) async {
     try {
       final response = await http.put(
         Uri.parse('$baseUrl$endpoint'),
-        headers: _getHeaders(includeAuth: includeAuth),
+        headers: {..._getHeaders(includeAuth: includeAuth), ...?extraHeaders},
         body: body != null ? jsonEncode(body) : null,
       );
       return _handleResponse(response);
@@ -173,11 +176,12 @@ class ApiService {
     String endpoint, {
     Map<String, dynamic>? body,
     bool includeAuth = true,
+    Map<String, String>? extraHeaders,
   }) async {
     try {
       final response = await http.patch(
         Uri.parse('$baseUrl$endpoint'),
-        headers: _getHeaders(includeAuth: includeAuth),
+        headers: {..._getHeaders(includeAuth: includeAuth), ...?extraHeaders},
         body: json.encode(body),
       );
       return _handleResponse(response);
@@ -190,11 +194,12 @@ class ApiService {
   }
 
   /// Perform DELETE request
-  Future<dynamic> delete(String endpoint, {bool includeAuth = true}) async {
+  Future<dynamic> delete(String endpoint,
+      {bool includeAuth = true, Map<String, String>? extraHeaders}) async {
     try {
       final response = await http.delete(
         Uri.parse('$baseUrl$endpoint'),
-        headers: _getHeaders(includeAuth: includeAuth),
+        headers: {..._getHeaders(includeAuth: includeAuth), ...?extraHeaders},
       );
       return _handleResponse(response);
     } on http.ClientException {

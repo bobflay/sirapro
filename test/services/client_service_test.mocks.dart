@@ -52,12 +52,16 @@ class MockApiService extends _i1.Mock implements _i2.ApiService {
   _i3.Future<dynamic> get(
     String? endpoint, {
     bool? includeAuth = true,
+    Map<String, String>? extraHeaders,
   }) =>
       (super.noSuchMethod(
         Invocation.method(
           #get,
           [endpoint],
-          {#includeAuth: includeAuth},
+          {
+            #includeAuth: includeAuth,
+            #extraHeaders: extraHeaders,
+          },
         ),
         returnValue: _i3.Future<dynamic>.value(),
       ) as _i3.Future<dynamic>);
@@ -67,6 +71,7 @@ class MockApiService extends _i1.Mock implements _i2.ApiService {
     String? endpoint, {
     Map<String, dynamic>? body,
     bool? includeAuth = true,
+    Map<String, String>? extraHeaders,
   }) =>
       (super.noSuchMethod(
         Invocation.method(
@@ -75,6 +80,7 @@ class MockApiService extends _i1.Mock implements _i2.ApiService {
           {
             #body: body,
             #includeAuth: includeAuth,
+            #extraHeaders: extraHeaders,
           },
         ),
         returnValue: _i3.Future<dynamic>.value(),
@@ -85,6 +91,7 @@ class MockApiService extends _i1.Mock implements _i2.ApiService {
     String? endpoint, {
     Map<String, dynamic>? body,
     bool? includeAuth = true,
+    Map<String, String>? extraHeaders,
   }) =>
       (super.noSuchMethod(
         Invocation.method(
@@ -93,6 +100,7 @@ class MockApiService extends _i1.Mock implements _i2.ApiService {
           {
             #body: body,
             #includeAuth: includeAuth,
+            #extraHeaders: extraHeaders,
           },
         ),
         returnValue: _i3.Future<dynamic>.value(),
@@ -103,6 +111,7 @@ class MockApiService extends _i1.Mock implements _i2.ApiService {
     String? endpoint, {
     Map<String, dynamic>? body,
     bool? includeAuth = true,
+    Map<String, String>? extraHeaders,
   }) =>
       (super.noSuchMethod(
         Invocation.method(
@@ -111,6 +120,7 @@ class MockApiService extends _i1.Mock implements _i2.ApiService {
           {
             #body: body,
             #includeAuth: includeAuth,
+            #extraHeaders: extraHeaders,
           },
         ),
         returnValue: _i3.Future<dynamic>.value(),
@@ -120,12 +130,16 @@ class MockApiService extends _i1.Mock implements _i2.ApiService {
   _i3.Future<dynamic> delete(
     String? endpoint, {
     bool? includeAuth = true,
+    Map<String, String>? extraHeaders,
   }) =>
       (super.noSuchMethod(
         Invocation.method(
           #delete,
           [endpoint],
-          {#includeAuth: includeAuth},
+          {
+            #includeAuth: includeAuth,
+            #extraHeaders: extraHeaders,
+          },
         ),
         returnValue: _i3.Future<dynamic>.value(),
       ) as _i3.Future<dynamic>);

@@ -187,6 +187,7 @@ class OfflineQueueService {
   final ValueNotifier<bool> isOffline = ValueNotifier<bool>(false);
 
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
+  Timer? _retryTimer;
   bool _flushing = false;
   bool _initialized = false;
 
@@ -223,6 +224,7 @@ class OfflineQueueService {
 
   void dispose() {
     _connectivitySub?.cancel();
+    _retryTimer?.cancel();
     _initialized = false;
   }
 
@@ -318,36 +320,40 @@ class OfflineQueueService {
   }
 
   /// Rejoue la file dans l'ordre. Sans effet si déjà en cours ou vide.
+  ///
+  /// La file est relue depuis le stockage à chaque itération : une saisie
+  /// enregistrée pendant qu'une opération s'envoie n'est jamais écrasée par
+  /// une copie périmée de la file.
   Future<void> flush() async {
     if (_flushing) return;
     _flushing = true;
+    _retryTimer?.cancel();
     try {
       final prefs = await SharedPreferences.getInstance();
-      var queue = await _loadQueue(prefs);
-      if (queue.isEmpty) return;
+      if ((await _loadQueue(prefs)).isEmpty) return;
 
-      debugPrint('[OfflineQueue] Flushing ${queue.length} operation(s)');
-
-      while (queue.isNotEmpty) {
+      while (true) {
+        final queue = await _loadQueue(prefs);
+        if (queue.isEmpty) break;
         final op = queue.first;
         try {
           final response = await _execute(op);
           if (op.provides != null) {
             await _storeRef(prefs, op.provides!, response, op.idPath);
           }
-          queue.removeAt(0);
-          await _saveQueue(prefs, queue);
+          await _removeFromQueue(prefs, op.id);
           debugPrint('[OfflineQueue] Synced: ${op.label}');
         } catch (e) {
           if (isNetworkError(e)) {
-            // Toujours hors ligne : on réessaiera au prochain retour réseau.
-            debugPrint('[OfflineQueue] Still offline, will retry later');
+            // Réseau perdu ou instable : nouvel essai automatique dans
+            // quelques secondes, sans que le commercial ait à réappuyer.
+            debugPrint('[OfflineQueue] Network error, retrying soon');
+            _scheduleRetry();
             return;
           }
           // Refus serveur : on écarte l'opération pour ne pas bloquer la file.
           debugPrint('[OfflineQueue] Rejected by server: ${op.label} — $e');
-          queue.removeAt(0);
-          await _saveQueue(prefs, queue);
+          await _removeFromQueue(prefs, op.id);
           final failed = await _loadQueue(prefs, key: _failedKey);
           failed.add(op.withError(e.toString()));
           await _saveQueue(prefs, failed, key: _failedKey);
@@ -360,6 +366,24 @@ class OfflineQueueService {
       await prefs.setString(_lastSyncKey, now.toIso8601String());
       lastSync.value = now;
     }
+  }
+
+  /// Retire une opération de la file persistée (relue au préalable, pour ne
+  /// pas perdre les saisies enregistrées entre-temps).
+  Future<void> _removeFromQueue(SharedPreferences prefs, String opId) async {
+    final queue = await _loadQueue(prefs);
+    queue.removeWhere((o) => o.id == opId);
+    await _saveQueue(prefs, queue);
+  }
+
+  /// Réessai automatique après une coupure réseau en plein rejeu : sur les
+  /// réseaux instables, l'événement de connectivité ne se déclenche pas
+  /// toujours (on reste « connecté » mais les requêtes échouent).
+  void _scheduleRetry() {
+    if (_retryTimer?.isActive ?? false) return;
+    _retryTimer = Timer(const Duration(seconds: 20), () {
+      unawaited(flush());
+    });
   }
 
   /// Extrait l'id serveur de la réponse (chemin type 'data.id') et le
@@ -438,14 +462,18 @@ class OfflineQueueService {
 
     final path = await _resolveRefs(op.path);
     final body = await _resolveBody(op.body);
+    // Clé d'idempotence : si le serveur a déjà traité cette opération mais
+    // que la réponse s'est perdue, le rejeu resservira la réponse mémorisée
+    // au lieu de créer un doublon de saisie.
+    final headers = {'X-Idempotency-Key': op.id};
     switch (op.method.toUpperCase()) {
       case 'PUT':
-        return _apiService.put(path, body: body);
+        return _apiService.put(path, body: body, extraHeaders: headers);
       case 'PATCH':
-        return _apiService.patch(path, body: body);
+        return _apiService.patch(path, body: body, extraHeaders: headers);
       case 'POST':
       default:
-        return _apiService.post(path, body: body);
+        return _apiService.post(path, body: body, extraHeaders: headers);
     }
   }
 
@@ -458,6 +486,7 @@ class OfflineQueueService {
       request.headers['Authorization'] = 'Bearer $token';
     }
     request.headers['Accept'] = 'application/json';
+    request.headers['X-Idempotency-Key'] = op.id;
 
     for (final entry in (op.fields ?? const <String, String>{}).entries) {
       request.fields[entry.key] = await _resolveRefs(entry.value);
