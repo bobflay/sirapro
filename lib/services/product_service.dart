@@ -297,6 +297,9 @@ class ProductService {
       if (cached != null) {
         return ProductListResponse.fromJson(cached as Map<String, dynamic>);
       }
+      final local = await _searchCachedCatalog(
+          page: page, perPage: perPage, categoryId: categoryId, search: search);
+      if (local != null) return local;
       throw ApiException('Erreur de connexion. Vérifiez votre connexion internet.');
     } catch (e) {
       if (e is ApiException) rethrow;
@@ -305,8 +308,102 @@ class ProductService {
       if (cached != null) {
         return ProductListResponse.fromJson(cached as Map<String, dynamic>);
       }
+      final local = await _searchCachedCatalog(
+          page: page, perPage: perPage, categoryId: categoryId, search: search);
+      if (local != null) return local;
       throw ApiException('Une erreur inattendue est survenue: $e');
     }
+  }
+
+  /// Recherche hors ligne : la clé de cache exacte n'existe que pour des
+  /// requêtes déjà faites en ligne, donc une recherche inédite sans réseau
+  /// tomberait toujours à vide. On fusionne ici les pages non filtrées du
+  /// catalogue (mises en cache par la synchronisation de démarrage) puis on
+  /// applique recherche, catégorie et pagination localement.
+  Future<ProductListResponse?> _searchCachedCatalog({
+    required int page,
+    required int perPage,
+    int? categoryId,
+    String? search,
+  }) async {
+    final cache = OfflineCacheService();
+    final all = <Map<String, dynamic>>[];
+    final seenIds = <Object?>{};
+
+    for (var cachedPage = 1; cachedPage <= 50; cachedPage++) {
+      final raw = await cache.get('GET:/api/products?page=$cachedPage&per_page=50');
+      if (raw is! Map<String, dynamic>) break;
+
+      final dataMap = raw['data'];
+      final items = dataMap is Map<String, dynamic> ? dataMap['data'] : dataMap;
+      if (items is! List) break;
+
+      for (final item in items) {
+        if (item is Map<String, dynamic> && seenIds.add(item['id'])) {
+          all.add(item);
+        }
+      }
+
+      final lastPage = dataMap is Map<String, dynamic>
+          ? (int.tryParse('${dataMap['last_page']}') ?? cachedPage)
+          : cachedPage;
+      if (cachedPage >= lastPage) break;
+    }
+
+    if (all.isEmpty) return null;
+
+    var filtered = all;
+    if (categoryId != null) {
+      filtered = filtered
+          .where((p) => '${_core(p)['product_category_id']}' == '$categoryId')
+          .toList();
+    }
+    if (search != null && search.isNotEmpty) {
+      final term = _normalize(search);
+      filtered = filtered.where((p) {
+        final core = _core(p);
+        return _normalize('${core['name'] ?? ''}').contains(term) ||
+            _normalize('${core['sku_global'] ?? ''}').contains(term);
+      }).toList();
+    }
+
+    final lastPage =
+        filtered.isEmpty ? 1 : (filtered.length / perPage).ceil();
+    final start = (page - 1) * perPage;
+    final slice = start >= filtered.length
+        ? <Map<String, dynamic>>[]
+        : filtered.sublist(
+            start, (start + perPage).clamp(0, filtered.length));
+
+    return ProductListResponse.fromJson({
+      'status': true,
+      'data': {
+        'current_page': page,
+        'last_page': lastPage,
+        'total': filtered.length,
+        'per_page': perPage,
+        'data': slice,
+      },
+    });
+  }
+
+  /// Certaines réponses enveloppent le produit dans un base_product.
+  Map<String, dynamic> _core(Map<String, dynamic> item) =>
+      item['product'] is Map<String, dynamic>
+          ? item['product'] as Map<String, dynamic>
+          : item;
+
+  /// Minuscules sans accents, pour une recherche tolérante.
+  String _normalize(String value) {
+    const accents = 'àâäéèêëîïôöùûüç';
+    const plain = 'aaaeeeeiioouuuc';
+    final buffer = StringBuffer();
+    for (final rune in value.toLowerCase().runes) {
+      final char = String.fromCharCode(rune);
+      final index = accents.indexOf(char);
+      buffer.write(index >= 0 ? plain[index] : char);
+    }
+    return buffer.toString();
   }
 
   /// List categories
