@@ -7,6 +7,7 @@ import '../services/client_service.dart';
 import '../services/auth_service.dart';
 import '../services/api_service.dart';
 import '../services/offline_queue_service.dart';
+import '../services/local_order_service.dart';
 import '../utils/app_colors.dart';
 
 class CreateOrderPage extends StatefulWidget {
@@ -585,6 +586,58 @@ class _CreateOrderPageState extends State<CreateOrderPage> {
     return '$formatted FCFA';
   }
 
+
+  /// Enregistre la commande hors ligne : file d'attente (avec référence
+  /// locale pour le chaînage), copie locale visible dans la liste des
+  /// commandes, et données provisoires (référence + montant) restituées à
+  /// l'écran appelant comme pour une création en ligne.
+  Future<CreateOrderData> _enqueueOfflineOrder(
+      CreateOrderRequest request, Map<String, dynamic> body) async {
+    final micros = DateTime.now().microsecondsSinceEpoch;
+    final providesRef = 'order_local_$micros';
+    final reference = 'HL-${(micros ~/ 1000) % 1000000}';
+
+    await OfflineQueueService().enqueue(OfflineOperation.json(
+      label: 'Commande $reference — ${_selectedClient!.name}',
+      method: 'POST',
+      path: '/api/orders',
+      body: body,
+      provides: providesRef,
+    ));
+
+    await LocalOrderService().add(LocalOrder(
+      providesRef: providesRef,
+      reference: reference,
+      clientId: _selectedClient!.id,
+      clientName: _selectedClient!.name,
+      visitId: widget.visitId,
+      createdAt: DateTime.now(),
+      totalAmount: request.totalAmount,
+      items: _cart.values
+          .map((item) => LocalOrderItem(
+                productId: item.product.id,
+                productName: item.product.name ?? 'Produit ${item.product.id}',
+                quantity: item.quantity,
+                saleType: item.saleType.apiValue,
+                unitPrice: item.effectivePrice,
+                lineTotal: item.lineTotal,
+              ))
+          .toList(),
+    ));
+
+    return CreateOrderData(
+      id: -micros,
+      reference: reference,
+      clientId: _selectedClient!.id,
+      userId: _currentUser?.id ?? 0,
+      visitId: widget.visitId,
+      baseCommercialeId: _currentUser?.primaryBase?.id ?? 0,
+      totalAmount: request.totalAmount,
+      currency: 'FCFA',
+      status: 'pending',
+    );
+  }
+
   Future<void> _submitOrder() async {
     if (_selectedClient == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -643,22 +696,17 @@ class _CreateOrderPageState extends State<CreateOrderPage> {
     if (widget.visitId != null && widget.visitId! < 0) {
       final body = request.toJson();
       body['visit_id'] = '{ref:visit_${widget.visitId}}';
-      await OfflineQueueService().enqueue(OfflineOperation.json(
-        label: 'Commande — ${_selectedClient!.name}',
-        method: 'POST',
-        path: '/api/orders',
-        body: body,
-      ));
+      final localOrder = await _enqueueOfflineOrder(request, body);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text(
-                'Commande enregistrée localement (visite hors ligne). Elle sera synchronisée automatiquement au retour de la connexion.'),
+                'Commande ${localOrder.reference} — ${localOrder.formattedTotalAmount} enregistrée hors ligne. Synchronisation automatique au retour de la connexion.'),
             backgroundColor: Colors.orange,
-            duration: Duration(seconds: 4),
+            duration: const Duration(seconds: 4),
           ),
         );
-        Navigator.pop(context);
+        Navigator.pop(context, localOrder);
       }
       return;
     }
@@ -690,22 +738,17 @@ class _CreateOrderPageState extends State<CreateOrderPage> {
       if (OfflineQueueService.isNetworkError(e)) {
         // Mode hors ligne : la commande est enregistrée localement et sera
         // synchronisée automatiquement au retour du réseau.
-        await OfflineQueueService().enqueue(OfflineOperation.json(
-          label: 'Commande — ${_selectedClient!.name}',
-          method: 'POST',
-          path: '/api/orders',
-          body: request.toJson(),
-        ));
+        final localOrder = await _enqueueOfflineOrder(request, request.toJson());
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
+            SnackBar(
               content: Text(
-                  'Pas de réseau : commande enregistrée localement. Elle sera synchronisée automatiquement au retour de la connexion.'),
+                  'Pas de réseau : commande ${localOrder.reference} — ${localOrder.formattedTotalAmount} enregistrée localement. Synchronisation automatique au retour de la connexion.'),
               backgroundColor: Colors.orange,
-              duration: Duration(seconds: 4),
+              duration: const Duration(seconds: 4),
             ),
           );
-          Navigator.pop(context);
+          Navigator.pop(context, localOrder);
         }
       } else if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

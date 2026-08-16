@@ -5,6 +5,9 @@ import '../services/api_service.dart';
 import '../utils/app_colors.dart';
 import 'api_order_detail_page.dart';
 import 'create_order_page.dart';
+import 'local_order_detail_page.dart';
+import '../services/local_order_service.dart';
+import '../services/offline_queue_service.dart';
 
 class OrdersListPage extends StatefulWidget {
   const OrdersListPage({super.key});
@@ -19,6 +22,7 @@ class _OrdersListPageState extends State<OrdersListPage>
   late final TabController _tabController;
 
   List<ApiOrder> _orders = [];
+  List<LocalOrder> _localOrders = [];
   Map<String, List<ApiOrder>> _todayOrdersByDate = {};
   Map<String, List<ApiOrder>> _pastOrdersByDate = {};
   bool _isLoading = true;
@@ -49,10 +53,20 @@ class _OrdersListPageState extends State<OrdersListPage>
     _tabController = TabController(length: 2, vsync: this);
     _loadOrders();
     _scrollController.addListener(_onScroll);
+    // Quand la file hors ligne finit un rejeu, les commandes locales
+    // synchronisées disparaissent au profit de la version serveur.
+    OfflineQueueService().lastSync.addListener(_onQueueSync);
+  }
+
+  void _onQueueSync() {
+    if (mounted) {
+      _loadOrders(refresh: true);
+    }
   }
 
   @override
   void dispose() {
+    OfflineQueueService().lastSync.removeListener(_onQueueSync);
     _tabController.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -136,6 +150,14 @@ class _OrdersListPageState extends State<OrdersListPage>
       _isLoading = true;
       _errorMessage = null;
     });
+
+    // Commandes créées hors ligne : toujours affichées, même sans réseau.
+    final localOrders = await LocalOrderService().pending();
+    if (mounted) {
+      setState(() {
+        _localOrders = localOrders;
+      });
+    }
 
     try {
       final response = await _orderService.listOrders(
@@ -449,7 +471,7 @@ class _OrdersListPageState extends State<OrdersListPage>
   }
 
   Widget _buildTodayOrdersList() {
-    if (_todayOrdersByDate.isEmpty) {
+    if (_todayOrdersByDate.isEmpty && _localOrders.isEmpty) {
       return RefreshIndicator(
         onRefresh: () => _loadOrders(refresh: true),
         child: ListView(
@@ -482,14 +504,19 @@ class _OrdersListPageState extends State<OrdersListPage>
     }
 
     final sortedDays = _todayOrdersByDate.keys.toList()..sort((a, b) => b.compareTo(a));
+    final localOffset = _localOrders.isNotEmpty ? 1 : 0;
 
     return RefreshIndicator(
       onRefresh: () => _loadOrders(refresh: true),
       child: ListView.builder(
         controller: _scrollController,
         padding: const EdgeInsets.all(16),
-        itemCount: sortedDays.length + (_isLoadingMore ? 1 : 0),
-        itemBuilder: (context, index) {
+        itemCount: localOffset + sortedDays.length + (_isLoadingMore ? 1 : 0),
+        itemBuilder: (context, rawIndex) {
+          if (localOffset == 1 && rawIndex == 0) {
+            return _buildLocalOrdersSection();
+          }
+          final index = rawIndex - localOffset;
           if (index == sortedDays.length) {
             return const Center(
               child: Padding(
@@ -523,6 +550,121 @@ class _OrdersListPageState extends State<OrdersListPage>
             ],
           );
         },
+      ),
+    );
+  }
+
+  /// Commandes créées hors ligne, en attente de synchronisation : visibles
+  /// et ouvrables (marquage des livraisons) avant même d'exister au serveur.
+  Widget _buildLocalOrdersSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(0, 8, 0, 12),
+          child: Row(
+            children: [
+              Icon(Icons.cloud_off, size: 16, color: Colors.orange[800]),
+              const SizedBox(width: 6),
+              Text(
+                'En attente de synchronisation (${_localOrders.length})',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.orange[800],
+                ),
+              ),
+            ],
+          ),
+        ),
+        ..._localOrders.map((order) => Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: _buildLocalOrderCard(order),
+            )),
+      ],
+    );
+  }
+
+  Widget _buildLocalOrderCard(LocalOrder order) {
+    final formatted = order.totalAmount.toStringAsFixed(0).replaceAllMapped(
+          RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+          (m) => '${m[1]} ',
+        );
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: () async {
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => LocalOrderDetailPage(order: order),
+          ),
+        );
+        final refreshed = await LocalOrderService().pending();
+        if (mounted) {
+          setState(() => _localOrders = refreshed);
+        }
+      },
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.orange[300]!),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text(
+                        order.reference,
+                        style: const TextStyle(
+                            fontWeight: FontWeight.bold, fontSize: 14),
+                      ),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.orange[100],
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          'Hors ligne',
+                          style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.orange[900]),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(order.clientName,
+                      style:
+                          TextStyle(color: Colors.grey[700], fontSize: 13)),
+                  Text(
+                    '${order.items.length} article${order.items.length > 1 ? 's' : ''}',
+                    style: TextStyle(color: Colors.grey[500], fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+            Text(
+              '$formatted FCFA',
+              style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                  color: AppColors.primary),
+            ),
+            const SizedBox(width: 4),
+            Icon(Icons.chevron_right, color: Colors.grey[400]),
+          ],
+        ),
       ),
     );
   }

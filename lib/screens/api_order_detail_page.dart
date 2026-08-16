@@ -5,6 +5,7 @@ import 'package:path_provider/path_provider.dart';
 import 'dart:io';
 import '../models/order_api.dart';
 import '../services/order_service.dart';
+import '../services/offline_queue_service.dart';
 import '../services/api_service.dart';
 import '../utils/app_colors.dart';
 import '../utils/html_stub.dart'
@@ -213,7 +214,37 @@ class _ApiOrderDetailPageState extends State<ApiOrderDetailPage> {
       }
     } on ApiException catch (e) {
       debugPrint('[ApiOrderDetailPage] API Error: ${e.message}');
-      // Revert status on error
+      if (OfflineQueueService.isNetworkError(e)) {
+        // Hors ligne : le marquage est conservé et mis en file d'attente,
+        // il sera synchronisé automatiquement au retour du réseau.
+        final status = delivered
+            ? ApiOrderItem.statusDelivered
+            : ApiOrderItem.statusNotDelivered;
+        await OfflineQueueService().enqueue(OfflineOperation.json(
+          label:
+              'Livraison ${_order?.reference ?? ''} — ${item.productNameSnapshot ?? 'article'}',
+          method: 'PUT',
+          path: '/api/order-items/status',
+          body: {
+            'items': [
+              {'id': item.id, 'status': status},
+            ],
+          },
+        ));
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(delivered
+                  ? 'Article marqué comme livré (sera synchronisé au retour du réseau)'
+                  : 'Article marqué comme non livré (sera synchronisé au retour du réseau)'),
+              backgroundColor: Colors.orange,
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
+        return;
+      }
+      // Refus serveur : on annule le marquage
       setState(() {
         _itemStatuses[index] = ApiOrderItem.statusPending;
       });

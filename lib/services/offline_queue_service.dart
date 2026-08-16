@@ -412,6 +412,13 @@ class OfflineQueueService {
     await prefs.setString(_refsKey, jsonEncode(refs));
   }
 
+  /// Id serveur associé à une référence locale (provides) une fois la
+  /// création correspondante rejouée, sinon null.
+  Future<String?> resolvedRef(String ref) async {
+    final prefs = await SharedPreferences.getInstance();
+    return _loadRefs(prefs)[ref];
+  }
+
   Map<String, String> _loadRefs(SharedPreferences prefs) {
     final raw = prefs.getString(_refsKey);
     if (raw == null || raw.isEmpty) return {};
