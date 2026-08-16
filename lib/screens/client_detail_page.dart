@@ -28,6 +28,7 @@ import '../services/client_service.dart';
 import '../services/visit_service.dart';
 import '../services/visit_api_service.dart';
 import '../services/offline_queue_service.dart';
+import '../services/local_visit_log_service.dart';
 import '../services/order_service.dart';
 import '../models/order_api.dart';
 import 'create_return_voucher_page.dart';
@@ -1107,6 +1108,12 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
     await _visitService.endApiVisit();
     _stopVisitLocally(status == 'completed');
     _visitWasCompleted = true;
+
+    // Trace locale pour que la tournée grise ce PDV et incrémente le
+    // compteur de visites faites sans attendre la synchronisation.
+    if (status == 'completed') {
+      await LocalVisitLogService().markCompleted(_client.id);
+    }
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(

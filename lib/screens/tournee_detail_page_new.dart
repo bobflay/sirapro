@@ -4,6 +4,7 @@ import '../models/client.dart';
 import '../services/routing_api_service.dart';
 import '../services/visit_service.dart';
 import '../services/client_service.dart';
+import '../services/local_visit_log_service.dart';
 import '../widgets/session_aware_app_bar.dart';
 import 'client_detail_page.dart';
 
@@ -31,6 +32,27 @@ class _TourneeDetailPageNewState extends State<TourneeDetailPageNew> {
   ApiRoutingResponse? _routingResponse;
   final Map<int, String> _clientNames = {};
 
+  /// Clients dont la visite a été terminée hors ligne aujourd'hui : la
+  /// tournée les grise et les compte immédiatement, sans attendre la
+  /// synchronisation.
+  Set<int> _localCompleted = {};
+
+  bool get _isViewingToday {
+    if (widget.date == null) return true;
+    final now = DateTime.now();
+    final today =
+        '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+    return widget.date == today;
+  }
+
+  bool _isLocallyCompleted(ApiRoutingItem item) =>
+      !item.isCompleted && _localCompleted.contains(item.client.id);
+
+  int get _localExtraCount {
+    final items = _routingResponse?.data.routing?.routingItems ?? [];
+    return items.where(_isLocallyCompleted).length;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -43,6 +65,9 @@ class _TourneeDetailPageNewState extends State<TourneeDetailPageNew> {
       _errorMessage = null;
     });
 
+    final localCompleted =
+        _isViewingToday ? await LocalVisitLogService().completedToday() : <int>{};
+
     try {
       final response = widget.date != null
           ? await _routingApiService.getMyRouting(date: widget.date)
@@ -51,6 +76,7 @@ class _TourneeDetailPageNewState extends State<TourneeDetailPageNew> {
       if (mounted) {
         setState(() {
           _routingResponse = response;
+          _localCompleted = localCompleted;
           _isLoading = false;
         });
         // Resolve client names for items where client data is missing
@@ -378,7 +404,12 @@ class _TourneeDetailPageNewState extends State<TourneeDetailPageNew> {
   }
 
   Widget _buildProgressCard(ApiRoutingSummary summary) {
-    final progress = summary.progressPercentage / 100;
+    final localExtra = _localExtraCount;
+    final completedCount = summary.completedClients + localExtra;
+    final pendingCount = (summary.pendingClients - localExtra).clamp(0, summary.totalClients);
+    final progress = summary.totalClients > 0
+        ? completedCount / summary.totalClients
+        : summary.progressPercentage / 100;
 
     return Container(
       width: double.infinity,
@@ -407,7 +438,7 @@ class _TourneeDetailPageNewState extends State<TourneeDetailPageNew> {
           ),
           const SizedBox(height: 16),
           Text(
-            '${summary.completedClients}/${summary.totalClients}',
+            '$completedCount/${summary.totalClients}',
             style: const TextStyle(
               fontSize: 48,
               fontWeight: FontWeight.bold,
@@ -436,7 +467,7 @@ class _TourneeDetailPageNewState extends State<TourneeDetailPageNew> {
           ),
           const SizedBox(height: 8),
           Text(
-            '${summary.progressPercentage.toStringAsFixed(0)}%',
+            '${(progress * 100).toStringAsFixed(0)}%',
             style: const TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.bold,
@@ -448,9 +479,9 @@ class _TourneeDetailPageNewState extends State<TourneeDetailPageNew> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
-              _buildStatItem('En attente', summary.pendingClients, Colors.grey),
+              _buildStatItem('En attente', pendingCount, Colors.grey),
               _buildStatItem('En cours', summary.inProgressClients, Colors.blue),
-              _buildStatItem('Terminées', summary.completedClients, Colors.green),
+              _buildStatItem('Terminées', completedCount, Colors.green),
             ],
           ),
         ],
@@ -749,18 +780,21 @@ class _TourneeDetailPageNewState extends State<TourneeDetailPageNew> {
   }
 
   IconData _getItemStatusIcon(ApiRoutingItem item) {
+    if (_isLocallyCompleted(item)) return Icons.check_circle;
     if (item.isCompleted) return Icons.check_circle;
     if (item.isInProgress) return Icons.pending;
     return Icons.radio_button_unchecked;
   }
 
   Color _getItemStatusColor(ApiRoutingItem item) {
+    if (_isLocallyCompleted(item)) return Colors.grey;
     if (item.isCompleted) return Colors.green;
     if (item.isInProgress) return Colors.blue;
     return Colors.grey;
   }
 
   String _getItemStatusLabel(ApiRoutingItem item) {
+    if (_isLocallyCompleted(item)) return 'Faite (hors ligne)';
     if (item.isCompleted) return 'Complétée';
     if (item.isInProgress) return 'En cours';
     return 'En attente';
