@@ -34,6 +34,7 @@ class _ClientsPageState extends State<ClientsPage> {
   int _currentPage = 1;
   bool _hasMorePages = true;
   bool _isLoadingMore = false;
+  String? _loadMoreError;
   final ScrollController _scrollController = ScrollController();
   int _totalClients = 0;
 
@@ -158,6 +159,7 @@ class _ClientsPageState extends State<ClientsPage> {
 
     setState(() {
       _isLoadingMore = true;
+      _loadMoreError = null;
     });
 
     try {
@@ -175,10 +177,19 @@ class _ClientsPageState extends State<ClientsPage> {
         });
         _applyLocalFilters();
       }
-    } catch (e) {
+    } catch (e, stack) {
+      // Cette erreur etait avalee en silence : la page suivante echouait,
+      // _currentPage n'avancait pas, et chaque scroll redemandait la meme
+      // page indefiniment — la liste semblait simplement s'arreter. On la
+      // trace et on la montre pour que le blocage soit visible.
+      debugPrint('Chargement page ${_currentPage + 1} echoue: $e');
+      debugPrintStack(stackTrace: stack);
       if (mounted) {
         setState(() {
           _isLoadingMore = false;
+          _loadMoreError = e is ApiException
+              ? e.message
+              : 'Impossible de charger la suite de la liste.';
         });
       }
     }
@@ -188,6 +199,7 @@ class _ClientsPageState extends State<ClientsPage> {
     setState(() {
       _currentPage = 1;
       _hasMorePages = true;
+      _loadMoreError = null;
     });
     await _loadClients();
   }
@@ -583,10 +595,26 @@ class _ClientsPageState extends State<ClientsPage> {
               return Padding(
                 padding: const EdgeInsets.all(16.0),
                 child: Center(
-                  child: TextButton(
-                    onPressed: _loadMoreClients,
-                    child: const Text('Charger plus...'),
-                  ),
+                  child: _loadMoreError == null
+                      ? TextButton(
+                          onPressed: _loadMoreClients,
+                          child: const Text('Charger plus...'),
+                        )
+                      : Column(
+                          children: [
+                            Text(
+                              _loadMoreError!,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: Colors.red[700]),
+                            ),
+                            const SizedBox(height: 8),
+                            TextButton.icon(
+                              onPressed: _loadMoreClients,
+                              icon: const Icon(Icons.refresh),
+                              label: const Text('Reessayer'),
+                            ),
+                          ],
+                        ),
                 ),
               );
             }

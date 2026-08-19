@@ -156,16 +156,24 @@ class Client {
   /// Check if client has GPS coordinates
   bool get hasLocation => latitude != null && longitude != null;
 
+  /// Champ texte tolerant : plusieurs colonnes cote serveur sont nullable
+  /// (adresse, type, nom du gerant...). Un cast direct en String faisait
+  /// echouer le parsing de la page entiere des qu'un seul client avait la
+  /// valeur a null — l'agent ne voyait plus aucun client au-dela.
+  static String _str(dynamic value) => value?.toString() ?? '';
+
   factory Client.fromJson(Map<String, dynamic> json) {
     return Client(
       id: json['id'] as int,
-      name: json['name'] as String,
-      type: json['type'] as String,
+      name: _str(json['name']),
+      type: _str(json['type']),
       clientType: json['client_type'] as String?,
-      managerName: json['manager_name'] as String,
-      phones: (json['phones'] as List<dynamic>).map((e) => e as String).toList(),
-      city: json['city'] as String,
-      address: json['address'] as String,
+      managerName: _str(json['manager_name']),
+      phones: (json['phones'] as List<dynamic>? ?? const [])
+          .map((e) => e.toString())
+          .toList(),
+      city: _str(json['city']),
+      address: _str(json['address']),
       latitude: (json['latitude'] as num?)?.toDouble(),
       longitude: (json['longitude'] as num?)?.toDouble(),
       magasinId: json['magasin_id'] as int?,
@@ -175,12 +183,10 @@ class Client {
       potential: json['potential'] as String?,
       visitFrequency: json['visit_frequency'] as String?,
       visitDay: json['visit_day'] as String?,
-      lastVisitDate: json['last_visit_date'] != null
-          ? DateTime.parse(json['last_visit_date'] as String)
-          : null,
+      lastVisitDate: DateTime.tryParse(_str(json['last_visit_date'])),
       hasOpenAlert: json['has_open_alert'] as bool? ?? false,
-      createdAt: DateTime.parse(json['created_at'] as String),
-      updatedAt: DateTime.parse(json['updated_at'] as String),
+      createdAt: DateTime.tryParse(_str(json['created_at'])) ?? DateTime.now(),
+      updatedAt: DateTime.tryParse(_str(json['updated_at'])) ?? DateTime.now(),
       // Photos from API
       photos: json['photos'] != null
           ? (json['photos'] as List<dynamic>)

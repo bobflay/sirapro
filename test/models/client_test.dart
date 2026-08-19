@@ -532,6 +532,65 @@ void main() {
       });
     });
   });
+
+  group('Client.fromJson tolerance aux champs nuls', () {
+    /// Reponse minimale du serveur ; les champs textuels optionnels sont
+    /// volontairement absents ou nuls.
+    Map<String, dynamic> payload({
+      Object? address = 'Rue du Commerce',
+      Object? type = 'Boutique',
+      Object? managerName = 'Awa',
+      Object? phones = const ['0700000000'],
+    }) {
+      return {
+        'id': 42,
+        'name': 'SAM',
+        'type': type,
+        'manager_name': managerName,
+        'phones': phones,
+        'city': 'Abidjan',
+        'address': address,
+        'created_at': '2026-08-15T17:55:51+00:00',
+        'updated_at': '2026-08-15T17:55:51+00:00',
+      };
+    }
+
+    test('un address nul ne fait plus echouer le parsing', () {
+      final client = Client.fromJson(payload(address: null));
+
+      expect(client.id, 42);
+      expect(client.address, '');
+    });
+
+    test('type, manager_name et phones nuls sont tolerés', () {
+      final client = Client.fromJson(
+        payload(type: null, managerName: null, phones: null),
+      );
+
+      expect(client.type, '');
+      expect(client.managerName, '');
+      expect(client.phones, isEmpty);
+    });
+
+    test('une page entiere survit a un seul client incomplet', () {
+      final page = [
+        payload(),
+        payload(address: null), // le client qui bloquait la pagination
+        payload(),
+      ];
+
+      final clients = page.map(Client.fromJson).toList();
+
+      expect(clients, hasLength(3));
+      expect(clients[1].address, '');
+    });
+
+    test('une date invalide ne fait pas echouer le parsing', () {
+      final json = payload()..['last_visit_date'] = 'pas-une-date';
+
+      expect(Client.fromJson(json).lastVisitDate, isNull);
+    });
+  });
 }
 
 /// Helper function to create a test client with default values
@@ -589,4 +648,5 @@ Client _createTestClient({
     status: status,
     isActive: isActive,
   );
+
 }
