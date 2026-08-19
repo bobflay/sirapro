@@ -44,6 +44,14 @@ class OfflineOperation {
   /// Message d'erreur serveur si l'opération a été refusée lors d'un rejeu.
   final String? error;
 
+  /// Raison pour laquelle l'opération ne peut pas encore partir : la création
+  /// dont elle dépend a été refusée par le serveur. L'opération RESTE en file
+  /// — la saisie du commercial n'est jamais jetée à cause d'une opération
+  /// parente en échec — et repartira dès que le parent aura été rejoué.
+  final String? blockedReason;
+
+  bool get isBlocked => blockedReason != null;
+
   OfflineOperation({
     required this.id,
     required this.createdAt,
@@ -57,6 +65,7 @@ class OfflineOperation {
     this.provides,
     this.idPath = 'data.id',
     this.error,
+    this.blockedReason,
   });
 
   factory OfflineOperation.json({
@@ -85,6 +94,8 @@ class OfflineOperation {
     required String path,
     required Map<String, String> fields,
     required List<Map<String, String>> files,
+    String? provides,
+    String idPath = 'data.id',
   }) {
     return OfflineOperation(
       id: 'op_${DateTime.now().microsecondsSinceEpoch}',
@@ -95,10 +106,12 @@ class OfflineOperation {
       path: path,
       fields: fields,
       files: files,
+      provides: provides,
+      idPath: idPath,
     );
   }
 
-  OfflineOperation withError(String message) {
+  OfflineOperation _copyWith({String? error, String? blockedReason}) {
     return OfflineOperation(
       id: id,
       createdAt: createdAt,
@@ -111,9 +124,16 @@ class OfflineOperation {
       files: files,
       provides: provides,
       idPath: idPath,
-      error: message,
+      error: error,
+      blockedReason: blockedReason,
     );
   }
+
+  OfflineOperation withError(String message) => _copyWith(error: message);
+
+  /// Marque (ou lève, avec null) le blocage par une création parente.
+  OfflineOperation withBlocked(String? reason) =>
+      _copyWith(error: error, blockedReason: reason);
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -128,6 +148,7 @@ class OfflineOperation {
         if (provides != null) 'provides': provides,
         'id_path': idPath,
         if (error != null) 'error': error,
+        if (blockedReason != null) 'blocked_reason': blockedReason,
       };
 
   factory OfflineOperation.fromJson(Map<String, dynamic> json) {
@@ -148,6 +169,7 @@ class OfflineOperation {
       provides: json['provides'] as String?,
       idPath: json['id_path'] as String? ?? 'data.id',
       error: json['error'] as String?,
+      blockedReason: json['blocked_reason'] as String?,
     );
   }
 }
@@ -164,6 +186,11 @@ class OfflineQueueService {
   static const String _failedKey = 'offline_queue_failed_v1';
   static const String _lastSyncKey = 'offline_queue_last_sync_v1';
   static const String _refsKey = 'offline_queue_refs_v1';
+
+  /// Références dont la création parente a été refusée par le serveur :
+  /// ref -> raison. Les opérations qui en dépendent restent en file, bloquées,
+  /// jusqu'à ce que le parent soit rejoué avec succès.
+  static const String _blockedRefsKey = 'offline_queue_blocked_refs_v1';
 
   static OfflineQueueService? _instance;
 
@@ -182,6 +209,10 @@ class OfflineQueueService {
   /// Notifie la fin d'un rejeu (réussi ou non) pour rafraîchir les listes.
   final ValueNotifier<DateTime?> lastSync = ValueNotifier<DateTime?>(null);
 
+  /// Nombre d'opérations en attente qui ne peuvent pas partir tant que leur
+  /// création parente n'a pas été rejouée — à écouter pour alerter l'agent.
+  final ValueNotifier<int> blockedCount = ValueNotifier<int>(0);
+
   /// Vrai quand l'appareil n'a pas de connectivité — à écouter pour afficher
   /// l'indicateur « hors ligne » dans l'interface.
   final ValueNotifier<bool> isOffline = ValueNotifier<bool>(false);
@@ -198,7 +229,9 @@ class OfflineQueueService {
     _initialized = true;
 
     final prefs = await SharedPreferences.getInstance();
-    pendingCount.value = (await _loadQueue(prefs)).length;
+    final restored = await _loadQueue(prefs);
+    pendingCount.value = restored.length;
+    blockedCount.value = restored.where((op) => op.isBlocked).length;
     final lastSyncRaw = prefs.getString(_lastSyncKey);
     if (lastSyncRaw != null) {
       lastSync.value = DateTime.tryParse(lastSyncRaw);
@@ -272,6 +305,7 @@ class OfflineQueueService {
     await prefs.setString(key, jsonEncode(queue.map((e) => e.toJson()).toList()));
     if (key == _queueKey) {
       pendingCount.value = queue.length;
+      blockedCount.value = queue.where((op) => op.isBlocked).length;
     }
   }
 
@@ -297,6 +331,10 @@ class OfflineQueueService {
   }
 
   /// Remet une opération échouée dans la file pour un nouvel essai.
+  ///
+  /// L'opération retrouve sa place chronologique : une création réessayée
+  /// doit repartir AVANT les opérations qui la référencent, sinon celles-ci
+  /// resteraient bloquées un passage de plus.
   Future<void> retryFailed(String id) async {
     final prefs = await SharedPreferences.getInstance();
     final failed = await _loadQueue(prefs, key: _failedKey);
@@ -304,10 +342,47 @@ class OfflineQueueService {
     if (index == -1) return;
     final op = failed.removeAt(index);
     await _saveQueue(prefs, failed, key: _failedKey);
+
+    final restored =
+        OfflineOperation.fromJson(op.toJson()..remove('error')).withBlocked(null);
     final queue = await _loadQueue(prefs);
-    queue.add(OfflineOperation.fromJson(op.toJson()..remove('error')));
+    final at = queue.indexWhere((o) => o.createdAt.isAfter(restored.createdAt));
+    queue.insert(at == -1 ? queue.length : at, restored);
     await _saveQueue(prefs, queue);
+
+    // La création repart : ses dépendantes ne sont plus bloquées.
+    if (restored.provides != null) {
+      await _unblockRef(prefs, restored.provides!);
+    }
     unawaited(flush());
+  }
+
+  /// Attache une référence locale à une opération déjà en file.
+  ///
+  /// Sert à rattraper les saisies enregistrées par une version antérieure de
+  /// l'app, qui ne fournissaient pas de référence : sans elle, la copie
+  /// locale reconstruite ne pourrait jamais être retirée après l'envoi.
+  /// Sans effet si l'opération a déjà une référence.
+  Future<bool> adoptRef(String opId, String ref) async {
+    final prefs = await SharedPreferences.getInstance();
+    final queue = await _loadQueue(prefs);
+    final index = queue.indexWhere((o) => o.id == opId);
+    if (index == -1 || queue[index].provides != null) return false;
+    final op = queue[index];
+    queue[index] = OfflineOperation.fromJson(
+        op.toJson()..['provides'] = ref);
+    await _saveQueue(prefs, queue);
+    return true;
+  }
+
+  /// Retire une opération encore en attente (saisie annulée par l'agent).
+  Future<void> cancelPending(String opId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final queue = await _loadQueue(prefs);
+    final before = queue.length;
+    queue.removeWhere((op) => op.id == opId);
+    if (queue.length == before) return;
+    await _saveQueue(prefs, queue);
   }
 
   /// Enregistre une opération pour rejeu ultérieur.
@@ -332,14 +407,52 @@ class OfflineQueueService {
       final prefs = await SharedPreferences.getInstance();
       if ((await _loadQueue(prefs)).isEmpty) return;
 
+      // Opérations déjà traitées (envoyées, refusées ou écartées comme
+      // bloquées) durant ce passage : évite de boucler sur une opération
+      // bloquée qui reste volontairement en file.
+      final processed = <String>{};
+
+      // Opérations écartées comme bloquées durant ce passage : dès qu'une
+      // création résout sa référence, elles redeviennent candidates — sans
+      // quoi il faudrait attendre une synchronisation de plus.
+      final blockedThisPass = <String>{};
+
       while (true) {
         final queue = await _loadQueue(prefs);
-        if (queue.isEmpty) break;
-        final op = queue.first;
+        OfflineOperation? op;
+        for (final candidate in queue) {
+          if (!processed.contains(candidate.id)) {
+            op = candidate;
+            break;
+          }
+        }
+        if (op == null) break;
+        processed.add(op.id);
+
+        // La création dont dépend l'opération a-t-elle été refusée ? Si oui,
+        // l'opération reste en file (la saisie n'est pas perdue) et sera
+        // rejouée dès que le parent aura été renvoyé avec succès.
+        final blocking = await _blockingReason(prefs, op);
+        if (blocking != null) {
+          debugPrint('[OfflineQueue] Blocked: ${op.label} — $blocking');
+          await _updateInQueue(prefs, op.withBlocked(blocking));
+          blockedThisPass.add(op.id);
+          continue;
+        }
+        if (op.isBlocked) {
+          // Le parent est repassé : on lève le blocage avant l'envoi.
+          op = op.withBlocked(null);
+          await _updateInQueue(prefs, op);
+        }
+
         try {
           final response = await _execute(op);
           if (op.provides != null) {
             await _storeRef(prefs, op.provides!, response, op.idPath);
+            // La référence est résolue : on redonne leur chance aux
+            // opérations écartées plus tôt dans ce même passage.
+            processed.removeAll(blockedThisPass);
+            blockedThisPass.clear();
           }
           await _removeFromQueue(prefs, op.id);
           debugPrint('[OfflineQueue] Synced: ${op.label}');
@@ -351,12 +464,17 @@ class OfflineQueueService {
             _scheduleRetry();
             return;
           }
-          // Refus serveur : on écarte l'opération pour ne pas bloquer la file.
+          // Refus serveur : l'opération part dans la liste des échecs, où le
+          // commercial peut la réessayer ou la supprimer. Si elle fournissait
+          // une référence, ses dépendantes sont bloquées — pas supprimées.
           debugPrint('[OfflineQueue] Rejected by server: ${op.label} — $e');
           await _removeFromQueue(prefs, op.id);
           final failed = await _loadQueue(prefs, key: _failedKey);
           failed.add(op.withError(e.toString()));
           await _saveQueue(prefs, failed, key: _failedKey);
+          if (op.provides != null) {
+            await _blockRef(prefs, op.provides!, e.toString());
+          }
         }
       }
     } finally {
@@ -365,6 +483,86 @@ class OfflineQueueService {
       final now = DateTime.now();
       await prefs.setString(_lastSyncKey, now.toIso8601String());
       lastSync.value = now;
+    }
+  }
+
+  /// Remplace une opération en file (relue au préalable, pour ne pas perdre
+  /// les saisies enregistrées entre-temps).
+  Future<void> _updateInQueue(
+      SharedPreferences prefs, OfflineOperation op) async {
+    final queue = await _loadQueue(prefs);
+    final index = queue.indexWhere((o) => o.id == op.id);
+    if (index == -1) return;
+    queue[index] = op;
+    await _saveQueue(prefs, queue);
+  }
+
+  /// Références citées par une opération ({ref:NOM} dans le chemin, le corps
+  /// ou les champs multipart).
+  static Iterable<String> _referencedRefs(OfflineOperation op) sync* {
+    final pattern = RegExp(r'\{ref:([^}]+)\}');
+    Iterable<String> refsIn(String? value) =>
+        value == null ? const [] : pattern.allMatches(value).map((m) => m.group(1)!);
+
+    yield* refsIn(op.path);
+    for (final value in (op.body ?? const {}).values) {
+      if (value is String) yield* refsIn(value);
+    }
+    for (final value in (op.fields ?? const {}).values) {
+      yield* refsIn(value);
+    }
+  }
+
+  /// Raison du blocage d'une opération, ou null si elle peut partir.
+  Future<String?> _blockingReason(
+      SharedPreferences prefs, OfflineOperation op) async {
+    final refs = _loadRefs(prefs);
+    final blocked = _loadBlockedRefs(prefs);
+    for (final ref in _referencedRefs(op)) {
+      if (refs.containsKey(ref)) continue;
+      return blocked[ref] ??
+          'En attente d\'une création non encore synchronisée';
+    }
+    return null;
+  }
+
+  Map<String, String> _loadBlockedRefs(SharedPreferences prefs) {
+    final raw = prefs.getString(_blockedRefsKey);
+    if (raw == null || raw.isEmpty) return {};
+    try {
+      return (jsonDecode(raw) as Map<String, dynamic>)
+          .map((k, v) => MapEntry(k, v.toString()));
+    } catch (_) {
+      return {};
+    }
+  }
+
+  /// Mémorise qu'une création a été refusée : ses dépendantes resteront en
+  /// file, bloquées, avec cette raison.
+  Future<void> _blockRef(
+      SharedPreferences prefs, String ref, String reason) async {
+    final blocked = _loadBlockedRefs(prefs);
+    blocked[ref] = reason;
+    await prefs.setString(_blockedRefsKey, jsonEncode(blocked));
+  }
+
+  /// Lève le blocage d'une référence (création remise en file pour un
+  /// nouvel essai) et débloque les opérations qui l'attendaient.
+  Future<void> _unblockRef(SharedPreferences prefs, String ref) async {
+    final blocked = _loadBlockedRefs(prefs);
+    if (blocked.remove(ref) == null) return;
+    await prefs.setString(_blockedRefsKey, jsonEncode(blocked));
+
+    final queue = await _loadQueue(prefs);
+    var changed = false;
+    for (var i = 0; i < queue.length; i++) {
+      if (queue[i].isBlocked && _referencedRefs(queue[i]).contains(ref)) {
+        queue[i] = queue[i].withBlocked(null);
+        changed = true;
+      }
+    }
+    if (changed) {
+      await _saveQueue(prefs, queue);
     }
   }
 
@@ -398,10 +596,18 @@ class OfflineQueueService {
     for (final segment in idPath.split('.')) {
       if (value is Map<String, dynamic>) {
         value = value[segment];
+      } else if (value is List) {
+        // Réponses qui renvoient une liste (ex: upload de photos) :
+        // le segment est alors un indice — 'data.0.id'.
+        final index = int.tryParse(segment);
+        value = (index != null && index >= 0 && index < value.length)
+            ? value[index]
+            : null;
       } else {
         value = null;
         break;
       }
+      if (value == null) break;
     }
     if (value == null) {
       debugPrint('[OfflineQueue] Could not resolve "$idPath" for ref "$ref"');

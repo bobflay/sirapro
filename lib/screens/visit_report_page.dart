@@ -10,6 +10,7 @@ import '../services/photo_capture_service.dart';
 import '../services/product_service.dart';
 import '../services/visit_api_service.dart';
 import '../services/offline_queue_service.dart';
+import '../services/local_visit_report_service.dart';
 import '../widgets/session_aware_app_bar.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -564,7 +565,11 @@ class _VisitReportPageState extends State<VisitReportPage> {
     // Les photos sont copiées dans le stockage de l'app : les fichiers
     // temporaires de la caméra peuvent être purgés avant la synchronisation.
     final files = <Map<String, String>>[];
-    Future<void> savePhotos(List<GeotaggedPhoto> photos, String field) async {
+    // Copies persistées des photos, réutilisées pour l'aperçu local du
+    // rapport : les chemins temporaires de la caméra ne survivent pas.
+    Future<List<GeotaggedPhoto>> savePhotos(
+        List<GeotaggedPhoto> photos, String field) async {
+      final saved = <GeotaggedPhoto>[];
       for (final photo in photos) {
         final bytes = photo.bytes;
         if (bytes == null) continue;
@@ -572,11 +577,14 @@ class _VisitReportPageState extends State<VisitReportPage> {
             '${photosDir.path}/${DateTime.now().microsecondsSinceEpoch}_${photo.effectiveFileName}';
         await File(filePath).writeAsBytes(bytes);
         files.add({'field': field, 'path': filePath});
+        saved.add(photo.copyWith(path: filePath));
       }
+      return saved;
     }
 
-    await savePhotos(_shelfPhotos, 'photo_shelves[]');
-    await savePhotos(_additionalPhotos, 'photos_other[]');
+    final savedShelfPhotos = await savePhotos(_shelfPhotos, 'photo_shelves[]');
+    final savedOtherPhotos =
+        await savePhotos(_additionalPhotos, 'photos_other[]');
 
     // Visite locale : id serveur résolu à la synchronisation.
     final visitRef = visitId < 0 ? '{ref:visit_$visitId}' : visitId.toString();
@@ -603,11 +611,31 @@ class _VisitReportPageState extends State<VisitReportPage> {
         'comments': _commentsController.text.trim(),
     };
 
+    final providesRef =
+        'report_local_${DateTime.now().microsecondsSinceEpoch}';
+
     await OfflineQueueService().enqueue(OfflineOperation.multipart(
       label: 'Rapport de visite — ${widget.visit.clientName}',
       path: '/api/visits/$visitRef/report',
       fields: fields,
       files: files,
+      provides: providesRef,
+    ));
+
+    // Copie locale : le rapport reste visible dans la section « Rapports de
+    // visite » tant que l'envoi n'a pas été rejoué.
+    final localReport = _buildLocalReport(
+      position,
+      stockShortagesText,
+      competitorActivityText,
+    ).copyWith(
+      shelfPhotos: savedShelfPhotos,
+      additionalPhotos: savedOtherPhotos,
+    );
+    await LocalVisitReportService().add(LocalVisitReport(
+      providesRef: providesRef,
+      clientId: int.tryParse(widget.visit.clientId) ?? 0,
+      report: localReport,
     ));
 
     if (mounted) {
@@ -619,8 +647,7 @@ class _VisitReportPageState extends State<VisitReportPage> {
           duration: Duration(seconds: 4),
         ),
       );
-      Navigator.of(context).pop(
-          _buildLocalReport(position, stockShortagesText, competitorActivityText));
+      Navigator.of(context).pop(localReport);
     }
   }
 

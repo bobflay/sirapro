@@ -302,7 +302,10 @@ class _OrdersListPageState extends State<OrdersListPage>
       );
     }
 
-    if (_errorMessage != null && _orders.isEmpty) {
+    // Hors ligne, l'appel serveur échoue toujours : l'écran d'erreur ne doit
+    // pas masquer les commandes créées localement, qui sont la seule trace
+    // du travail de la journée tant que la synchronisation n'a pas eu lieu.
+    if (_errorMessage != null && _orders.isEmpty && _localOrders.isEmpty) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),

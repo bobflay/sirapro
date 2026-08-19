@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -7,6 +8,7 @@ import 'package:sirapro/utils/phone_formatter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:intl/intl.dart';
 import 'package:sirapro/models/client.dart';
 import 'package:sirapro/utils/app_colors.dart';
@@ -29,6 +31,10 @@ import '../services/visit_service.dart';
 import '../services/visit_api_service.dart';
 import '../services/offline_queue_service.dart';
 import '../services/local_visit_log_service.dart';
+import '../services/local_visit_report_service.dart';
+import '../services/local_client_photo_service.dart';
+import '../services/local_order_service.dart';
+import 'local_order_detail_page.dart';
 import '../services/order_service.dart';
 import '../models/order_api.dart';
 import 'create_return_voucher_page.dart';
@@ -70,6 +76,12 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
   // Client photos - local files (newly added)
   // Store bytes for cross-platform compatibility (works on both web and mobile)
   final List<Uint8List> _localPhotoBytes = [];
+
+  /// Aligné sur [_localPhotoBytes] : la fiche locale d'une photo prise hors
+  /// ligne et pas encore envoyée, ou null si la photo est déjà partie au
+  /// serveur pendant cette session.
+  final List<LocalClientPhoto?> _localPhotoRecords = [];
+
   final PageController _photoPageController = PageController();
   int _currentPhotoIndex = 0;
   final ImagePicker _imagePicker = ImagePicker();
@@ -169,6 +181,67 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
     _client = widget.client;
     _initControllers();
     _loadActiveVisit();
+    OfflineQueueService().lastSync.addListener(_onQueueSync);
+    _loadPendingPhotos();
+  }
+
+  void _onQueueSync() {
+    if (mounted) _refreshAfterSync();
+  }
+
+  /// Après un rejeu de la file, une photo partie au serveur disparaît des
+  /// copies locales : on récupère d'abord la fiche à jour, qui la contient
+  /// désormais, pour qu'elle ne semble pas s'être volatilisée.
+  Future<void> _refreshAfterSync() async {
+    try {
+      final refreshed = await _clientService.getClient(_client.id);
+      if (mounted) {
+        setState(() => _client = refreshed);
+      }
+    } catch (e) {
+      // Réseau encore indisponible : la fiche en cache reste affichée.
+      debugPrint('[ClientDetail] Could not refresh after sync: $e');
+    }
+    await _loadPendingPhotos();
+  }
+
+  /// Recharge les photos prises hors ligne pour ce client : elles restent
+  /// visibles dans la fiche (y compris après redémarrage de l'app) tant que
+  /// leur envoi n'a pas été rejoué.
+  Future<void> _loadPendingPhotos() async {
+    if (kIsWeb) return;
+    final pending =
+        await LocalClientPhotoService().pendingForClient(_client.id);
+
+    final bytes = <Uint8List>[];
+    final records = <LocalClientPhoto?>[];
+    for (final photo in pending) {
+      try {
+        final file = File(photo.path);
+        if (!await file.exists()) continue;
+        bytes.add(await file.readAsBytes());
+        records.add(photo);
+      } catch (e) {
+        debugPrint('[ClientDetail] Could not read pending photo: $e');
+      }
+    }
+    if (!mounted) return;
+
+    setState(() {
+      // Les photos déjà envoyées durant cette session (record null) sont
+      // conservées ; seules les copies en attente sont rafraîchies.
+      for (var i = _localPhotoRecords.length - 1; i >= 0; i--) {
+        if (_localPhotoRecords[i] != null) {
+          _localPhotoRecords.removeAt(i);
+          _localPhotoBytes.removeAt(i);
+        }
+      }
+      _localPhotoBytes.insertAll(0, bytes);
+      _localPhotoRecords.insertAll(0, records);
+      if (_currentPhotoIndex >= _totalPhotosCount) {
+        _currentPhotoIndex = _totalPhotosCount > 0 ? _totalPhotosCount - 1 : 0;
+      }
+    });
   }
 
   /// Load any active visit from storage and sync state
@@ -222,6 +295,7 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
 
   @override
   void dispose() {
+    OfflineQueueService().lastSync.removeListener(_onQueueSync);
     _visitTimer?.cancel();
     _photoPageController.dispose();
     _boutiqueNameController.dispose();
@@ -348,14 +422,21 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
           mimeType: 'image/$extension',
         );
 
-        // Upload using cross-platform method
-        await _clientService.uploadGeotaggedPhotos(
-          _client.id,
-          [geotaggedPhoto],
-          type: 'facade',
-          title: 'Façade',
-          description: 'Photo façade de ${_client.boutiqueName}',
-        );
+        // Envoi immédiat si le réseau répond ; sinon la photo est mise en
+        // file et reste visible dans la fiche en attendant la synchro.
+        LocalClientPhoto? pendingRecord;
+        try {
+          await _clientService.uploadGeotaggedPhotos(
+            _client.id,
+            [geotaggedPhoto],
+            type: 'facade',
+            title: 'Façade',
+            description: 'Photo façade de ${_client.boutiqueName}',
+          );
+        } catch (e) {
+          if (kIsWeb || !OfflineQueueService.isNetworkError(e)) rethrow;
+          pendingRecord = await _queuePhotoOffline(geotaggedPhoto, bytes);
+        }
 
         // Hide loading snackbar
         if (mounted) {
@@ -365,7 +446,8 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
         // Add to local list (store bytes for cross-platform display)
         setState(() {
           _localPhotoBytes.add(bytes);
-          _currentPhotoIndex = _localPhotoBytes.length - 1;
+          _localPhotoRecords.add(pendingRecord);
+          _currentPhotoIndex = _totalPhotosCount - 1;
         });
 
         // Animate to the new photo
@@ -380,9 +462,14 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Photo téléchargée avec succès'),
-              backgroundColor: Colors.green,
+            SnackBar(
+              content: Text(pendingRecord == null
+                  ? 'Photo téléchargée avec succès'
+                  : 'Pas de réseau : photo enregistrée localement. '
+                      'Envoi automatique au retour de la connexion.'),
+              backgroundColor:
+                  pendingRecord == null ? Colors.green : Colors.orange,
+              duration: const Duration(seconds: 4),
             ),
           );
         }
@@ -398,6 +485,52 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
         );
       }
     }
+  }
+
+  /// Mode hors ligne : la photo est copiée dans le stockage de l'app et son
+  /// envoi mis en file. Le fichier temporaire de la caméra peut être purgé
+  /// avant la synchronisation, d'où la copie.
+  Future<LocalClientPhoto> _queuePhotoOffline(
+      GeotaggedPhoto photo, Uint8List bytes) async {
+    final docsDir = await getApplicationDocumentsDirectory();
+    final photosDir = Directory('${docsDir.path}/offline_photos');
+    if (!await photosDir.exists()) {
+      await photosDir.create(recursive: true);
+    }
+
+    final filePath =
+        '${photosDir.path}/${DateTime.now().microsecondsSinceEpoch}_${photo.effectiveFileName}';
+    await File(filePath).writeAsBytes(bytes);
+
+    final ref = 'client_photo_${DateTime.now().microsecondsSinceEpoch}';
+    // L'upload répond une LISTE de photos : l'id serveur est en 'data.0.id'.
+    final operation = OfflineOperation.multipart(
+      label: 'Photo client — ${_client.boutiqueName}',
+      path: '/api/clients/${_client.id}/photos',
+      fields: {
+        'type': 'facade',
+        'title': 'Façade',
+        'description': 'Photo façade de ${_client.boutiqueName}',
+      },
+      files: [
+        {'field': 'photos[]', 'path': filePath}
+      ],
+      provides: ref,
+      idPath: 'data.0.id',
+    );
+    await OfflineQueueService().enqueue(operation);
+
+    final record = LocalClientPhoto(
+      providesRef: ref,
+      operationId: operation.id,
+      clientId: _client.id,
+      path: filePath,
+      type: 'facade',
+      title: 'Façade',
+      createdAt: DateTime.now(),
+    );
+    await LocalClientPhotoService().add(record);
+    return record;
   }
 
   void _deletePhoto(int index) {
@@ -430,12 +563,23 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
             onPressed: () {
               Navigator.pop(context);
               final localIndex = index - apiPhotosCount;
+              final record = localIndex < _localPhotoRecords.length
+                  ? _localPhotoRecords[localIndex]
+                  : null;
               setState(() {
                 _localPhotoBytes.removeAt(localIndex);
+                if (localIndex < _localPhotoRecords.length) {
+                  _localPhotoRecords.removeAt(localIndex);
+                }
                 if (_currentPhotoIndex >= _totalPhotosCount && _totalPhotosCount > 0) {
                   _currentPhotoIndex = _totalPhotosCount - 1;
                 }
               });
+              // Photo pas encore envoyée : on annule aussi l'envoi en file,
+              // sinon elle réapparaîtrait à la synchronisation.
+              if (record != null) {
+                LocalClientPhotoService().discard(record);
+              }
             },
             style: TextButton.styleFrom(foregroundColor: Colors.red),
             child: const Text('Supprimer'),
@@ -3824,6 +3968,14 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
     );
   }
 
+  /// Vrai si la photo à cet index est une prise de vue hors ligne encore en
+  /// attente d'envoi.
+  bool _isPendingPhotoIndex(int index) {
+    final localIndex = index - _client.photos.length;
+    if (localIndex < 0 || localIndex >= _localPhotoRecords.length) return false;
+    return _localPhotoRecords[localIndex] != null;
+  }
+
   Widget _buildPhotoSlider() {
     final apiPhotosCount = _client.photos.length;
 
@@ -3924,6 +4076,36 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
                     borderRadius: BorderRadius.circular(4),
                   ),
                 ),
+              ),
+            ),
+          ),
+        // Repère « hors ligne » quand la photo affichée n'est pas encore
+        // partie au serveur.
+        if (_isPendingPhotoIndex(_currentPhotoIndex))
+          Positioned(
+            top: 56,
+            left: 16,
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.orange[700],
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.cloud_off, size: 14, color: Colors.white),
+                  SizedBox(width: 4),
+                  Text(
+                    'Hors ligne',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -4375,13 +4557,30 @@ class _OrdersBottomSheet extends StatefulWidget {
 
 class _OrdersBottomSheetState extends State<_OrdersBottomSheet> {
   List<ApiOrder> _orders = [];
+
+  /// Commandes créées hors ligne pour ce client, encore en attente d'envoi.
+  List<LocalOrder> _localOrders = [];
+
   bool _isLoading = true;
   String? _errorMessage;
 
   @override
   void initState() {
     super.initState();
+    OfflineQueueService().lastSync.addListener(_onQueueSync);
     _loadOrders();
+  }
+
+  @override
+  void dispose() {
+    OfflineQueueService().lastSync.removeListener(_onQueueSync);
+    super.dispose();
+  }
+
+  /// Après un rejeu de la file, les commandes parties côté serveur ne doivent
+  /// plus apparaître en double dans la liste locale.
+  void _onQueueSync() {
+    if (mounted) _loadOrders();
   }
 
   Future<void> _loadOrders() async {
@@ -4390,6 +4589,12 @@ class _OrdersBottomSheetState extends State<_OrdersBottomSheet> {
       _errorMessage = null;
     });
 
+    // Commandes créées hors ligne : toujours affichées, même sans réseau.
+    final localOrders = (await LocalOrderService().pending())
+        .where((o) => o.clientId == widget.clientId)
+        .toList();
+    if (!mounted) return;
+
     try {
       final response = await widget.orderService.listOrders(
         clientId: widget.clientId,
@@ -4397,6 +4602,7 @@ class _OrdersBottomSheetState extends State<_OrdersBottomSheet> {
 
       if (mounted) {
         setState(() {
+          _localOrders = localOrders;
           _orders = response.orders;
           _isLoading = false;
         });
@@ -4404,11 +4610,121 @@ class _OrdersBottomSheetState extends State<_OrdersBottomSheet> {
     } catch (e) {
       if (mounted) {
         setState(() {
+          _localOrders = localOrders;
+          _orders = [];
           _errorMessage = e.toString();
           _isLoading = false;
         });
       }
     }
+  }
+
+  /// Bandeau des commandes hors ligne, en tête de la liste du client.
+  Widget _buildLocalOrdersSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(0, 8, 0, 12),
+          child: Row(
+            children: [
+              Icon(Icons.cloud_off, size: 16, color: Colors.orange[800]),
+              const SizedBox(width: 6),
+              Text(
+                'En attente de synchronisation (${_localOrders.length})',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.orange[800],
+                ),
+              ),
+            ],
+          ),
+        ),
+        ..._localOrders.map((order) => Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: _buildLocalOrderCard(order),
+            )),
+      ],
+    );
+  }
+
+  Widget _buildLocalOrderCard(LocalOrder order) {
+    final formatted = order.totalAmount.toStringAsFixed(0).replaceAllMapped(
+          RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+          (m) => '${m[1]} ',
+        );
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: () async {
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => LocalOrderDetailPage(order: order),
+          ),
+        );
+        if (mounted) _loadOrders();
+      },
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.orange[300]!),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text(
+                        order.reference,
+                        style: const TextStyle(
+                            fontWeight: FontWeight.bold, fontSize: 14),
+                      ),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.orange[100],
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          'Hors ligne',
+                          style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.orange[900]),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${order.items.length} article${order.items.length > 1 ? 's' : ''}',
+                    style: TextStyle(color: Colors.grey[500], fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+            Text(
+              '$formatted FCFA',
+              style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                  color: AppColors.primary),
+            ),
+            const SizedBox(width: 4),
+            Icon(Icons.chevron_right, color: Colors.grey[400]),
+          ],
+        ),
+      ),
+    );
   }
 
   String _formatOrderDate(String? dateStr) {
@@ -4675,7 +4991,7 @@ class _OrdersBottomSheetState extends State<_OrdersBottomSheet> {
                 ? const Center(
                     child: CircularProgressIndicator(),
                   )
-                : _errorMessage != null
+                : _errorMessage != null && _orders.isEmpty && _localOrders.isEmpty
                     ? Center(
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
@@ -4702,7 +5018,7 @@ class _OrdersBottomSheetState extends State<_OrdersBottomSheet> {
                           ],
                         ),
                       )
-                    : _orders.isEmpty
+                    : _orders.isEmpty && _localOrders.isEmpty
                         ? Center(
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
@@ -4731,15 +5047,24 @@ class _OrdersBottomSheetState extends State<_OrdersBottomSheet> {
                               ],
                             ),
                           )
-                        : ListView.builder(
-                            controller: scrollController,
-                            padding: const EdgeInsets.symmetric(horizontal: 20),
-                            itemCount: _orders.length,
-                            itemBuilder: (context, index) {
-                              final order = _orders[index];
-                              return _buildApiOrderCard(order);
-                            },
-                          ),
+                        : Builder(builder: (context) {
+                            // Les commandes hors ligne ouvrent la liste, puis
+                            // viennent celles déjà connues du serveur.
+                            final localOffset = _localOrders.isNotEmpty ? 1 : 0;
+                            return ListView.builder(
+                              controller: scrollController,
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 20),
+                              itemCount: localOffset + _orders.length,
+                              itemBuilder: (context, rawIndex) {
+                                if (localOffset == 1 && rawIndex == 0) {
+                                  return _buildLocalOrdersSection();
+                                }
+                                final order = _orders[rawIndex - localOffset];
+                                return _buildApiOrderCard(order);
+                              },
+                            );
+                          }),
           ),
         ],
       ),
@@ -5191,13 +5516,31 @@ class _VisitReportsBottomSheet extends StatefulWidget {
 
 class _VisitReportsBottomSheetState extends State<_VisitReportsBottomSheet> {
   List<VisitReport> _reports = [];
+
+  /// Ids des rapports validés hors ligne, encore en attente d'envoi : ils
+  /// sont affichés en tête de liste avec un repère « non synchronisé ».
+  Set<String> _pendingReportIds = {};
+
   bool _isLoading = true;
   String? _errorMessage;
 
   @override
   void initState() {
     super.initState();
+    OfflineQueueService().lastSync.addListener(_onQueueSync);
     _loadReports();
+  }
+
+  @override
+  void dispose() {
+    OfflineQueueService().lastSync.removeListener(_onQueueSync);
+    super.dispose();
+  }
+
+  /// Après un rejeu de la file, les rapports partis côté serveur ne doivent
+  /// plus apparaître en double dans la liste locale.
+  void _onQueueSync() {
+    if (mounted) _loadReports();
   }
 
   Future<void> _loadReports() async {
@@ -5206,17 +5549,26 @@ class _VisitReportsBottomSheetState extends State<_VisitReportsBottomSheet> {
       _errorMessage = null;
     });
 
+    // Rapports validés hors ligne : toujours affichés, même sans réseau.
+    final localReports = await LocalVisitReportService()
+        .pendingForClient(widget.clientId, clientName: widget.clientName);
+    if (!mounted) return;
+    final pending = localReports.map((r) => r.report).toList();
+
     try {
       final apiReports = await widget.visitApiService.getClientVisitReports(widget.clientId);
       if (mounted) {
         setState(() {
-          _reports = apiReports.map((r) => r.toVisitReport()).toList();
+          _pendingReportIds = pending.map((r) => r.id).toSet();
+          _reports = [...pending, ...apiReports.map((r) => r.toVisitReport())];
           _isLoading = false;
         });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
+          _pendingReportIds = pending.map((r) => r.id).toSet();
+          _reports = pending;
           _errorMessage = e.toString();
           _isLoading = false;
         });
@@ -5330,7 +5682,7 @@ class _VisitReportsBottomSheetState extends State<_VisitReportsBottomSheet> {
                       ],
                     ),
                   )
-                : _errorMessage != null
+                : _errorMessage != null && _reports.isEmpty
                     ? Center(
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
@@ -5457,7 +5809,9 @@ class _VisitReportsBottomSheetState extends State<_VisitReportsBottomSheet> {
                       ],
                     ),
                   ),
-                  _buildReportStatusBadge(report.status),
+                  _pendingReportIds.contains(report.id)
+                      ? _buildPendingSyncBadge()
+                      : _buildReportStatusBadge(report.status),
                 ],
               ),
               const SizedBox(height: 12),
@@ -5525,6 +5879,33 @@ class _VisitReportsBottomSheetState extends State<_VisitReportsBottomSheet> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  /// Repère d'un rapport validé hors ligne, pas encore parti au serveur.
+  Widget _buildPendingSyncBadge() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.orange.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
+      ),
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.cloud_off, size: 14, color: Colors.orange),
+          SizedBox(width: 4),
+          Text(
+            'Non synchronisé',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: Colors.orange,
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -299,11 +299,20 @@ class _SyncPageState extends State<SyncPage> {
   }
 
   Widget _buildPendingCard(OfflineOperation op) {
+    // Une opération bloquée attend une création refusée par le serveur, pas
+    // le réseau : elle est signalée distinctement pour que l'agent sache
+    // qu'une action est nécessaire (réessayer la création en échec).
+    final blocked = op.isBlocked;
+    final accent = blocked ? Colors.deepOrange : Colors.orange;
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
+        border: blocked
+            ? Border.all(color: Colors.deepOrange.withValues(alpha: 0.4))
+            : null,
         boxShadow: [
           BoxShadow(
             color: Colors.grey.withValues(alpha: 0.1),
@@ -318,12 +327,12 @@ class _SyncPageState extends State<SyncPage> {
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: Colors.orange.withValues(alpha: 0.1),
+              color: accent.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Icon(
               _iconFor(op),
-              color: Colors.orange,
+              color: accent,
               size: 28,
             ),
           ),
@@ -342,16 +351,38 @@ class _SyncPageState extends State<SyncPage> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Saisie ${_getTimeAgo(op.createdAt)} • en attente de réseau',
+                  blocked
+                      ? 'Saisie ${_getTimeAgo(op.createdAt)} • conservée'
+                      : 'Saisie ${_getTimeAgo(op.createdAt)} • en attente de réseau',
                   style: TextStyle(
                     fontSize: 12,
                     color: Colors.grey[600],
                   ),
                 ),
+                if (blocked) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    'Bloquée : ${op.blockedReason}',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.deepOrange[700],
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Réessayez l\'opération en échec ci-dessous pour la débloquer.',
+                    style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                  ),
+                ],
               ],
             ),
           ),
-          const Icon(Icons.hourglass_top, color: Colors.orange, size: 20),
+          Icon(
+            blocked ? Icons.lock_clock : Icons.hourglass_top,
+            color: accent,
+            size: 20,
+          ),
         ],
       ),
     );

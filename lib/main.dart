@@ -9,6 +9,7 @@ import 'package:sirapro/screens/home_page.dart';
 import 'package:sirapro/services/auth_service.dart';
 import 'package:sirapro/services/data_sync_service.dart';
 import 'package:sirapro/services/offline_queue_service.dart';
+import 'package:sirapro/services/local_visit_report_service.dart';
 import 'package:sirapro/services/visit_service.dart';
 import 'package:sirapro/services/push_notification_service.dart';
 import 'package:sirapro/utils/app_colors.dart';
@@ -140,6 +141,11 @@ class _StartupSyncScreenState extends State<StartupSyncScreen> {
 
   Future<void> _run() async {
     await OfflineQueueService().init();
+
+    // Rattrape les rapports mis en file par une version antérieure de l'app :
+    // sans copie locale, ils resteraient invisibles dans « Rapports de
+    // visite » jusqu'à leur synchronisation.
+    await LocalVisitReportService().backfillFromQueue();
 
     final connectivity = await Connectivity().checkConnectivity();
     final online = connectivity.any((r) => r != ConnectivityResult.none);

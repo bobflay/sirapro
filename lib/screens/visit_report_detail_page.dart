@@ -1,3 +1,6 @@
+import 'dart:io';
+
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -475,6 +478,32 @@ class VisitReportDetailPage extends StatelessWidget {
     );
   }
 
+  /// Photo d'un rapport pas encore synchronisé : le fichier est encore dans
+  /// le stockage de l'app, il n'y a pas encore d'URL serveur.
+  static bool _isLocalFile(GeotaggedPhoto photo) {
+    if (kIsWeb || photo.path.isEmpty) return false;
+    if (photo.path.startsWith('http://') || photo.path.startsWith('https://')) {
+      return false;
+    }
+    return File(photo.path).existsSync();
+  }
+
+  static Widget _localFileImage(
+    GeotaggedPhoto photo, {
+    required BoxFit fit,
+    double? width,
+    double? height,
+    required Widget fallback,
+  }) {
+    return Image.file(
+      File(photo.path),
+      fit: fit,
+      width: width,
+      height: height,
+      errorBuilder: (context, error, stackTrace) => fallback,
+    );
+  }
+
   Widget _buildPhotoCard(GeotaggedPhoto photo) {
     // Check if the path is a URL (from API) or a local file path
     final isNetworkImage = photo.path.startsWith('http://') || photo.path.startsWith('https://');
@@ -526,11 +555,23 @@ class VisitReportDetailPage extends StatelessWidget {
                           );
                         },
                       )
-                    : const Icon(
-                        Icons.photo,
-                        size: 40,
-                        color: Colors.grey,
-                      ),
+                    : _isLocalFile(photo)
+                        ? _localFileImage(
+                            photo,
+                            fit: BoxFit.cover,
+                            width: 80,
+                            height: 80,
+                            fallback: const Icon(
+                              Icons.photo,
+                              size: 40,
+                              color: Colors.grey,
+                            ),
+                          )
+                        : const Icon(
+                            Icons.photo,
+                            size: 40,
+                            color: Colors.grey,
+                          ),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -646,11 +687,21 @@ class VisitReportDetailPage extends StatelessWidget {
                           );
                         },
                       )
-                    : const Icon(
-                        Icons.photo,
-                        size: 64,
-                        color: Colors.white54,
-                      ),
+                    : _isLocalFile(photo)
+                        ? _localFileImage(
+                            photo,
+                            fit: BoxFit.contain,
+                            fallback: const Icon(
+                              Icons.photo,
+                              size: 64,
+                              color: Colors.white54,
+                            ),
+                          )
+                        : const Icon(
+                            Icons.photo,
+                            size: 64,
+                            color: Colors.white54,
+                          ),
               ),
             ),
             // Close button
