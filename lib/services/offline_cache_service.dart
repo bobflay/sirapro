@@ -44,6 +44,31 @@ class OfflineCacheService {
     }
   }
 
+  /// Restitue toutes les réponses mises en cache dont la clé commence par
+  /// [keyPrefix] (ex. toutes les pages de la liste clients), pour retrouver
+  /// hors ligne une fiche qui n'a jamais été ouverte individuellement.
+  Future<List<dynamic>> valuesWithPrefix(String keyPrefix) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final full = '$_prefix$keyPrefix';
+      final values = <dynamic>[];
+      for (final key in prefs.getKeys()) {
+        if (!key.startsWith(full)) continue;
+        final raw = prefs.getString(key);
+        if (raw == null) continue;
+        try {
+          values.add(jsonDecode(raw));
+        } catch (_) {
+          // Entrée corrompue : ignorée, les autres restent exploitables.
+        }
+      }
+      return values;
+    } catch (e) {
+      debugPrint('[OfflineCache] valuesWithPrefix("$keyPrefix") failed: $e');
+      return const [];
+    }
+  }
+
   /// Vide tout le cache (à appeler à la déconnexion).
   Future<void> clear() async {
     final prefs = await SharedPreferences.getInstance();

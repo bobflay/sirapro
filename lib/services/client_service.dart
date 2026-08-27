@@ -6,6 +6,7 @@ import '../models/update_client_request.dart';
 import '../models/photo_upload_request.dart';
 import '../models/visit_report.dart';
 import 'api_service.dart';
+import 'offline_cache_service.dart';
 
 // Re-export UploadProgressCallback for convenience
 export 'api_service.dart' show UploadProgressCallback;
@@ -109,10 +110,46 @@ class ClientService {
   ///
   /// [id] - The client ID
   /// Returns a [Client] object
-  Future<Client> getClient(int id) async {
-    final response = await _apiService.get('/api/clients/$id');
-    final data = response as Map<String, dynamic>;
-    return Client.fromJson(data['data'] as Map<String, dynamic>);
+  ///
+  /// Avec [fallbackToCachedList], une panne réseau n'est plus une impasse :
+  /// la fiche est retrouvée dans les listes clients déjà téléchargées, même
+  /// si elle n'a jamais été ouverte individuellement. Réservé aux écrans qui
+  /// ont besoin d'une fiche « au mieux » (ouverture depuis la visite en
+  /// cours) plutôt que d'une fiche à jour.
+  Future<Client> getClient(int id, {bool fallbackToCachedList = false}) async {
+    try {
+      final response = await _apiService.get('/api/clients/$id');
+      final data = response as Map<String, dynamic>;
+      return Client.fromJson(data['data'] as Map<String, dynamic>);
+    } catch (e) {
+      if (!fallbackToCachedList) rethrow;
+      if (e is ApiException && e.statusCode != null) rethrow;
+      final cached = await cachedClient(id);
+      if (cached != null) return cached;
+      rethrow;
+    }
+  }
+
+  /// Fiche client reconstruite depuis le cache des listes déjà téléchargées,
+  /// ou null si ce client n'y figure pas.
+  Future<Client?> cachedClient(int id) async {
+    final pages =
+        await OfflineCacheService().valuesWithPrefix('GET:/api/clients?');
+    for (final page in pages) {
+      if (page is! Map<String, dynamic>) continue;
+      final data = page['data'];
+      if (data is! List) continue;
+      for (final entry in data) {
+        if (entry is! Map<String, dynamic>) continue;
+        if (entry['id'] != id) continue;
+        try {
+          return Client.fromJson(entry);
+        } catch (_) {
+          // Entrée illisible : on continue de chercher dans les autres pages.
+        }
+      }
+    }
+    return null;
   }
 
   /// Update an existing client

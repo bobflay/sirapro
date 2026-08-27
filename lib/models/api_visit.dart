@@ -56,6 +56,10 @@ class ApiVisit {
   /// Check if visit is currently active (started but not ended)
   bool get isActive => status == 'started';
 
+  /// Visite démarrée hors ligne : son id est un id local négatif, le serveur
+  /// ne la connaît pas encore (elle attend dans la file de synchronisation).
+  bool get isLocal => id < 0;
+
   /// Check if visit is completed
   bool get isCompleted => status == 'completed';
 

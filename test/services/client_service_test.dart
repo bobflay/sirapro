@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:mockito/annotations.dart';
 import 'package:mockito/mockito.dart';
 import 'package:sirapro/models/client.dart';
@@ -401,6 +404,84 @@ void main() {
         expect(client.hasOpenAlert, true);
 
         verify(mockApiService.get('/api/clients/1')).called(1);
+      });
+
+      /// Hors ligne, la fiche d'un client jamais ouvert individuellement doit
+      /// rester accessible : sinon la barre « visite en cours » ne mène nulle
+      /// part et la visite ne peut plus être terminée.
+      test('falls back to the cached client list when the network fails',
+          () async {
+        SharedPreferences.setMockInitialValues({
+          'offline_cache_v1:GET:/api/clients?page=1&limit=20': jsonEncode({
+            'data': [
+              {
+                'id': 42,
+                'name': 'Boutique Awa',
+                'type': 'Boutique',
+                'manager_name': 'Awa',
+                'phones': ['+212600000000'],
+                'city': 'Casablanca',
+                'address': '123 Main Street',
+                'has_open_alert': false,
+                'created_at': '2024-01-01T10:00:00.000Z',
+                'updated_at': '2024-01-10T15:30:00.000Z',
+              },
+            ],
+          }),
+        });
+
+        when(mockApiService.get('/api/clients/42'))
+            .thenThrow(ApiException('Connection failed.'));
+
+        final client =
+            await clientService.getClient(42, fallbackToCachedList: true);
+
+        expect(client.id, 42);
+        expect(client.name, 'Boutique Awa');
+      });
+
+      test('rethrows the network error when the fallback is not requested',
+          () async {
+        SharedPreferences.setMockInitialValues({});
+        when(mockApiService.get('/api/clients/42'))
+            .thenThrow(ApiException('Connection failed.'));
+
+        expect(
+          () => clientService.getClient(42),
+          throwsA(isA<ApiException>()),
+        );
+      });
+
+      /// Un vrai refus du serveur (client supprimé) ne doit pas être masqué
+      /// par une copie périmée.
+      test('does not mask a server rejection with the cache', () async {
+        SharedPreferences.setMockInitialValues({
+          'offline_cache_v1:GET:/api/clients?page=1&limit=20': jsonEncode({
+            'data': [
+              {
+                'id': 42,
+                'name': 'Boutique Awa',
+                'type': 'Boutique',
+                'manager_name': 'Awa',
+                'phones': <String>[],
+                'city': 'Casablanca',
+                'address': '123 Main Street',
+                'has_open_alert': false,
+                'created_at': '2024-01-01T10:00:00.000Z',
+                'updated_at': '2024-01-10T15:30:00.000Z',
+              },
+            ],
+          }),
+        });
+
+        when(mockApiService.get('/api/clients/42'))
+            .thenThrow(ApiException('Not found', statusCode: 404));
+
+        expect(
+          () => clientService.getClient(42, fallbackToCachedList: true),
+          throwsA(isA<ApiException>()
+              .having((e) => e.statusCode, 'statusCode', 404)),
+        );
       });
     });
 

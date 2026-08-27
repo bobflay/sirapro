@@ -1,6 +1,25 @@
 import 'client_photo.dart';
 
 class Client {
+  /// Types de point de vente proposés à l'agent.
+  ///
+  /// Source unique : les écrans de saisie ET la validation locale des
+  /// requêtes s'y réfèrent. Sans cela, un type proposé dans le formulaire
+  /// (« Mamie marché », « Étalage », « Boulangerie »…) était refusé par la
+  /// validation avant même l'envoi — y compris hors ligne, où la saisie
+  /// n'était alors même pas mise en file d'attente.
+  static const List<String> types = [
+    'Boutique',
+    'Supermarché',
+    'Demi-grossiste',
+    'Grossiste',
+    'Distributeur',
+    'Mamie marché',
+    'Étalage',
+    'Boulangerie',
+    'Autre',
+  ];
+
   final int id;
   final String name;
   final String type;
@@ -226,6 +245,16 @@ class Client {
       'has_open_alert': hasOpenAlert,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
+      // Champs relus par fromJson : sans eux, une fiche remise en cache
+      // (client de la visite en cours, liste hors ligne) reviendrait amputee
+      // de ses photos et de ses coordonnees secondaires.
+      'photos': photos.map((p) => p.toJson()).toList(),
+      'email': email,
+      'whatsapp': whatsapp,
+      'district': quartier,
+      'zone': zone,
+      'gps_location': gpsLocation,
+      'status': status,
     };
   }
 

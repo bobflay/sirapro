@@ -1,3 +1,5 @@
+import 'client.dart';
+
 /// Request model for creating a new client via POST /api/clients
 class CreateClientRequest {
   /// Unique client code (required, max:255)
@@ -7,7 +9,7 @@ class CreateClientRequest {
   final String name;
 
   /// Client type (required)
-  /// One of: Boutique, Supermarché, Demi-grossiste, Grossiste, Distributeur, Autre
+  /// One of [Client.types]
   final String type;
 
   /// Client type classification (optional)
@@ -147,15 +149,9 @@ class CreateClientRequest {
       errors.add('Le nom ne peut pas dépasser 255 caractères');
     }
 
-    final validTypes = [
-      'Boutique',
-      'Supermarché',
-      'Demi-grossiste',
-      'Grossiste',
-      'Distributeur',
-      'Autre'
-    ];
-    if (!validTypes.contains(type)) {
+    // Liste partagée avec le formulaire : tout type proposé à l'agent est
+    // accepté ici, en ligne comme hors ligne.
+    if (!Client.types.contains(type)) {
       errors.add('Type de client invalide');
     }
 

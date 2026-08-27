@@ -103,8 +103,21 @@ class ApiService {
   /// Les réponses réussies sont mises en cache localement ; en cas de panne
   /// réseau, la dernière réponse connue est resservie pour que les écrans
   /// restent utilisables hors ligne.
+  /// [allowCache] à false pour les appels dont une réponse périmée serait
+  /// trompeuse (état d'une visite en cours, par exemple) : la panne réseau
+  /// remonte alors telle quelle au lieu d'être masquée par le cache.
   Future<dynamic> get(String endpoint,
-      {bool includeAuth = true, Map<String, String>? extraHeaders}) async {
+      {bool includeAuth = true,
+      Map<String, String>? extraHeaders,
+      bool allowCache = true}) async {
+    Future<dynamic> cachedOr(String message) async {
+      if (allowCache) {
+        final cached = await OfflineCacheService().get('GET:$endpoint');
+        if (cached != null) return cached;
+      }
+      throw ApiException(message);
+    }
+
     try {
       final response = await http.get(
         Uri.parse('$baseUrl$endpoint'),
@@ -114,16 +127,12 @@ class ApiService {
       await OfflineCacheService().put('GET:$endpoint', result);
       return result;
     } on http.ClientException {
-      final cached = await OfflineCacheService().get('GET:$endpoint');
-      if (cached != null) return cached;
-      throw ApiException('Connection failed. Please check your internet.');
+      return cachedOr('Connection failed. Please check your internet.');
     } catch (e) {
       // Une ApiException porte une vraie réponse serveur (4xx/5xx) : pas de
       // cache. Le reste (SocketException…) est traité comme une panne réseau.
       if (e is ApiException) rethrow;
-      final cached = await OfflineCacheService().get('GET:$endpoint');
-      if (cached != null) return cached;
-      throw ApiException('An unexpected error occurred');
+      return cachedOr('Connection failed. Please check your internet.');
     }
   }
 

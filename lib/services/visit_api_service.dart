@@ -371,9 +371,13 @@ class VisitApiService {
 
   /// Get the current active visit for the user (if any)
   /// Returns null if no active visit
-  Future<ApiVisit?> getActiveVisit() async {
+  /// [allowCache] à false : hors ligne, une réponse mise en cache lors d'une
+  /// session précédente ferait croire à tort qu'aucune visite n'est en cours
+  /// et effacerait la visite démarrée sur le terrain.
+  Future<ApiVisit?> getActiveVisit({bool allowCache = true}) async {
     try {
-      final response = await _apiService.get('/api/visits/active');
+      final response =
+          await _apiService.get('/api/visits/active', allowCache: allowCache);
 
       if (response == null) {
         return null;

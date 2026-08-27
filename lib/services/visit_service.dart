@@ -122,9 +122,12 @@ class VisitService {
   }
 
   /// Obtenir le nom du client de la visite active
+  ///
+  /// Une visite démarrée hors ligne n'embarque pas la fiche client renvoyée
+  /// par le serveur : le nom vient alors du client mémorisé au démarrage.
   String? get activeClientName {
     if (_activeApiVisit != null) {
-      return _activeApiVisit!.client?.name;
+      return _activeApiVisit!.client?.name ?? _activeClient?.name;
     }
     return _activeVisit?.clientName;
   }
@@ -241,14 +244,28 @@ class VisitService {
   /// This fetches the current active visit from the API and updates local state
   /// Returns the active visit if found, null otherwise
   Future<ApiVisit?> syncWithServer() async {
+    // Visite démarrée hors ligne (id local négatif) : le serveur ne la connaît
+    // pas encore. Sa réponse « aucune visite en cours » ne doit pas l'effacer,
+    // sinon le commercial perdrait la visite ouverte devant le client.
+    if (_activeApiVisit != null && _activeApiVisit!.isLocal) {
+      debugPrint('VisitService: Active visit started offline, keeping local state');
+      return _activeApiVisit;
+    }
+
     try {
       final visitApiService = VisitApiService();
-      final activeVisit = await visitApiService.getActiveVisit();
+      // Sans cache : hors ligne, l'appel échoue et l'état local est conservé.
+      final activeVisit = await visitApiService.getActiveVisit(allowCache: false);
 
       if (activeVisit != null && activeVisit.isActive) {
         // Update local state with server data
         _activeApiVisit = activeVisit;
         await _saveActiveApiVisit(activeVisit);
+        // La fiche mémorisée doit rester celle du client réellement visité.
+        if (_activeClient != null && _activeClient!.id != activeVisit.clientId) {
+          _activeClient = null;
+          await _clearActiveClient();
+        }
         debugPrint('VisitService: Synced active visit from server - Client: ${activeVisit.client?.name}');
         return activeVisit;
       } else {

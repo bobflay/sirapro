@@ -4,6 +4,7 @@ import 'package:sirapro/screens/create_client_page.dart';
 import 'package:sirapro/screens/client_detail_page.dart';
 import 'package:sirapro/models/client.dart';
 import 'package:sirapro/services/client_service.dart';
+import 'package:sirapro/services/local_client_service.dart';
 import 'package:sirapro/services/api_service.dart';
 import 'package:sirapro/services/visit_service.dart';
 import 'package:sirapro/widgets/session_aware_app_bar.dart';
@@ -118,6 +119,10 @@ class _ClientsPageState extends State<ClientsPage> {
       _errorMessage = null;
     });
 
+    // Clients créés hors ligne : toujours en tête de liste, avec ou sans
+    // réseau, jusqu'à leur synchronisation.
+    final pendingClients = await _pendingLocalClients();
+
     try {
       final response = await _clientService.getClients(
         page: 1,
@@ -126,10 +131,10 @@ class _ClientsPageState extends State<ClientsPage> {
       );
       if (mounted) {
         setState(() {
-          _clients = response.clients;
+          _clients = [...pendingClients, ...response.clients];
           _currentPage = 1;
           _hasMorePages = response.hasMore;
-          _totalClients = response.meta.total;
+          _totalClients = response.meta.total + pendingClients.length;
           _isInitialLoading = false;
           _isSearching = false;
         });
@@ -138,20 +143,46 @@ class _ClientsPageState extends State<ClientsPage> {
     } on ApiException catch (e) {
       if (mounted) {
         setState(() {
+          _clients = pendingClients;
+          _totalClients = pendingClients.length;
+          _hasMorePages = false;
           _errorMessage = e.message;
           _isInitialLoading = false;
           _isSearching = false;
         });
+        _applyLocalFilters();
       }
     } catch (e) {
       if (mounted) {
         setState(() {
+          _clients = pendingClients;
+          _totalClients = pendingClients.length;
+          _hasMorePages = false;
           _errorMessage = 'Une erreur est survenue lors du chargement des clients';
           _isInitialLoading = false;
           _isSearching = false;
         });
+        _applyLocalFilters();
       }
     }
+  }
+
+  /// Fiches créées hors ligne, filtrées comme la liste serveur : la recherche
+  /// et le filtre par type s'appliquent aussi à elles, sinon elles resteraient
+  /// affichées au milieu de résultats qui ne les concernent pas.
+  Future<List<Client>> _pendingLocalClients() async {
+    final pending = await LocalClientService().pendingClients();
+    if (pending.isEmpty) return const [];
+
+    final search = _currentSearch?.toLowerCase();
+    final type = _currentType;
+    return pending.where((client) {
+      if (type != null && client.type != type) return false;
+      if (search == null || search.isEmpty) return true;
+      return client.name.toLowerCase().contains(search) ||
+          client.managerName.toLowerCase().contains(search) ||
+          client.phones.any((phone) => phone.contains(search));
+    }).toList();
   }
 
   Future<void> _loadMoreClients() async {
@@ -244,12 +275,17 @@ class _ClientsPageState extends State<ClientsPage> {
     if (newClient != null && mounted) {
       // Refresh the list to include the new client
       _refreshClients();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Client "${newClient.boutiqueName}" ajouté avec succès'),
-          backgroundColor: Colors.green,
-        ),
-      );
+      // Une fiche enregistrée hors ligne a déjà son propre message
+      // (« sera synchronisé… ») : ne pas le contredire par un « ajouté avec
+      // succès » qui laisserait croire que le serveur l'a acceptée.
+      if (newClient.id >= 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Client "${newClient.boutiqueName}" ajouté avec succès'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
     }
   }
 
@@ -488,13 +524,13 @@ class _ClientsPageState extends State<ClientsPage> {
                   : null,
             ),
             onSelected: _onTypeFilterChanged,
+            // Construit depuis la liste partagée : un type proposé à la
+            // création reste filtrable ici.
             itemBuilder: (context) => [
               const PopupMenuItem(value: 'Tous', child: Text('Tous')),
-              const PopupMenuItem(value: 'Boutique', child: Text('Boutique')),
-              const PopupMenuItem(value: 'Supermarché', child: Text('Supermarché')),
-              const PopupMenuItem(value: 'Demi-grossiste', child: Text('Demi-grossiste')),
-              const PopupMenuItem(value: 'Grossiste', child: Text('Grossiste')),
-              const PopupMenuItem(value: 'Distributeur', child: Text('Distributeur')),
+              ...Client.types.map(
+                (type) => PopupMenuItem(value: type, child: Text(type)),
+              ),
             ],
           ),
           const SizedBox(width: 8),
@@ -707,8 +743,38 @@ class _ClientsPageState extends State<ClientsPage> {
     );
   }
 
+  /// Pastille des fiches créées hors ligne : le commercial voit d'un coup
+  /// d'œil ce qui n'est pas encore parti au serveur.
+  Widget _buildPendingBadge() {
+    return Container(
+      margin: const EdgeInsets.only(left: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: Colors.orange[100],
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.cloud_off, size: 11, color: Colors.orange[900]),
+          const SizedBox(width: 4),
+          Text(
+            'À synchroniser',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: Colors.orange[900],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildClientCard(BuildContext context, Client client, int index) {
     final isActiveVisit = VisitService().isClientVisitActive(client.id);
+    // Id local négatif : fiche créée hors ligne, pas encore synchronisée.
+    final isPending = client.id < 0;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -717,7 +783,9 @@ class _ClientsPageState extends State<ClientsPage> {
         borderRadius: BorderRadius.circular(12),
         border: isActiveVisit
             ? Border.all(color: Colors.green, width: 2.5)
-            : null,
+            : isPending
+                ? Border.all(color: Colors.orange[300]!)
+                : null,
         boxShadow: [
           BoxShadow(
             color: isActiveVisit
@@ -756,6 +824,7 @@ class _ClientsPageState extends State<ClientsPage> {
                               ),
                             ),
                           ),
+                          if (isPending) _buildPendingBadge(),
                           if (client.potentiel != null)
                             Container(
                               padding: const EdgeInsets.symmetric(

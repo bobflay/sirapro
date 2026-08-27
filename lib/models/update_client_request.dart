@@ -1,3 +1,5 @@
+import 'client.dart';
+
 /// Request model for updating an existing client via PUT /api/clients/{id}
 /// All fields are optional for partial updates
 class UpdateClientRequest {
@@ -8,7 +10,7 @@ class UpdateClientRequest {
   final String? name;
 
   /// Client type (optional)
-  /// One of: Boutique, Supermarché, Demi-grossiste, Grossiste, Distributeur, Autre
+  /// One of [Client.types]
   final String? type;
 
   /// Client type classification (optional, nullable)
@@ -177,15 +179,9 @@ class UpdateClientRequest {
     }
 
     if (type != null) {
-      final validTypes = [
-        'Boutique',
-        'Supermarché',
-        'Demi-grossiste',
-        'Grossiste',
-        'Distributeur',
-        'Autre'
-      ];
-      if (!validTypes.contains(type)) {
+      // Liste partagée avec le formulaire : tout type proposé à l'agent est
+      // accepté ici, en ligne comme hors ligne.
+      if (!Client.types.contains(type)) {
         errors.add('Type de client invalide');
       }
     }

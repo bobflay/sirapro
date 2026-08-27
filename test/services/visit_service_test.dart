@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sirapro/models/api_visit.dart';
+import 'package:sirapro/models/client.dart';
 import 'package:sirapro/models/visit.dart';
 import 'package:sirapro/services/visit_service.dart';
 
@@ -595,6 +596,50 @@ void main() {
         final legacyVisit = createTestLegacyVisit();
         visitService.startVisit(legacyVisit);
         expect(visitService.hasActiveVisit, true);
+      });
+    });
+
+    group('visite démarrée hors ligne', () {
+      /// Le serveur ignore encore cette visite : sa réponse « aucune visite
+      /// en cours » ne doit pas effacer la visite ouverte devant le client.
+      test('syncWithServer keeps a locally started visit', () async {
+        final localVisit = createTestApiVisit(id: -1735000000000);
+        await visitService.startApiVisit(localVisit);
+
+        final synced = await visitService.syncWithServer();
+
+        expect(synced?.id, localVisit.id);
+        expect(visitService.hasActiveApiVisit, true);
+      });
+
+      /// Une visite démarrée hors ligne n'embarque pas la fiche client du
+      /// serveur : le nom affiché dans la barre vient du client mémorisé.
+      test('activeClientName falls back to the stored client', () async {
+        final localVisit = ApiVisit(
+          id: -1735000000000,
+          clientId: 100,
+          userId: 0,
+          status: 'started',
+          startedAt: DateTime.now(),
+        );
+        await visitService.startApiVisit(
+          localVisit,
+          client: Client(
+            id: 100,
+            name: 'Boutique Awa',
+            type: 'Boutique',
+            managerName: 'Awa',
+            phones: const [],
+            city: 'Casablanca',
+            address: '123 Main Street',
+            hasOpenAlert: false,
+            createdAt: DateTime.now(),
+            updatedAt: DateTime.now(),
+          ),
+        );
+
+        expect(visitService.activeClientName, 'Boutique Awa');
+        expect(visitService.activeClient?.id, 100);
       });
     });
   });

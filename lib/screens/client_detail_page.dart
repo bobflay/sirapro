@@ -33,6 +33,7 @@ import '../services/offline_queue_service.dart';
 import '../services/local_visit_log_service.dart';
 import '../services/local_visit_report_service.dart';
 import '../services/local_client_photo_service.dart';
+import '../services/local_client_service.dart';
 import '../services/local_order_service.dart';
 import 'local_order_detail_page.dart';
 import '../services/order_service.dart';
@@ -120,17 +121,32 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
   bool _isCapturingGps = false;
   static const double _maxAdjustmentRadius = 300.0;
 
-  final List<String> _types = [
-    'Boutique',
-    'Supermarché',
-    'Demi-grossiste',
-    'Grossiste',
-    'Distributeur',
-    'Mamie marché',
-    'Étalage',
-    'Boulangerie',
-    'Autre',
-  ];
+  /// Source unique partagée avec la validation des requêtes.
+  final List<String> _types = Client.types;
+
+  /// Fiche créée hors ligne, pas encore synchronisée : le serveur ignore
+  /// encore ce PDV, donc son id ne peut pas être envoyé tel quel. Tout ce qui
+  /// part en file d'attente doit le désigner par sa référence locale.
+  bool get _isPendingClient => _client.id < 0;
+
+  /// Photos prises pendant la création hors ligne : elles n'existent que
+  /// dans la file d'attente, la fiche locale ne peut pas encore les afficher.
+  int _pendingCreationPhotos = 0;
+
+  /// Prévient que l'action demandée exige un client connu du serveur.
+  /// Retourne true quand l'action doit être abandonnée.
+  bool _blockedWhilePending(String action) {
+    if (!_isPendingClient) return false;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+            '$action sera possible une fois le client synchronisé avec le serveur.'),
+        backgroundColor: Colors.orange,
+        duration: const Duration(seconds: 4),
+      ),
+    );
+    return true;
+  }
 
   final List<String> _clientTypes = [
     'Aucun',
@@ -193,8 +209,20 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
   /// copies locales : on récupère d'abord la fiche à jour, qui la contient
   /// désormais, pour qu'elle ne semble pas s'être volatilisée.
   Future<void> _refreshAfterSync() async {
+    var id = _client.id;
+    if (id < 0) {
+      // Fiche créée hors ligne : elle ne peut être rechargée qu'une fois sa
+      // création rejouée, quand la file lui a associé un id serveur.
+      final serverId = await LocalClientService().syncedServerId(id);
+      if (serverId == null) {
+        await _loadPendingPhotos();
+        return;
+      }
+      id = serverId;
+    }
+
     try {
-      final refreshed = await _clientService.getClient(_client.id);
+      final refreshed = await _clientService.getClient(id);
       if (mounted) {
         setState(() => _client = refreshed);
       }
@@ -210,6 +238,12 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
   /// leur envoi n'a pas été rejoué.
   Future<void> _loadPendingPhotos() async {
     if (kIsWeb) return;
+    if (_isPendingClient) {
+      final local = await LocalClientService().byLocalId(_client.id);
+      if (mounted) {
+        setState(() => _pendingCreationPhotos = local?.pendingPhotoCount ?? 0);
+      }
+    }
     final pending =
         await LocalClientPhotoService().pendingForClient(_client.id);
 
@@ -425,17 +459,23 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
         // Envoi immédiat si le réseau répond ; sinon la photo est mise en
         // file et reste visible dans la fiche en attendant la synchro.
         LocalClientPhoto? pendingRecord;
-        try {
-          await _clientService.uploadGeotaggedPhotos(
-            _client.id,
-            [geotaggedPhoto],
-            type: 'facade',
-            title: 'Façade',
-            description: 'Photo façade de ${_client.boutiqueName}',
-          );
-        } catch (e) {
-          if (kIsWeb || !OfflineQueueService.isNetworkError(e)) rethrow;
+        if (_isPendingClient && !kIsWeb) {
+          // Le serveur ne connaît pas encore ce PDV : inutile de tenter
+          // l'envoi direct, la photo part en file avec la création.
           pendingRecord = await _queuePhotoOffline(geotaggedPhoto, bytes);
+        } else {
+          try {
+            await _clientService.uploadGeotaggedPhotos(
+              _client.id,
+              [geotaggedPhoto],
+              type: 'facade',
+              title: 'Façade',
+              description: 'Photo façade de ${_client.boutiqueName}',
+            );
+          } catch (e) {
+            if (kIsWeb || !OfflineQueueService.isNetworkError(e)) rethrow;
+            pendingRecord = await _queuePhotoOffline(geotaggedPhoto, bytes);
+          }
         }
 
         // Hide loading snackbar
@@ -503,10 +543,16 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
     await File(filePath).writeAsBytes(bytes);
 
     final ref = 'client_photo_${DateTime.now().microsecondsSinceEpoch}';
+    // Client créé hors ligne : son id serveur n'existe pas encore, la photo
+    // est adressée à sa référence locale ({ref:client_...}), résolue à la
+    // synchronisation — la création part toujours avant la photo (FIFO).
+    final clientSegment =
+        await LocalClientService().queueReferenceFor(_client.id) ??
+            '${_client.id}';
     // L'upload répond une LISTE de photos : l'id serveur est en 'data.0.id'.
     final operation = OfflineOperation.multipart(
       label: 'Photo client — ${_client.boutiqueName}',
-      path: '/api/clients/${_client.id}/photos',
+      path: '/api/clients/$clientSegment/photos',
       fields: {
         'type': 'facade',
         'title': 'Façade',
@@ -698,6 +744,20 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
 
   /// Call the API to start a visit
   Future<void> _callStartVisitApi(Position position) async {
+    final request = StartVisitRequest(
+      clientId: _client.id,
+      latitude: position.latitude,
+      longitude: position.longitude,
+    );
+
+    // Client créé hors ligne, pas encore synchronisé : le serveur refuserait
+    // cet id local. La visite démarre localement et sera rattachée au client
+    // via sa référence à la synchronisation.
+    if (_isPendingClient) {
+      await _startVisitOffline(position, request);
+      return;
+    }
+
     // Show loading dialog
     showDialog(
       context: context,
@@ -712,12 +772,6 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
           ],
         ),
       ),
-    );
-
-    final request = StartVisitRequest(
-      clientId: _client.id,
-      latitude: position.latitude,
-      longitude: position.longitude,
     );
 
     try {
@@ -799,6 +853,7 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
         _client.longitude!,
       );
       if (distance > kVisitProximityThresholdMeters) {
+        if (mounted) setState(() => _isLoadingVisit = false);
         _showLocationError(
           'Trop loin du client',
           'Vous êtes à ${distance.toStringAsFixed(0)} m du point de vente '
@@ -813,14 +868,34 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
     // Id local négatif : jamais confondu avec un id serveur.
     final localId = -startedAt.millisecondsSinceEpoch;
 
+    final body = <String, dynamic>{
+      ...request.toJson(),
+      'started_at': startedAt.toIso8601String(),
+    };
+
+    // Client lui-même créé hors ligne : la visite le désigne par sa référence
+    // locale, que la file remplace par l'id serveur une fois la création
+    // rejouée (les opérations partent dans l'ordre de saisie).
+    if (_isPendingClient) {
+      final clientRef =
+          await LocalClientService().queueReferenceFor(_client.id);
+      if (clientRef == null) {
+        if (mounted) setState(() => _isLoadingVisit = false);
+        _showLocationError(
+          'Client indisponible',
+          'La fiche de ce client créée hors ligne est introuvable. '
+          'Synchronisez l\'application avant de démarrer la visite.',
+        );
+        return;
+      }
+      body['client_id'] = clientRef;
+    }
+
     await OfflineQueueService().enqueue(OfflineOperation.json(
       label: 'Début de visite — ${_client.name}',
       method: 'POST',
       path: '/api/visits',
-      body: {
-        ...request.toJson(),
-        'started_at': startedAt.toIso8601String(),
-      },
+      body: body,
       provides: 'visit_$localId',
     ));
 
@@ -1775,6 +1850,12 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
   }
 
   void _toggleEdit() {
+    // La création est déjà partie en file avec ces valeurs : les modifier
+    // maintenant produirait une mise à jour adressée à un client que le
+    // serveur ne connaît pas encore.
+    if (!_isEditing && _blockedWhilePending('La modification de la fiche')) {
+      return;
+    }
     setState(() {
       if (_isEditing) {
         // Cancel editing - reset controllers and GPS position
@@ -2456,10 +2537,38 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
     );
   }
 
+  /// Bandeau des fiches créées hors ligne : le commercial sait pourquoi
+  /// certaines actions (commande, alerte, modification) sont différées.
+  Widget _buildPendingClientBanner() {
+    return Container(
+      width: double.infinity,
+      color: Colors.orange[50],
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      child: Row(
+        children: [
+          Icon(Icons.cloud_off, size: 18, color: Colors.orange[900]),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Fiche enregistrée hors ligne. Elle sera envoyée au serveur à '
+              'la prochaine synchronisation ; la visite et les photos '
+              'fonctionnent dès maintenant.'
+              '${_pendingCreationPhotos > 0 ? ' $_pendingCreationPhotos photo'
+                  '${_pendingCreationPhotos > 1 ? 's' : ''} de création '
+                  'partiront avec elle.' : ''}',
+              style: TextStyle(fontSize: 12, color: Colors.orange[900]),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildViewMode() {
     return SingleChildScrollView(
       child: Column(
         children: [
+          if (_isPendingClient) _buildPendingClientBanner(),
           // Header Section with Photo Slider
           Container(
             width: double.infinity,
@@ -3302,6 +3411,7 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
   }
 
   Future<void> _createOrder() async {
+    if (_blockedWhilePending('La prise de commande')) return;
     // Navigate to order creation page with API integration
     final orderData = await Navigator.push(
       context,
@@ -3363,6 +3473,7 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
   }
 
   Future<void> _createNewReturnVoucher() async {
+    if (_blockedWhilePending('La création d\'un bon de retour')) return;
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
@@ -3402,6 +3513,7 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
   }
 
   Future<void> _createNewAlert() async {
+    if (_blockedWhilePending('La création d\'alerte')) return;
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
@@ -3587,6 +3699,7 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
   }
 
   Future<void> _updateClientStatus(String newStatus) async {
+    if (_blockedWhilePending('Le changement de statut')) return;
     if (newStatus == (_client.status ?? 'Actif')) {
       return; // No change needed
     }

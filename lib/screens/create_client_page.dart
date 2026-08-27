@@ -5,12 +5,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:sirapro/models/client.dart';
 import 'package:sirapro/models/create_client_request.dart';
 import 'package:sirapro/models/user.dart';
 import 'package:sirapro/models/visit_report.dart';
 import 'package:sirapro/services/api_service.dart';
 import 'package:sirapro/services/auth_service.dart';
 import 'package:sirapro/services/client_service.dart';
+import 'package:sirapro/services/local_client_service.dart';
 import 'package:sirapro/services/offline_queue_service.dart';
 import 'package:sirapro/utils/app_colors.dart';
 import 'package:sirapro/utils/phone_formatter.dart';
@@ -287,17 +289,8 @@ class _CreateClientPageState extends State<CreateClientPage> {
   bool _showValidationErrors = false;
   Map<String, String> _fieldErrors = {};
 
-  final List<String> _types = [
-    'Boutique',
-    'Supermarché',
-    'Demi-grossiste',
-    'Grossiste',
-    'Distributeur',
-    'Mamie marché',
-    'Étalage',
-    'Boulangerie',
-    'Autre',
-  ];
+  /// Source unique partagée avec la validation des requêtes.
+  final List<String> _types = Client.types;
 
   final List<String> _clientTypes = [
     'Aucun',
@@ -891,7 +884,8 @@ class _CreateClientPageState extends State<CreateClientPage> {
   /// À la resynchronisation, la création est rejouée d'abord, puis les photos
   /// sont envoyées avec l'id serveur obtenu (chaînage {ref:...}).
   Future<void> _queueClientCreationOffline(CreateClientRequest request) async {
-    final localRef = 'client_${DateTime.now().microsecondsSinceEpoch}';
+    final stamp = DateTime.now().microsecondsSinceEpoch;
+    final localRef = 'client_$stamp';
     final clientName = _boutiqueNameController.text.trim();
 
     await OfflineQueueService().enqueue(OfflineOperation.json(
@@ -902,6 +896,14 @@ class _CreateClientPageState extends State<CreateClientPage> {
       provides: localRef,
     ));
 
+    // Copie locale de la fiche : le PDV apparaît immédiatement dans la liste
+    // des clients et reste utilisable (visite, photos) avant même d'exister
+    // côté serveur. Elle s'efface d'elle-même une fois la création rejouée.
+    final localClient = _buildLocalClient(
+      LocalClientService.localIdFor(stamp),
+      request,
+    );
+
     // Photos : copiées dans le stockage de l'app (les fichiers temporaires de
     // la caméra peuvent être purgés avant la synchronisation).
     final docsDir = await getApplicationDocumentsDirectory();
@@ -910,6 +912,7 @@ class _CreateClientPageState extends State<CreateClientPage> {
       await photosDir.create(recursive: true);
     }
 
+    var queuedPhotos = 0;
     Future<void> queuePhotoTask(
       List<GeotaggedPhoto> photos,
       String type,
@@ -925,6 +928,7 @@ class _CreateClientPageState extends State<CreateClientPage> {
         files.add({'field': 'photos[]', 'path': filePath});
       }
       if (files.isEmpty) return;
+      queuedPhotos += files.length;
       await OfflineQueueService().enqueue(OfflineOperation.multipart(
         label: 'Photos $title — $clientName',
         path: '/api/clients/{ref:$localRef}/photos',
@@ -953,6 +957,13 @@ class _CreateClientPageState extends State<CreateClientPage> {
       }
     }
 
+    await LocalClientService().add(LocalClient(
+      providesRef: localRef,
+      client: localClient,
+      createdAt: DateTime.now(),
+      pendingPhotoCount: queuedPhotos,
+    ));
+
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -962,8 +973,38 @@ class _CreateClientPageState extends State<CreateClientPage> {
           duration: const Duration(seconds: 4),
         ),
       );
-      Navigator.of(context).pop();
+      Navigator.of(context).pop(localClient);
     }
+  }
+
+  /// Fiche locale correspondant à la demande de création mise en file : les
+  /// mêmes valeurs que celles envoyées au serveur, avec un id local négatif.
+  Client _buildLocalClient(int localId, CreateClientRequest request) {
+    final now = DateTime.now();
+    return Client(
+      id: localId,
+      name: request.name,
+      type: request.type,
+      clientType: request.clientType,
+      managerName: request.managerName ?? '',
+      phones: request.phone.isEmpty ? const [] : [request.phone],
+      city: request.city,
+      address: request.addressDescription ?? '',
+      latitude: request.latitude,
+      longitude: request.longitude,
+      magasinId: request.baseCommercialeId,
+      zoneId: request.zoneId,
+      potential: request.potential,
+      visitFrequency: request.visitFrequency,
+      visitDay: request.visitDay,
+      hasOpenAlert: false,
+      createdAt: now,
+      updatedAt: now,
+      whatsapp: request.whatsapp,
+      email: request.email,
+      quartier: request.district,
+      isActive: request.isActive,
+    );
   }
 
   /// Upload photos for the created client with real-time progress tracking

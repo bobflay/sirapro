@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sirapro/models/client.dart';
 import 'package:sirapro/models/create_client_request.dart';
 
 void main() {
@@ -127,6 +128,17 @@ void main() {
           final request = createValidRequest(type: 'Autre');
           final errors = request.validate();
           expect(errors.where((e) => e.contains('Type')), isEmpty);
+        });
+
+        /// Le formulaire propose neuf types : aucun ne doit être refusé par
+        /// la validation locale, sinon la création échoue avant l'envoi —
+        /// et hors ligne, sans même être mise en file d'attente.
+        test('accepts every type offered by the creation form', () {
+          for (final type in Client.types) {
+            final errors = createValidRequest(type: type).validate();
+            expect(errors.where((e) => e.contains('Type')), isEmpty,
+                reason: 'type refusé : $type');
+          }
         });
 
         test('returns error for invalid type', () {

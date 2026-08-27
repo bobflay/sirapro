@@ -53,6 +53,7 @@ class MockApiService extends _i1.Mock implements _i2.ApiService {
     String? endpoint, {
     bool? includeAuth = true,
     Map<String, String>? extraHeaders,
+    bool? allowCache = true,
   }) =>
       (super.noSuchMethod(
         Invocation.method(
@@ -61,6 +62,7 @@ class MockApiService extends _i1.Mock implements _i2.ApiService {
           {
             #includeAuth: includeAuth,
             #extraHeaders: extraHeaders,
+            #allowCache: allowCache,
           },
         ),
         returnValue: _i3.Future<dynamic>.value(),

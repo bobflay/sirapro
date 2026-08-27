@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:sirapro/models/client.dart';
 import 'package:sirapro/services/visit_service.dart';
 import 'package:sirapro/services/client_service.dart';
 import 'package:sirapro/services/offline_queue_service.dart';
@@ -138,33 +139,65 @@ class _SessionAwareAppBarState extends State<SessionAwareAppBar> {
     return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
   }
 
+  /// Ouvre la fiche du client visité.
+  ///
+  /// La fiche est mémorisée au démarrage de la visite : on l'ouvre telle
+  /// quelle, sans appel réseau. Sans elle (visite reprise depuis le serveur),
+  /// on la demande à l'API, qui sait aussi la retrouver dans les données déjà
+  /// téléchargées. La barre doit toujours mener à la page où la visite peut
+  /// être terminée, y compris hors ligne et pour un client que le serveur ne
+  /// connaît pas encore.
   Future<void> _navigateToActiveClient() async {
-    final clientId = _visitService.activeClientId;
-    if (clientId == null) {
-      debugPrint('SessionAwareAppBar: No active client ID');
-      return;
+    var client = _visitService.activeClient;
+
+    if (client == null) {
+      final clientId = _visitService.activeClientId;
+      if (clientId == null) {
+        debugPrint('SessionAwareAppBar: No active client ID');
+        return;
+      }
+      client = await _fetchClient(clientId);
+      if (client == null) return;
     }
 
+    if (!mounted) return;
+    final target = client;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ClientDetailPage(client: target),
+      ),
+    );
+  }
+
+  /// Récupère la fiche client (API, puis cache hors ligne). Retourne null et
+  /// prévient l'utilisateur si elle reste introuvable.
+  Future<Client?> _fetchClient(int clientId) async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
     try {
-      final client = await _clientService.getClient(clientId);
-      if (mounted) {
-        await Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => ClientDetailPage(client: client),
-          ),
-        );
-      }
+      final client =
+          await _clientService.getClient(clientId, fallbackToCachedList: true);
+      if (mounted) Navigator.of(context, rootNavigator: true).pop();
+      return client;
     } catch (e) {
       debugPrint('SessionAwareAppBar: Error loading client: $e');
       if (mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Impossible de charger les détails du client'),
-            backgroundColor: Colors.red,
+            content: Text(
+                'Fiche client indisponible hors ligne. Reconnectez-vous au '
+                'réseau pour la récupérer.'),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 4),
           ),
         );
       }
+      return null;
     }
   }
 
