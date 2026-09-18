@@ -639,7 +639,7 @@ class _EditOrderPageState extends State<EditOrderPage> {
     try {
       final items = _cart.values.map((cartItem) {
         return UpdateOrderItemPayload(
-          productId: cartItem.product.baseProductId ?? cartItem.product.id,
+          productId: cartItem.product.id,
           quantity: cartItem.quantity,
           saleType: cartItem.saleType.apiValue,
           unitPrice: cartItem.effectivePrice,
