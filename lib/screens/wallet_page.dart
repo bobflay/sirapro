@@ -1199,21 +1199,47 @@ class _ReceiptDetailSheet extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 24),
-                // Receipt image
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: Image.network(
-                    receipt.imageUrl,
-                    height: 180,
-                    width: double.infinity,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => Container(
-                      height: 180,
-                      color: Colors.grey[200],
-                      child: Icon(Icons.broken_image, size: 48, color: Colors.grey[400]),
-                    ),
-                  ),
-                ),
+                // Receipt image — un versement confirmé par Sage n'a jamais
+                // de photo (imageUrl vide) : Image.network('') echouerait et
+                // afficherait la meme icone "image cassee" qu'un vrai
+                // probleme de chargement, ce qui induit en erreur.
+                receipt.imageUrl.isEmpty
+                    ? Container(
+                        height: 180,
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          color: Colors.green[50],
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.verified, size: 48, color: Colors.green[400]),
+                            const SizedBox(height: 8),
+                            Text(
+                              receipt.isFromSage ? 'Confirme par Sage' : 'Aucune photo',
+                              style: TextStyle(
+                                color: Colors.green[700],
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    : ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: Image.network(
+                          receipt.imageUrl,
+                          height: 180,
+                          width: double.infinity,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => Container(
+                            height: 180,
+                            color: Colors.grey[200],
+                            child: Icon(Icons.broken_image, size: 48, color: Colors.grey[400]),
+                          ),
+                        ),
+                      ),
                 const SizedBox(height: 24),
                 // Details
                 _buildDetailRow('Date', formatDateTime(receipt.createdAt)),

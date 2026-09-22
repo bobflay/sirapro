@@ -244,6 +244,8 @@ class CashReceipt {
   final double amount;
   final String imageUrl;
   final String status; // 'pending', 'approved', 'rejected'
+  final String source; // 'app' (scan) ou 'sage' (confirme par Sage, sans photo)
+  final String? sageReference;
   final bool aiVerified;
   final bool aiAmountVerified;
   final bool aiIsStamped;
@@ -258,6 +260,8 @@ class CashReceipt {
     required this.amount,
     required this.imageUrl,
     required this.status,
+    this.source = 'app',
+    this.sageReference,
     required this.aiVerified,
     required this.aiAmountVerified,
     required this.aiIsStamped,
@@ -271,6 +275,7 @@ class CashReceipt {
   bool get isPending => status == 'pending';
   bool get isApproved => status == 'approved';
   bool get isRejected => status == 'rejected';
+  bool get isFromSage => source == 'sage';
 
   factory CashReceipt.fromJson(Map<String, dynamic> json) {
     return CashReceipt(
@@ -278,6 +283,8 @@ class CashReceipt {
       amount: _parseDoubleSafe(json['amount']),
       imageUrl: json['image_url'] as String? ?? '',
       status: json['status'] as String? ?? 'pending',
+      source: json['source'] as String? ?? 'app',
+      sageReference: json['sage_reference'] as String?,
       aiVerified: json['ai_verified'] as bool? ?? false,
       aiAmountVerified: json['ai_amount_verified'] as bool? ?? false,
       aiIsStamped: json['ai_is_stamped'] as bool? ?? false,
