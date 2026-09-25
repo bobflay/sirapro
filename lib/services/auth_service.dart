@@ -4,6 +4,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user.dart';
 import 'api_service.dart';
 import 'push_notification_service.dart';
+import 'offline_queue_service.dart';
+import 'user_scope.dart';
+import 'visit_service.dart';
 
 class AuthException implements Exception {
   final String message;
@@ -148,6 +151,7 @@ class AuthService {
       final userData = jsonDecode(userJson) as Map<String, dynamic>;
       print('[AuthService] Raw bases_commerciales from storage: ${userData['bases_commerciales']}');
       _cachedUser = User.fromJson(userData);
+      await _switchUser(_cachedUser!.id);
       print('[AuthService] Parsed basesCommerciales count: ${_cachedUser?.basesCommerciales.length}');
       return _cachedUser;
     } catch (e) {
@@ -281,10 +285,20 @@ class AuthService {
     }
   }
 
+  /// Bascule le stockage local sur le compte [userId] (null = déconnecté) :
+  /// file hors ligne et visite active sont rechargées pour ce compte, afin
+  /// qu'un commercial ne voie ni n'envoie jamais les saisies d'un autre.
+  Future<void> _switchUser(int? userId) async {
+    if (!await UserScope.setUser(userId)) return;
+    await VisitService().reloadForCurrentUser();
+    await OfflineQueueService().reloadForCurrentUser();
+  }
+
   /// Save user data to SharedPreferences
   Future<void> _saveUser(User user) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_userKey, jsonEncode(user.toJson()));
+    await _switchUser(user.id);
   }
 
   /// Clear all stored authentication data
@@ -296,5 +310,6 @@ class AuthService {
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_userKey);
+    await _switchUser(null);
   }
 }

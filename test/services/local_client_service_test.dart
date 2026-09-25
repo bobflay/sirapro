@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sirapro/services/user_scope.dart';
 import 'package:sirapro/models/client.dart';
 import 'package:sirapro/services/local_client_service.dart';
 
@@ -72,14 +73,14 @@ void main() {
     test('the local copy disappears once the creation is synced', () async {
       await addLocalClient();
       SharedPreferences.setMockInitialValues({
-        'local_clients_v1': jsonEncode([
+        UserScope.key('local_clients_v1'): jsonEncode([
           {
             'provides_ref': 'client_1735000000000',
             'client': buildClient(-1735000000000).toJson(),
             'created_at': '2026-08-27T00:00:00.000',
           }
         ]),
-        'offline_queue_refs_v1': jsonEncode({'client_1735000000000': '4242'}),
+        UserScope.key('offline_queue_refs_v1'): jsonEncode({'client_1735000000000': '4242'}),
       });
 
       expect(await service.pendingClients(), isEmpty);
@@ -90,14 +91,14 @@ void main() {
     /// le bon client une fois la copie locale retirée de la liste.
     test('the local id still resolves after the copy is dropped', () async {
       SharedPreferences.setMockInitialValues({
-        'local_clients_v1': jsonEncode([
+        UserScope.key('local_clients_v1'): jsonEncode([
           {
             'provides_ref': 'client_1735000000000',
             'client': buildClient(-1735000000000).toJson(),
             'created_at': '2026-08-27T00:00:00.000',
           }
         ]),
-        'offline_queue_refs_v1': jsonEncode({'client_1735000000000': '4242'}),
+        UserScope.key('offline_queue_refs_v1'): jsonEncode({'client_1735000000000': '4242'}),
       });
 
       // La liste purge la fiche locale…
@@ -124,14 +125,14 @@ void main() {
 
       test('uses the server id as soon as the reference resolves', () async {
         SharedPreferences.setMockInitialValues({
-          'local_clients_v1': jsonEncode([
+          UserScope.key('local_clients_v1'): jsonEncode([
             {
               'provides_ref': 'client_1735000000000',
               'client': buildClient(-1735000000000).toJson(),
               'created_at': '2026-08-27T00:00:00.000',
             }
           ]),
-          'offline_queue_refs_v1': jsonEncode({'client_1735000000000': '4242'}),
+          UserScope.key('offline_queue_refs_v1'): jsonEncode({'client_1735000000000': '4242'}),
         });
 
         expect(await service.queueReferenceFor(-1735000000000), '4242');

@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sirapro/services/user_scope.dart';
 
 /// Trace locale des visites terminées hors ligne aujourd'hui, pour que la
 /// tournée reflète immédiatement les PDV faits (grisés + compteur) sans
@@ -10,7 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// Ne conserve que la journée courante : au changement de jour, la trace
 /// est réinitialisée (le serveur fait foi une fois synchronisé).
 class LocalVisitLogService {
-  static const String _storeKey = 'local_completed_visits_v1';
+  static String get _storeKey => UserScope.key('local_completed_visits_v1');
 
   static LocalVisitLogService? _instance;
 

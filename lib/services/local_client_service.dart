@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sirapro/services/user_scope.dart';
 
 import '../models/client.dart';
 import 'offline_queue_service.dart';
@@ -57,7 +58,7 @@ class LocalClient {
 /// commercial ne pouvait ni retrouver le PDV qu'il venait d'enregistrer, ni
 /// y démarrer une visite tant que le réseau n'était pas revenu.
 class LocalClientService {
-  static const String _storeKey = 'local_clients_v1';
+  static String get _storeKey => UserScope.key('local_clients_v1');
 
   /// Correspondance id local -> id serveur des fiches déjà synchronisées.
   ///
@@ -65,7 +66,7 @@ class LocalClientService {
   /// l'ancienne fiche (ou une saisie faite juste après la synchronisation)
   /// doit continuer à désigner le bon client. Bornée aux dernières entrées,
   /// le temps que ces écrans se ferment.
-  static const String _syncedKey = 'local_clients_synced_v1';
+  static String get _syncedKey => UserScope.key('local_clients_synced_v1');
   static const int _maxSyncedEntries = 50;
 
   static LocalClientService? _instance;

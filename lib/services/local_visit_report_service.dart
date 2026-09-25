@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sirapro/services/user_scope.dart';
 
 import '../models/visit_report.dart';
 import 'offline_queue_service.dart';
@@ -45,7 +46,7 @@ class LocalVisitReport {
 /// apparaissent immédiatement dans la section « Rapports de visite » sans
 /// attendre la synchronisation.
 class LocalVisitReportService {
-  static const String _storeKey = 'local_visit_reports_v1';
+  static String get _storeKey => UserScope.key('local_visit_reports_v1');
 
   static LocalVisitReportService? _instance;
 

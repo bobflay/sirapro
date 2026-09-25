@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sirapro/services/user_scope.dart';
 import 'package:sirapro/models/visit.dart';
 import 'package:sirapro/models/api_visit.dart';
 import 'package:sirapro/models/client.dart';
@@ -14,8 +15,8 @@ class VisitService {
   VisitService._internal();
 
   static const String _activeVisitKey = 'active_visit';
-  static const String _activeApiVisitKey = 'active_api_visit';
-  static const String _activeClientKey = 'active_client';
+  static String get _activeApiVisitKey => UserScope.key('active_api_visit');
+  static String get _activeClientKey => UserScope.key('active_client');
 
   // Visite actuellement active (legacy model for routing)
   Visit? _activeVisit;
@@ -224,6 +225,16 @@ class VisitService {
     } catch (e) {
       // Silently fail
     }
+  }
+
+  /// Recharge la visite active du compte courant (changement de compte) :
+  /// l'état en mémoire de l'ancien compte est oublié, pas effacé du stockage
+  /// — une visite ouverte hors ligne est retrouvée à sa reconnexion.
+  Future<void> reloadForCurrentUser() async {
+    _activeVisit = null;
+    _activeApiVisit = null;
+    _activeClient = null;
+    await loadActiveVisit();
   }
 
   /// Réinitialiser le service (utile pour les tests et logout)

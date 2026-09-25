@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sirapro/services/user_scope.dart';
 import 'package:sirapro/models/api_visit.dart';
 import 'package:sirapro/models/client.dart';
 import 'package:sirapro/models/visit.dart';
@@ -209,7 +210,7 @@ void main() {
 
         // Create new instance to verify persistence
         final prefs = await SharedPreferences.getInstance();
-        final savedJson = prefs.getString('active_api_visit');
+        final savedJson = prefs.getString(UserScope.key('active_api_visit'));
 
         expect(savedJson, isNotNull);
         expect(savedJson, contains('"id":123'));
@@ -253,11 +254,11 @@ void main() {
         await visitService.startApiVisit(visit);
 
         final prefs = await SharedPreferences.getInstance();
-        expect(prefs.getString('active_api_visit'), isNotNull);
+        expect(prefs.getString(UserScope.key('active_api_visit')), isNotNull);
 
         await visitService.endApiVisit();
 
-        expect(prefs.getString('active_api_visit'), isNull);
+        expect(prefs.getString(UserScope.key('active_api_visit')), isNull);
       });
 
       test('does nothing when no API visit active', () async {
@@ -373,7 +374,7 @@ void main() {
         await visitService.updateActiveApiVisit(updatedVisit);
 
         final prefs = await SharedPreferences.getInstance();
-        final savedJson = prefs.getString('active_api_visit');
+        final savedJson = prefs.getString(UserScope.key('active_api_visit'));
 
         expect(savedJson, contains('Persisted Update'));
       });
@@ -475,7 +476,7 @@ void main() {
 
         // Manually set SharedPreferences for test
         final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('active_api_visit', '''
+        await prefs.setString(UserScope.key('active_api_visit'), '''
           {
             "id": 999,
             "client_id": 100,
@@ -493,7 +494,7 @@ void main() {
 
       test('clears visit if no longer active', () async {
         final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('active_api_visit', '''
+        await prefs.setString(UserScope.key('active_api_visit'), '''
           {
             "id": 999,
             "client_id": 100,
@@ -505,17 +506,17 @@ void main() {
         await visitService.loadActiveVisit();
 
         expect(visitService.hasActiveApiVisit, false);
-        expect(prefs.getString('active_api_visit'), isNull);
+        expect(prefs.getString(UserScope.key('active_api_visit')), isNull);
       });
 
       test('handles malformed JSON gracefully', () async {
         final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('active_api_visit', 'invalid json');
+        await prefs.setString(UserScope.key('active_api_visit'), 'invalid json');
 
         await visitService.loadActiveVisit();
 
         expect(visitService.hasActiveApiVisit, false);
-        expect(prefs.getString('active_api_visit'), isNull);
+        expect(prefs.getString(UserScope.key('active_api_visit')), isNull);
       });
 
       test('handles missing data gracefully', () async {
@@ -543,11 +544,11 @@ void main() {
         await visitService.startApiVisit(visit);
 
         final prefs = await SharedPreferences.getInstance();
-        expect(prefs.getString('active_api_visit'), isNotNull);
+        expect(prefs.getString(UserScope.key('active_api_visit')), isNotNull);
 
         await visitService.reset();
 
-        expect(prefs.getString('active_api_visit'), isNull);
+        expect(prefs.getString(UserScope.key('active_api_visit')), isNull);
       });
     });
 

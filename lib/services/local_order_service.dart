@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sirapro/services/user_scope.dart';
 
 import 'offline_queue_service.dart';
 
@@ -118,7 +119,7 @@ class LocalOrder {
 /// Stockage des commandes créées hors ligne, pour qu'elles restent visibles
 /// et manipulables (marquage des livraisons) avant leur synchronisation.
 class LocalOrderService {
-  static const String _storeKey = 'local_orders_v1';
+  static String get _storeKey => UserScope.key('local_orders_v1');
 
   static LocalOrderService? _instance;
 

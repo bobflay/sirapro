@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sirapro/services/user_scope.dart';
 import 'package:mockito/annotations.dart';
 import 'package:mockito/mockito.dart';
 import 'package:sirapro/models/client.dart';
@@ -412,7 +413,7 @@ void main() {
       test('falls back to the cached client list when the network fails',
           () async {
         SharedPreferences.setMockInitialValues({
-          'offline_cache_v1:GET:/api/clients?page=1&limit=20': jsonEncode({
+          UserScope.key('offline_cache_v1:GET:/api/clients?page=1&limit=20'): jsonEncode({
             'data': [
               {
                 'id': 42,
@@ -456,7 +457,7 @@ void main() {
       /// par une copie périmée.
       test('does not mask a server rejection with the cache', () async {
         SharedPreferences.setMockInitialValues({
-          'offline_cache_v1:GET:/api/clients?page=1&limit=20': jsonEncode({
+          UserScope.key('offline_cache_v1:GET:/api/clients?page=1&limit=20'): jsonEncode({
             'data': [
               {
                 'id': 42,

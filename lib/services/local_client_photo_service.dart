@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sirapro/services/user_scope.dart';
 
 import 'offline_queue_service.dart';
 
@@ -61,7 +62,7 @@ class LocalClientPhoto {
 /// Stockage des photos de client prises hors ligne, pour qu'elles restent
 /// visibles dans la fiche du client avant leur synchronisation.
 class LocalClientPhotoService {
-  static const String _storeKey = 'local_client_photos_v1';
+  static String get _storeKey => UserScope.key('local_client_photos_v1');
 
   static LocalClientPhotoService? _instance;
 
