@@ -67,4 +67,30 @@ void main() {
       expect(await queue.failedOperations(), isEmpty);
     });
   });
+
+  group('OfflineQueueService.isAlreadyApplied', () {
+    OfflineOperation terminate() => OfflineOperation.json(
+          label: 'Fin de visite',
+          method: 'POST',
+          path: '/api/visits/12/terminate',
+          body: {'status': 'completed'},
+        );
+
+    test('une fin de visite déjà terminée côté serveur compte comme envoyée', () {
+      final e = ApiException(
+          'Visit is already terminated. Current status: completed',
+          statusCode: 422);
+      expect(OfflineQueueService.isAlreadyApplied(terminate(), e), isTrue);
+    });
+
+    test('un refus de distance reste un vrai échec', () {
+      final e = ApiException('Current distance: 450 meters', statusCode: 422);
+      expect(OfflineQueueService.isAlreadyApplied(terminate(), e), isFalse);
+    });
+
+    test('les autres saisies ne sont pas concernées', () {
+      final e = ApiException('Current status: completed', statusCode: 422);
+      expect(OfflineQueueService.isAlreadyApplied(_op('Commande'), e), isFalse);
+    });
+  });
 }

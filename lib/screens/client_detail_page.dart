@@ -1312,6 +1312,38 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
     TerminateVisitRequest request,
     String status,
   ) async {
+    // Hors du rayon autorisé, le serveur exige un motif : en ligne il le
+    // demande, mais au rejeu personne ne peut répondre et la fin de visite
+    // serait refusée. Le motif est donc demandé ici, avant la mise en file.
+    if (request.distanceExceedReason == null &&
+        _client.latitude != null &&
+        _client.longitude != null) {
+      final distance = Geolocator.distanceBetween(
+        request.latitude,
+        request.longitude,
+        _client.latitude!,
+        _client.longitude!,
+      );
+      if (distance > kVisitProximityThresholdMeters) {
+        final reasonResult = await _showDistanceExceedReasonDialog(
+          distance: distance,
+          maxDistance: kVisitProximityThresholdMeters,
+          availableReasons: DistanceExceedReasons.reasons,
+        );
+        if (reasonResult == null) {
+          if (mounted) setState(() => _isLoadingVisit = false);
+          return;
+        }
+        request = TerminateVisitRequest(
+          status: request.status,
+          latitude: request.latitude,
+          longitude: request.longitude,
+          distanceExceedReason: reasonResult.reason,
+          distanceExceedReasonOther: reasonResult.otherText,
+        );
+      }
+    }
+
     final pathSegment = visitId < 0 ? '{ref:visit_$visitId}' : '$visitId';
     await OfflineQueueService().enqueue(OfflineOperation.json(
       label: 'Fin de visite — ${_client.name}',

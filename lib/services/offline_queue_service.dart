@@ -298,6 +298,19 @@ class OfflineQueueService {
     return patterns.any(message.contains);
   }
 
+  /// Refus du serveur signifiant que la saisie a DÉJÀ été appliquée : une fin
+  /// de visite rejouée alors que la visite est déjà terminée (« Visit is
+  /// already terminated… Current status: completed »). Typique d'un réseau
+  /// faible : la requête est arrivée mais la réponse s'est perdue, la saisie
+  /// a été mise en file et repart une seconde fois.
+  static bool isAlreadyApplied(OfflineOperation op, Object error) {
+    if (!op.path.endsWith('/terminate')) return false;
+    if (error is! ApiException || error.statusCode == null) return false;
+    final message = error.message.toLowerCase();
+    return message.contains('already terminated') ||
+        message.contains('current status');
+  }
+
   Future<List<OfflineOperation>> _loadQueue(SharedPreferences prefs,
       {String? key}) async {
     key ??= _queueKey;
@@ -492,6 +505,13 @@ class OfflineQueueService {
             // reste en file et repartira après la reconnexion.
             debugPrint('[OfflineQueue] Unauthenticated, keeping queue');
             return;
+          }
+          if (isAlreadyApplied(op, e)) {
+            // Le serveur a déjà enregistré cette saisie (réponse perdue lors
+            // d'un envoi précédent) : c'est un succès, pas un échec.
+            debugPrint('[OfflineQueue] Already applied: ${op.label}');
+            await _removeFromQueue(prefs, op.id);
+            continue;
           }
           // Refus serveur : l'opération part dans la liste des échecs, où le
           // commercial peut la réessayer ou la supprimer. Si elle fournissait
