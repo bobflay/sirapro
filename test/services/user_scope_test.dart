@@ -49,9 +49,11 @@ void main() {
       expect(prefs.getString('u7/local_orders_v1'), '[{"x":1}]');
       expect(prefs.containsKey('local_orders_v1'), isFalse);
       expect(prefs.containsKey('offline_cache_v1:GET:/api/clients'), isFalse);
+      expect(prefs.getString('u7/offline_cache_v1:GET:/api/clients'), '{}');
 
       await UserScope.setUser(8);
       expect(prefs.containsKey('u8/local_orders_v1'), isFalse);
+      expect(prefs.containsKey('u8/offline_cache_v1:GET:/api/clients'), isFalse);
     });
 
     test('sans session, le rejeu ne fait basculer aucune saisie en échec',
