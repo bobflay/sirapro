@@ -8,7 +8,6 @@ import 'package:http_parser/http_parser.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api_service.dart';
-import 'user_scope.dart';
 
 /// Une opération d'écriture mise en attente hors ligne, rejouée telle quelle
 /// dès que le réseau revient.
@@ -183,15 +182,15 @@ class OfflineOperation {
 /// un refus du serveur (4xx/5xx) déplace l'opération dans la liste des
 /// échecs sans bloquer les suivantes.
 class OfflineQueueService {
-  static String get _queueKey => UserScope.key('offline_queue_v1');
-  static String get _failedKey => UserScope.key('offline_queue_failed_v1');
-  static String get _lastSyncKey => UserScope.key('offline_queue_last_sync_v1');
-  static String get _refsKey => UserScope.key('offline_queue_refs_v1');
+  static const String _queueKey = 'offline_queue_v1';
+  static const String _failedKey = 'offline_queue_failed_v1';
+  static const String _lastSyncKey = 'offline_queue_last_sync_v1';
+  static const String _refsKey = 'offline_queue_refs_v1';
 
   /// Références dont la création parente a été refusée par le serveur :
   /// ref -> raison. Les opérations qui en dépendent restent en file, bloquées,
   /// jusqu'à ce que le parent soit rejoué avec succès.
-  static String get _blockedRefsKey => UserScope.key('offline_queue_blocked_refs_v1');
+  static const String _blockedRefsKey = 'offline_queue_blocked_refs_v1';
 
   static OfflineQueueService? _instance;
 
@@ -229,7 +228,14 @@ class OfflineQueueService {
     if (_initialized) return;
     _initialized = true;
 
-    await _loadCounters();
+    final prefs = await SharedPreferences.getInstance();
+    final restored = await _loadQueue(prefs);
+    pendingCount.value = restored.length;
+    blockedCount.value = restored.where((op) => op.isBlocked).length;
+    final lastSyncRaw = prefs.getString(_lastSyncKey);
+    if (lastSyncRaw != null) {
+      lastSync.value = DateTime.tryParse(lastSyncRaw);
+    }
 
     Connectivity().checkConnectivity().then((results) {
       isOffline.value = !results.any((r) => r != ConnectivityResult.none);
@@ -247,26 +253,6 @@ class OfflineQueueService {
     // Tentative de rejeu au démarrage si des opérations ont été
     // enregistrées lors d'une session précédente.
     unawaited(flush());
-  }
-
-  /// Recharge les compteurs depuis la file du compte courant.
-  Future<void> _loadCounters() async {
-    final prefs = await SharedPreferences.getInstance();
-    final restored = await _loadQueue(prefs);
-    pendingCount.value = restored.length;
-    blockedCount.value = restored.where((op) => op.isBlocked).length;
-    final lastSyncRaw = prefs.getString(_lastSyncKey);
-    lastSync.value = lastSyncRaw != null ? DateTime.tryParse(lastSyncRaw) : null;
-  }
-
-  /// À appeler à chaque changement de compte (connexion / déconnexion) :
-  /// chaque commercial ne voit et n'envoie que ses propres saisies.
-  Future<void> reloadForCurrentUser() async {
-    _retryTimer?.cancel();
-    await _loadCounters();
-    if (_initialized) {
-      unawaited(flush());
-    }
   }
 
   void dispose() {
@@ -299,8 +285,7 @@ class OfflineQueueService {
   }
 
   Future<List<OfflineOperation>> _loadQueue(SharedPreferences prefs,
-      {String? key}) async {
-    key ??= _queueKey;
+      {String key = _queueKey}) async {
     final raw = prefs.getString(key);
     if (raw == null || raw.isEmpty) return [];
     try {
@@ -316,8 +301,7 @@ class OfflineQueueService {
   }
 
   Future<void> _saveQueue(SharedPreferences prefs, List<OfflineOperation> queue,
-      {String? key}) async {
-    key ??= _queueKey;
+      {String key = _queueKey}) async {
     await prefs.setString(key, jsonEncode(queue.map((e) => e.toJson()).toList()));
     if (key == _queueKey) {
       pendingCount.value = queue.length;
@@ -417,10 +401,6 @@ class OfflineQueueService {
   /// une copie périmée de la file.
   Future<void> flush() async {
     if (_flushing) return;
-    // Sans session, rien ne part : les saisies seraient refusées (401) et
-    // basculeraient à tort dans les échecs.
-    final owner = UserScope.userId;
-    if (owner == null || _apiService.token == null) return;
     _flushing = true;
     _retryTimer?.cancel();
     try {
@@ -438,9 +418,6 @@ class OfflineQueueService {
       final blockedThisPass = <String>{};
 
       while (true) {
-        // Changement de compte en plein rejeu : on s'arrête, la suite
-        // repartira avec le bon compte.
-        if (UserScope.userId != owner) return;
         final queue = await _loadQueue(prefs);
         OfflineOperation? op;
         for (final candidate in queue) {
@@ -487,12 +464,6 @@ class OfflineQueueService {
             _scheduleRetry();
             return;
           }
-          if (e is ApiException && e.statusCode == 401) {
-            // Session expirée : ce n'est pas un refus de la saisie. Elle
-            // reste en file et repartira après la reconnexion.
-            debugPrint('[OfflineQueue] Unauthenticated, keeping queue');
-            return;
-          }
           // Refus serveur : l'opération part dans la liste des échecs, où le
           // commercial peut la réessayer ou la supprimer. Si elle fournissait
           // une référence, ses dépendantes sont bloquées — pas supprimées.
@@ -508,16 +479,10 @@ class OfflineQueueService {
       }
     } finally {
       _flushing = false;
-      if (UserScope.userId != owner) {
-        // Le rejeu demandé par le nouveau compte a été ignoré pendant que
-        // celui-ci tournait : on le relance.
-        unawaited(flush());
-      } else {
-        final prefs = await SharedPreferences.getInstance();
-        final now = DateTime.now();
-        await prefs.setString(_lastSyncKey, now.toIso8601String());
-        lastSync.value = now;
-      }
+      final prefs = await SharedPreferences.getInstance();
+      final now = DateTime.now();
+      await prefs.setString(_lastSyncKey, now.toIso8601String());
+      lastSync.value = now;
     }
   }
 

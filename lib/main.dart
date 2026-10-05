@@ -33,9 +33,8 @@ void main() async {
   await PushNotificationService().initialize();
 
   await initializeDateFormatting('fr_FR', null);
-  // Restaure le compte connecté : cela sélectionne son stockage local
-  // (file hors ligne, visite active…) avant tout accès.
-  await AuthService().getCurrentUser();
+  // Load any active visit from persistent storage
+  await VisitService().loadActiveVisit();
   runApp(const MyApp());
 }
 
