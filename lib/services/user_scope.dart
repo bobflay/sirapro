@@ -63,15 +63,9 @@ class UserScope {
       await prefs.remove(legacy);
     }
 
-    // Le cache de lecture est repris aussi : sans lui, stock, visites et
-    // commandes ne s'affichent plus hors ligne tant que chaque écran n'a pas
-    // été rouvert en ligne.
+    // Le cache de lecture n'est pas repris : il sera retéléchargé pour le
+    // bon compte, et l'ancien pourrait montrer les clients d'un autre.
     for (final k in prefs.getKeys().where((k) => k.startsWith(_legacyCachePrefix)).toList()) {
-      final value = prefs.get(k);
-      final scoped = key(k);
-      if (!prefs.containsKey(scoped) && value is String) {
-        await prefs.setString(scoped, value);
-      }
       await prefs.remove(k);
     }
 
