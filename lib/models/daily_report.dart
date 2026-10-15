@@ -26,7 +26,7 @@ class OrderStat {
 
   factory OrderStat.fromJson(Map<String, dynamic> json) {
     return OrderStat(
-      count: json['count'] as int? ?? 0,
+      count: (json['count'] as num?)?.toInt() ?? 0,
       total: (json['total'] as num?)?.toDouble() ?? 0.0,
     );
   }
@@ -59,7 +59,7 @@ class DailyReportOrders {
 class StockProduct {
   final int id;
   final String name;
-  final int quantity;
+  final double quantity;
 
   StockProduct({
     required this.id,
@@ -69,9 +69,9 @@ class StockProduct {
 
   factory StockProduct.fromJson(Map<String, dynamic> json) {
     return StockProduct(
-      id: json['id'] as int? ?? 0,
-      name: json['name'] as String? ?? '',
-      quantity: json['quantity'] as int? ?? 0,
+      id: ((json['product_id'] ?? json['id']) as num?)?.toInt() ?? 0,
+      name: (json['product_name'] ?? json['name']) as String? ?? '',
+      quantity: (json['quantity'] as num?)?.toDouble() ?? 0.0,
     );
   }
 }
@@ -88,7 +88,7 @@ class StockAlert {
   factory StockAlert.fromJson(Map<String, dynamic> json) {
     final productsList = json['products'] as List<dynamic>? ?? [];
     return StockAlert(
-      count: json['count'] as int? ?? 0,
+      count: (json['count'] as num?)?.toInt() ?? 0,
       products: productsList
           .map((e) => StockProduct.fromJson(e as Map<String, dynamic>))
           .toList(),
@@ -152,9 +152,9 @@ class TempsTerrain {
 
   factory TempsTerrain.fromJson(Map<String, dynamic> json) {
     return TempsTerrain(
-      totalSeconds: json['total_seconds'] as int? ?? 0,
+      totalSeconds: (json['total_seconds'] as num?)?.toInt() ?? 0,
       formatted: json['formatted'] as String? ?? '0h00',
-      daySpanSeconds: json['day_span_seconds'] as int? ?? 0,
+      daySpanSeconds: (json['day_span_seconds'] as num?)?.toInt() ?? 0,
       daySpanFormatted: json['day_span_formatted'] as String? ?? '0h00',
     );
   }
@@ -181,12 +181,12 @@ class DailyReportVisits {
 
   factory DailyReportVisits.fromJson(Map<String, dynamic> json) {
     return DailyReportVisits(
-      visiteProgrammee: json['visite_programmee'] as int? ?? 0,
-      visiteEffective: json['visite_effective'] as int? ?? 0,
+      visiteProgrammee: (json['visite_programmee'] as num?)?.toInt() ?? 0,
+      visiteEffective: (json['visite_effective'] as num?)?.toInt() ?? 0,
       tauxRealisation: (json['taux_realisation'] as num?)?.toDouble() ?? 0.0,
       tauxCouverture: (json['taux_couverture'] as num?)?.toDouble() ?? 0.0,
-      clientsVisites: json['clients_visites'] as int? ?? 0,
-      totalClients: json['total_clients'] as int? ?? 0,
+      clientsVisites: (json['clients_visites'] as num?)?.toInt() ?? 0,
+      totalClients: (json['total_clients'] as num?)?.toInt() ?? 0,
       tempsTerrain: TempsTerrain.fromJson(
         json['temps_terrain'] as Map<String, dynamic>? ?? {},
       ),
@@ -207,8 +207,8 @@ class DailyReportSales {
 
   factory DailyReportSales.fromJson(Map<String, dynamic> json) {
     return DailyReportSales(
-      referenceVendue: json['reference_vendue'] as int? ?? 0,
-      totalItems: json['total_items'] as int? ?? 0,
+      referenceVendue: (json['reference_vendue'] as num?)?.toInt() ?? 0,
+      totalItems: (json['total_items'] as num?)?.toInt() ?? 0,
       avgPerVisit: (json['avg_per_visit'] as num?)?.toDouble() ?? 0.0,
     );
   }
@@ -230,6 +230,15 @@ class DailyReport {
     required this.visits,
     required this.sales,
   });
+
+  DailyReport withOrders(DailyReportOrders orders) => DailyReport(
+        period: period,
+        orders: orders,
+        stock: stock,
+        wallet: wallet,
+        visits: visits,
+        sales: sales,
+      );
 
   factory DailyReport.fromJson(Map<String, dynamic> json) {
     return DailyReport(

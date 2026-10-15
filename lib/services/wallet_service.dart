@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import '../models/wallet.dart';
 import 'api_service.dart';
+import 'offline_queue_service.dart';
 
 /// Service for wallet-related API operations
 class WalletService {
@@ -32,6 +33,63 @@ class WalletService {
       debugPrint('[WalletService] Error fetching wallet: $e');
       throw ApiException('Une erreur est survenue lors du chargement du portefeuille');
     }
+  }
+
+  /// Clé de [OfflineOperation.meta] décrivant une livraison mise en file :
+  /// {order, item, product, amount, delivered}.
+  static const String deliveryMetaKey = 'wallet_delivery';
+
+  /// Métadonnées à joindre à une livraison mise en file hors ligne, pour
+  /// qu'elle apparaisse dans les transactions avant sa synchronisation.
+  static Map<String, dynamic> deliveryMeta({
+    required String orderReference,
+    required String itemKey,
+    required String productName,
+    required double amount,
+    required bool delivered,
+  }) =>
+      {
+        deliveryMetaKey: {
+          'order': orderReference,
+          'item': itemKey,
+          'product': productName,
+          'amount': amount,
+          'delivered': delivered,
+        },
+      };
+
+  /// Crédits des livraisons faites hors ligne et pas encore synchronisées.
+  ///
+  /// En ligne, le serveur crédite le portefeuille à chaque article livré ;
+  /// hors ligne, ces transactions sont reconstituées depuis la file d'attente
+  /// et disparaissent d'elles-mêmes une fois envoyées (la version serveur
+  /// prend alors le relais). Pour un même article, le dernier marquage
+  /// l'emporte : livré puis « non livré » ne crédite rien.
+  Future<List<WalletTransaction>> pendingDeliveryCredits() async {
+    final latest = <String, Map<String, dynamic>>{};
+    final dates = <String, DateTime>{};
+    for (final op in await OfflineQueueService().pendingOperations()) {
+      final delivery = op.meta?[deliveryMetaKey];
+      if (delivery is! Map<String, dynamic>) continue;
+      final key = '${delivery['order']}|${delivery['item']}';
+      latest[key] = delivery;
+      dates[key] = op.createdAt;
+    }
+
+    var localId = 0;
+    return [
+      for (final entry in latest.entries)
+        if (entry.value['delivered'] == true)
+          WalletTransaction(
+            id: --localId,
+            type: 'credit',
+            amount: (entry.value['amount'] as num?)?.toDouble() ?? 0,
+            balanceAfter: 0,
+            description: 'Livraison — ${entry.value['product']}',
+            createdAt: dates[entry.key]!,
+            pendingReference: entry.value['order'] as String?,
+          ),
+    ];
   }
 
   /// Submit a cash receipt for balance deduction

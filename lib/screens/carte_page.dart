@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:sirapro/models/client.dart';
+import 'package:sirapro/services/api_service.dart';
 import 'package:sirapro/services/client_service.dart';
 import 'package:sirapro/screens/client_detail_page.dart';
 import 'package:sirapro/utils/app_colors.dart';
@@ -130,10 +131,23 @@ class _CartePageState extends State<CartePage> {
       }
     } catch (e) {
       debugPrint('Error loading clients: $e');
+      // Hors ligne : on retombe sur les clients déjà téléchargés (liste
+      // Clients préchargée par la synchro), filtrés sur la zone visible.
+      final offline = !(e is ApiException && e.statusCode != null);
+      final cached = offline
+          ? await _clientService.cachedClientsInBounds(
+              north: bounds.northeast.latitude,
+              south: bounds.southwest.latitude,
+              east: bounds.northeast.longitude,
+              west: bounds.southwest.longitude,
+            )
+          : const <Client>[];
       if (mounted) {
         setState(() {
+          if (cached.isNotEmpty) _clients = cached;
           _isLoadingClients = false;
         });
+        if (cached.isNotEmpty) _buildMarkers();
       }
     }
   }

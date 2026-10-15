@@ -12,6 +12,7 @@ import 'package:sirapro/screens/stock_commercial_page.dart';
 import 'package:sirapro/screens/carte_page.dart';
 import 'package:sirapro/screens/invoice_list_page.dart';
 import 'package:sirapro/screens/wallet_page.dart';
+import 'package:sirapro/screens/daily_report_page.dart';
 import 'package:sirapro/screens/return_vouchers_list_page.dart';
 import 'package:sirapro/utils/app_colors.dart';
 import 'package:sirapro/services/auth_service.dart';
@@ -801,6 +802,34 @@ class _HomePageState extends State<HomePage> {
                         context,
                         MaterialPageRoute(
                           builder: (context) => const StockCommercialPage(),
+                        ),
+                      );
+                    },
+                  ),
+                  _buildActionButton(
+                    context,
+                    icon: Icons.bar_chart,
+                    label: 'Rapport\njournalier',
+                    color: AppColors.primary,
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const DailyReportPage(),
+                        ),
+                      );
+                    },
+                  ),
+                  _buildActionButton(
+                    context,
+                    icon: Icons.account_balance_wallet,
+                    label: 'Portefeuille',
+                    color: AppColors.accent,
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const WalletPage(),
                         ),
                       );
                     },

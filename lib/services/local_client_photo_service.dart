@@ -155,4 +155,20 @@ class LocalClientPhotoService {
       debugPrint('[LocalClientPhotos] Could not delete $path: $e');
     }
   }
+
+  /// Retire les photos dont l'envoi a été abandonné (opération supprimée
+  /// depuis la page Synchronisation), fichiers compris.
+  Future<void> removeAll(Set<String> providesRefs) async {
+    if (providesRefs.isEmpty) return;
+    final prefs = await SharedPreferences.getInstance();
+    final photos = await _load(prefs);
+    final removed =
+        photos.where((p) => providesRefs.contains(p.providesRef)).toList();
+    if (removed.isEmpty) return;
+    photos.removeWhere((p) => providesRefs.contains(p.providesRef));
+    await _save(prefs, photos);
+    for (final photo in removed) {
+      await _deleteFile(photo.path);
+    }
+  }
 }

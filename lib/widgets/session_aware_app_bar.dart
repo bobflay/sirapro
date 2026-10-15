@@ -226,7 +226,9 @@ class _SessionAwareAppBarState extends State<SessionAwareAppBar> {
   /// Pastille « Hors ligne » (avec compteur de saisies en attente) affichée
   /// dans la barre dès que la connexion est perdue. Un appui ouvre la page
   /// Synchronisation.
-  Widget? _buildOfflineChip() {
+  /// [compact] : icône et compteur seuls, pour la barre de visite où le
+  /// chrono occupe déjà la place.
+  Widget? _buildOfflineChip({bool compact = false}) {
     final offline = _queueService.isOffline.value;
     final pending = _queueService.pendingCount.value;
     if (!offline && pending == 0) return null;
@@ -255,9 +257,11 @@ class _SessionAwareAppBarState extends State<SessionAwareAppBar> {
             ),
             const SizedBox(width: 4),
             Text(
-              offline
-                  ? (pending > 0 ? 'Hors ligne ($pending)' : 'Hors ligne')
-                  : '$pending à synchroniser',
+              compact
+                  ? (pending > 0 ? '$pending' : '')
+                  : offline
+                      ? (pending > 0 ? 'Hors ligne ($pending)' : 'Hors ligne')
+                      : '$pending à synchroniser',
               style: const TextStyle(
                 color: Colors.white,
                 fontSize: 11,
@@ -278,7 +282,14 @@ class _SessionAwareAppBarState extends State<SessionAwareAppBar> {
         crossAxisAlignment: CrossAxisAlignment.baseline,
         textBaseline: TextBaseline.alphabetic,
         children: [
-          Text(widget.title),
+          // Se raccourcit plutôt que de passer sous la pastille hors ligne.
+          Flexible(
+            child: Text(
+              widget.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
           if (_showVersion) ...[
             const SizedBox(width: 6),
             _buildVersionTag(),
@@ -298,7 +309,7 @@ class _SessionAwareAppBarState extends State<SessionAwareAppBar> {
 
   Widget _buildActiveSessionAppBar(BuildContext context) {
     final clientName = _visitService.activeClientName ?? 'Client';
-    final offlineChip = _buildOfflineChip();
+    final offlineChip = _buildOfflineChip(compact: true);
 
     return GestureDetector(
       onTap: _navigateToActiveClient,
@@ -321,19 +332,8 @@ class _SessionAwareAppBarState extends State<SessionAwareAppBar> {
                 children: [
                   Row(
                     children: [
-                      Text(
-                        widget.title,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
-                      ),
-                      if (_showVersion) ...[
-                        const SizedBox(width: 5),
-                        _buildVersionTag(fontSize: 10),
-                      ],
-                      const SizedBox(width: 8),
+                      // Badge d'abord : c'est l'information utile. Le titre
+                      // de la page se raccourcit dans la place restante.
                       Container(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 6,
@@ -353,6 +353,23 @@ class _SessionAwareAppBarState extends State<SessionAwareAppBar> {
                           ),
                         ),
                       ),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          widget.title,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      if (_showVersion) ...[
+                        const SizedBox(width: 5),
+                        _buildVersionTag(fontSize: 10),
+                      ],
                     ],
                   ),
                   const SizedBox(height: 1),
@@ -423,7 +440,10 @@ class _SessionAwareAppBarState extends State<SessionAwareAppBar> {
             ),
           ),
           // Include original actions
-          if (widget.actions != null) ...widget.actions!,
+          if (widget.actions != null)
+            ...widget.actions!
+          else
+            const SizedBox(width: 12),
         ],
         bottom: widget.bottom,
       ),

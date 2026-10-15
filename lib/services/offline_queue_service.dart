@@ -8,6 +8,7 @@ import 'package:http_parser/http_parser.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api_service.dart';
+import 'wallet_service.dart';
 
 /// Une opération d'écriture mise en attente hors ligne, rejouée telle quelle
 /// dès que le réseau revient.
@@ -52,6 +53,11 @@ class OfflineOperation {
 
   bool get isBlocked => blockedReason != null;
 
+  /// Données d'affichage propres à l'app, jamais envoyées au serveur (ex: le
+  /// montant d'une livraison, pour la montrer dans le portefeuille avant que
+  /// le serveur ne crée la transaction).
+  final Map<String, dynamic>? meta;
+
   OfflineOperation({
     required this.id,
     required this.createdAt,
@@ -66,6 +72,7 @@ class OfflineOperation {
     this.idPath = 'data.id',
     this.error,
     this.blockedReason,
+    this.meta,
   });
 
   factory OfflineOperation.json({
@@ -75,6 +82,7 @@ class OfflineOperation {
     required Map<String, dynamic> body,
     String? provides,
     String idPath = 'data.id',
+    Map<String, dynamic>? meta,
   }) {
     return OfflineOperation(
       id: 'op_${DateTime.now().microsecondsSinceEpoch}',
@@ -86,6 +94,7 @@ class OfflineOperation {
       body: body,
       provides: provides,
       idPath: idPath,
+      meta: meta,
     );
   }
 
@@ -111,7 +120,12 @@ class OfflineOperation {
     );
   }
 
-  OfflineOperation _copyWith({String? error, String? blockedReason}) {
+  OfflineOperation _copyWith({
+    String? error,
+    String? blockedReason,
+    Map<String, dynamic>? body,
+    Map<String, dynamic>? meta,
+  }) {
     return OfflineOperation(
       id: id,
       createdAt: createdAt,
@@ -119,13 +133,14 @@ class OfflineOperation {
       kind: kind,
       method: method,
       path: path,
-      body: body,
+      body: body ?? this.body,
       fields: fields,
       files: files,
       provides: provides,
       idPath: idPath,
       error: error,
       blockedReason: blockedReason,
+      meta: meta ?? this.meta,
     );
   }
 
@@ -149,6 +164,7 @@ class OfflineOperation {
         'id_path': idPath,
         if (error != null) 'error': error,
         if (blockedReason != null) 'blocked_reason': blockedReason,
+        if (meta != null) 'meta': meta,
       };
 
   factory OfflineOperation.fromJson(Map<String, dynamic> json) {
@@ -170,6 +186,34 @@ class OfflineOperation {
       idPath: json['id_path'] as String? ?? 'data.id',
       error: json['error'] as String?,
       blockedReason: json['blocked_reason'] as String?,
+      meta: json['meta'] as Map<String, dynamic>?,
+    );
+  }
+}
+
+/// Visite ouverte côté serveur (GET /api/visits/active).
+class OpenVisit {
+  final int id;
+  final int? clientId;
+  final String? clientName;
+  final DateTime? startedAt;
+
+  const OpenVisit({
+    required this.id,
+    this.clientId,
+    this.clientName,
+    this.startedAt,
+  });
+
+  factory OpenVisit.fromJson(Map<String, dynamic> json) {
+    final client = json['client'];
+    return OpenVisit(
+      id: (json['id'] as num).toInt(),
+      clientId: (json['client_id'] as num?)?.toInt(),
+      clientName: client is Map<String, dynamic> ? client['name'] as String? : null,
+      startedAt: json['started_at'] is String
+          ? DateTime.tryParse(json['started_at'] as String)
+          : null,
     );
   }
 }
@@ -284,6 +328,60 @@ class OfflineQueueService {
     return patterns.any(message.contains);
   }
 
+  /// Refus du serveur signifiant que la saisie a DÉJÀ été appliquée : une fin
+  /// de visite rejouée alors que la visite est déjà terminée (« This visit is
+  /// already terminated… Current status: completed »). Typique d'un réseau
+  /// faible : la requête est arrivée mais la réponse s'est perdue, la saisie
+  /// a été mise en file et repart une seconde fois.
+  static bool isAlreadyApplied(OfflineOperation op, Object error) {
+    if (!op.path.endsWith('/terminate')) return false;
+    if (error is! ApiException || error.statusCode == null) return false;
+    final message = error.message.toLowerCase();
+    return message.contains('already terminated') ||
+        message.contains('current status');
+  }
+
+  static final RegExp _unterminatedVisitPattern =
+      RegExp(r'Unterminated visit ID:\s*(\d+)');
+
+  /// Id de la visite restée ouverte quand le serveur refuse un début de
+  /// visite rejoué (« Unterminated visit ID: N »), sinon null.
+  static int? openVisitIdFrom(OfflineOperation op, Object error) {
+    if (op.method.toUpperCase() != 'POST' || op.path != '/api/visits') {
+      return null;
+    }
+    if (op.provides == null) return null;
+    if (error is! ApiException || error.statusCode == null) return null;
+    final match = _unterminatedVisitPattern.firstMatch(error.message);
+    return match == null ? null : int.tryParse(match.group(1)!);
+  }
+
+  /// Visite actuellement ouverte sur le serveur pour l'agent connecté.
+  Future<OpenVisit?> _fetchOpenVisit() async {
+    final response =
+        await _apiService.get('/api/visits/active', allowCache: false);
+    final data = response is Map<String, dynamic> ? response['data'] : null;
+    if (data is! Map<String, dynamic>) return null;
+    return OpenVisit.fromJson(data);
+  }
+
+  /// La visite ouverte est-elle celle que ce début de visite a créée lors
+  /// d'un envoi dont la réponse s'est perdue ? Même client, et démarrée
+  /// peu avant la mise en file.
+  Future<bool> _isSameVisitStart(OfflineOperation op, OpenVisit open) async {
+    final clientId = (await _resolveBody(op.body))?['client_id']?.toString();
+    if (clientId == null || clientId != open.clientId?.toString()) {
+      return false;
+    }
+    final startedAt = open.startedAt;
+    if (startedAt == null) return true;
+    return op.createdAt.difference(startedAt).abs() <= _sameStartTolerance;
+  }
+
+  /// Écart toléré entre le démarrage enregistré par le serveur et la mise en
+  /// file du même début de visite (tentative en ligne puis repli hors ligne).
+  static const Duration _sameStartTolerance = Duration(hours: 2);
+
   Future<List<OfflineOperation>> _loadQueue(SharedPreferences prefs,
       {String key = _queueKey}) async {
     final raw = prefs.getString(key);
@@ -322,12 +420,118 @@ class OfflineQueueService {
   }
 
   /// Supprime une opération échouée (après examen par l'utilisateur).
-  Future<void> discardFailed(String id) async {
+  ///
+  /// Si c'était une création, les opérations en file qui en dépendent (ex:
+  /// les livraisons d'une commande) sont supprimées avec elle : sans parent,
+  /// elles resteraient bloquées pour toujours. Renvoie les références locales
+  /// abandonnées, pour que l'appelant retire leurs copies locales.
+  Future<Set<String>> discardFailed(String id) async {
     final prefs = await SharedPreferences.getInstance();
     final failed = await _loadQueue(prefs, key: _failedKey);
-    failed.removeWhere((op) => op.id == id);
+    final index = failed.indexWhere((op) => op.id == id);
+    if (index == -1) return const {};
+    final op = failed.removeAt(index);
     await _saveQueue(prefs, failed, key: _failedKey);
+
+    final refs = <String>{};
+    if (op.provides != null) {
+      final queue = await _loadQueue(prefs);
+      final dependents = _dependents(queue, op.provides!);
+      refs
+        ..add(op.provides!)
+        ..addAll(dependents.map((d) => d.provides).whereType<String>());
+      if (dependents.isNotEmpty) {
+        final ids = dependents.map((d) => d.id).toSet();
+        queue.removeWhere((o) => ids.contains(o.id));
+        await _saveQueue(prefs, queue);
+      }
+      final blocked = _loadBlockedRefs(prefs);
+      if (refs.any((ref) => blocked.remove(ref) != null)) {
+        await prefs.setString(_blockedRefsKey, jsonEncode(blocked));
+      }
+    }
     lastSync.value = DateTime.now();
+    return refs;
+  }
+
+  /// Raison affichée sur une opération orpheline (voir [orphanedIds]).
+  static const String orphanReason =
+      'La saisie dont elle dépend a été supprimée : cette opération ne '
+      'pourra jamais être envoyée.';
+
+  /// Opérations en file qui attendent une référence que plus rien ne peut
+  /// fournir : sa création n'est ni envoyée, ni en file, ni en échec (ex:
+  /// supprimée par une version antérieure de l'app, qui laissait ses
+  /// dépendantes en file). Elles ne partiront jamais ; l'agent peut les
+  /// supprimer depuis la page Synchronisation.
+  Future<Set<String>> orphanedIds() async {
+    final prefs = await SharedPreferences.getInstance();
+    final queue = await _loadQueue(prefs);
+    final providable = await _providableRefs(prefs, queue);
+    return {
+      for (final op in queue)
+        if (_referencedRefs(op).any((ref) => !providable.contains(ref))) op.id,
+    };
+  }
+
+  /// Références résolues ou encore fournies par une opération en file ou
+  /// en échec.
+  Future<Set<String>> _providableRefs(
+      SharedPreferences prefs, List<OfflineOperation> queue) async {
+    final failed = await _loadQueue(prefs, key: _failedKey);
+    return {
+      ..._loadRefs(prefs).keys,
+      for (final op in [...queue, ...failed])
+        if (op.provides != null) op.provides!,
+    };
+  }
+
+  /// Supprime une opération orpheline et celles qui en dépendent. Sans effet
+  /// si elle n'est pas (ou plus) orpheline. Renvoie les références locales
+  /// abandonnées, pour que l'appelant retire leurs copies locales.
+  Future<Set<String>> discardOrphaned(String id) async {
+    if (!(await orphanedIds()).contains(id)) return const {};
+    final prefs = await SharedPreferences.getInstance();
+    final queue = await _loadQueue(prefs);
+    final op = queue.firstWhere((o) => o.id == id);
+    final removed = [
+      op,
+      if (op.provides != null) ..._dependents(queue, op.provides!),
+    ];
+    final ids = removed.map((o) => o.id).toSet();
+    queue.removeWhere((o) => ids.contains(o.id));
+    await _saveQueue(prefs, queue);
+    lastSync.value = DateTime.now();
+    return removed.map((o) => o.provides).whereType<String>().toSet();
+  }
+
+  /// Opérations en file qui seraient supprimées avec l'opération échouée
+  /// [op] (pour le prévenir avant de confirmer).
+  Future<List<OfflineOperation>> dependentsOf(OfflineOperation op) async {
+    if (op.provides == null) return const [];
+    final prefs = await SharedPreferences.getInstance();
+    return _dependents(await _loadQueue(prefs), op.provides!);
+  }
+
+  /// Opérations qui citent [ref], directement ou en cascade (une dépendante
+  /// qui fournit elle-même une référence entraîne les siennes).
+  static List<OfflineOperation> _dependents(
+      List<OfflineOperation> queue, String ref) {
+    final refs = {ref};
+    final result = <OfflineOperation>[];
+    var grew = true;
+    while (grew) {
+      grew = false;
+      for (final op in queue) {
+        if (result.contains(op) || !_referencedRefs(op).any(refs.contains)) {
+          continue;
+        }
+        result.add(op);
+        if (op.provides != null) refs.add(op.provides!);
+        grew = true;
+      }
+    }
+    return result;
   }
 
   /// Remet une opération échouée dans la file pour un nouvel essai.
@@ -342,7 +546,104 @@ class OfflineQueueService {
     if (index == -1) return;
     final op = failed.removeAt(index);
     await _saveQueue(prefs, failed, key: _failedKey);
+    await _requeue(prefs, op);
+    unawaited(flush());
+  }
 
+  /// Création de commande (POST /api/orders) : ses quantités peuvent être
+  /// corrigées avant un nouvel essai, ex. après un refus pour stock
+  /// insuffisant.
+  static bool isOrderCreation(OfflineOperation op) =>
+      op.method == 'POST' &&
+      op.path == '/api/orders' &&
+      op.body?['items'] is List;
+
+  /// Clé d'une ligne de commande : un même produit peut figurer deux fois
+  /// (au pack et à l'unité).
+  static String orderLineKey(Map<String, dynamic> line) =>
+      '${line['product_id']}|${line['sale_type']}';
+
+  /// Corrige les quantités d'une commande refusée puis la réessaie.
+  ///
+  /// [quantities] associe une clé [orderLineKey] à sa nouvelle quantité ;
+  /// 0 retire la ligne. Les livraisons en file pour cette commande suivent :
+  /// montant recalculé, ou retirées si leur produit n'est plus commandé
+  /// (le serveur les refuserait).
+  Future<void> retryFailedOrder(String id, Map<String, int> quantities) async {
+    final prefs = await SharedPreferences.getInstance();
+    final failed = await _loadQueue(prefs, key: _failedKey);
+    final index = failed.indexWhere((op) => op.id == id);
+    if (index == -1 || !isOrderCreation(failed[index])) return;
+    final op = failed[index];
+
+    final lines = <Map<String, dynamic>>[];
+    for (final line
+        in (op.body!['items'] as List).whereType<Map<String, dynamic>>()) {
+      final quantity = quantities[orderLineKey(line)] ??
+          (line['quantity'] as num?)?.toInt() ??
+          0;
+      if (quantity > 0) lines.add({...line, 'quantity': quantity});
+    }
+    if (lines.isEmpty) {
+      throw ArgumentError('La commande doit garder au moins un article');
+    }
+
+    failed.removeAt(index);
+    await _saveQueue(prefs, failed, key: _failedKey);
+    if (op.provides != null) {
+      await _adjustDeliveries(prefs, op.provides!, lines);
+    }
+    await _requeue(prefs, op._copyWith(body: {...op.body!, 'items': lines}));
+    unawaited(flush());
+  }
+
+  /// Aligne les livraisons en file d'une commande sur ses lignes corrigées.
+  Future<void> _adjustDeliveries(SharedPreferences prefs, String ref,
+      List<Map<String, dynamic>> lines) async {
+    final totals = <int, double>{};
+    for (final line in lines) {
+      final productId = (line['product_id'] as num?)?.toInt();
+      if (productId == null) continue;
+      totals[productId] = (totals[productId] ?? 0) +
+          ((line['unit_price'] as num?)?.toDouble() ?? 0) *
+              ((line['quantity'] as num?)?.toInt() ?? 0);
+    }
+
+    final queue = await _loadQueue(prefs);
+    final adjusted = <OfflineOperation>[];
+    var changed = false;
+    for (final op in queue) {
+      final items = op.body?['items'];
+      final productId = items is List && items.isNotEmpty && items.first is Map
+          ? ((items.first as Map)['product_id'] as num?)?.toInt()
+          : null;
+      if (!op.path.contains('{ref:$ref}') || productId == null) {
+        adjusted.add(op);
+        continue;
+      }
+      changed = true;
+      final total = totals[productId];
+      if (total == null) continue; // Produit retiré de la commande.
+      final delivery = op.meta?[WalletService.deliveryMetaKey];
+      adjusted.add(delivery is Map<String, dynamic>
+          ? op._copyWith(
+              error: op.error,
+              blockedReason: op.blockedReason,
+              meta: {
+                ...op.meta!,
+                WalletService.deliveryMetaKey: {...delivery, 'amount': total},
+              },
+            )
+          : op);
+    }
+    if (changed) {
+      await _saveQueue(prefs, adjusted);
+    }
+  }
+
+  /// Remet une opération retirée des échecs à sa place chronologique dans la
+  /// file et débloque ses dépendantes.
+  Future<void> _requeue(SharedPreferences prefs, OfflineOperation op) async {
     final restored =
         OfflineOperation.fromJson(op.toJson()..remove('error')).withBlocked(null);
     final queue = await _loadQueue(prefs);
@@ -354,7 +655,41 @@ class OfflineQueueService {
     if (restored.provides != null) {
       await _unblockRef(prefs, restored.provides!);
     }
-    unawaited(flush());
+  }
+
+  /// Refus pour session absente ou expirée (401 « Unauthenticated. ») : la
+  /// saisie n'est pas en cause, elle doit attendre la reconnexion.
+  static bool isAuthError(Object error) =>
+      error is ApiException && error.statusCode == 401;
+
+  static bool _isAuthMessage(String? message) =>
+      message != null && message.toLowerCase().contains('unauthenticated');
+
+  /// Remet en file les opérations refusées pour session expirée par une
+  /// version antérieure de l'app (qui rejouait la file après déconnexion) :
+  /// elles repartent d'elles-mêmes, sans « Réessayer » une par une.
+  Future<void> _restoreAuthFailures(SharedPreferences prefs) async {
+    final failed = await _loadQueue(prefs, key: _failedKey);
+    final toRestore = failed.where((op) => _isAuthMessage(op.error)).toList();
+
+    // Références bloquées par ces refus : leurs dépendantes repartent aussi.
+    final blocked = _loadBlockedRefs(prefs);
+    final staleRefs = blocked.entries
+        .where((e) => _isAuthMessage(e.value))
+        .map((e) => e.key)
+        .toList();
+    if (toRestore.isEmpty && staleRefs.isEmpty) return;
+
+    failed.removeWhere((op) => _isAuthMessage(op.error));
+    await _saveQueue(prefs, failed, key: _failedKey);
+    for (final op in toRestore) {
+      await _requeue(prefs, op);
+    }
+    for (final ref in staleRefs) {
+      await _unblockRef(prefs, ref);
+    }
+    debugPrint('[OfflineQueue] Restored ${toRestore.length} operation(s) '
+        'rejected for an expired session');
   }
 
   /// Attache une référence locale à une opération déjà en file.
@@ -392,6 +727,11 @@ class OfflineQueueService {
     queue.add(op);
     await _saveQueue(prefs, queue);
     debugPrint('[OfflineQueue] Enqueued ${op.label} (${queue.length} pending)');
+    // En ligne (ex: fin d'une visite démarrée hors ligne, qui passe toujours
+    // par la file) : envoi immédiat, sans attendre un changement de réseau.
+    if (_initialized && !isOffline.value) {
+      unawaited(flush());
+    }
   }
 
   /// Rejoue la file dans l'ordre. Sans effet si déjà en cours ou vide.
@@ -401,10 +741,15 @@ class OfflineQueueService {
   /// une copie périmée de la file.
   Future<void> flush() async {
     if (_flushing) return;
+    // Pas de session (agent déconnecté) : chaque envoi serait refusé en 401.
+    // La file attend la reconnexion, qui relance la synchronisation.
+    final token = _apiService.token;
+    if (token == null || token.isEmpty) return;
     _flushing = true;
     _retryTimer?.cancel();
     try {
       final prefs = await SharedPreferences.getInstance();
+      await _restoreAuthFailures(prefs);
       if ((await _loadQueue(prefs)).isEmpty) return;
 
       // Opérations déjà traitées (envoyées, refusées ou écartées comme
@@ -464,16 +809,68 @@ class OfflineQueueService {
             _scheduleRetry();
             return;
           }
+          if (isAuthError(e)) {
+            // Session expirée : l'opération reste en file, intacte, et
+            // repartira après reconnexion — ce n'est pas un refus de la saisie.
+            debugPrint('[OfflineQueue] Session expired, waiting for login');
+            return;
+          }
+          if (isAlreadyApplied(op, e)) {
+            // Le serveur a déjà enregistré cette saisie (réponse perdue lors
+            // d'un envoi précédent) : c'est un succès, pas un échec.
+            debugPrint('[OfflineQueue] Already applied: ${op.label}');
+            await _removeFromQueue(prefs, op.id);
+            continue;
+          }
+          Object error = e;
+          final openVisitId = openVisitIdFrom(op, e);
+          if (openVisitId != null) {
+            final OpenVisit? open;
+            try {
+              open = await _fetchOpenVisit();
+            } catch (fetchError) {
+              if (isNetworkError(fetchError)) {
+                _scheduleRetry();
+                return;
+              }
+              if (isAuthError(fetchError)) return;
+              rethrow;
+            }
+            if (open != null &&
+                open.id == openVisitId &&
+                await _isSameVisitStart(op, open)) {
+              // Début de visite déjà reçu par le serveur (réponse perdue,
+              // l'app l'avait remis en file) : on reprend la visite ouverte
+              // au lieu d'en recréer une, et ses dépendantes repartent.
+              debugPrint('[OfflineQueue] Adopted open visit $openVisitId: '
+                  '${op.label}');
+              await _storeRef(prefs, op.provides!, {'id': open.id}, 'id');
+              await _removeFromQueue(prefs, op.id);
+              processed.removeAll(blockedThisPass);
+              blockedThisPass.clear();
+              continue;
+            }
+            // Une autre visite est restée ouverte : message explicite, car
+            // tant qu'elle l'est, tout début de visite sera refusé.
+            final where = open?.clientName != null
+                ? ' chez ${open!.clientName}'
+                : '';
+            error = ApiException(
+              'Visite n° $openVisitId$where restée ouverte sur le serveur. '
+              'Clôturez-la, puis réessayez ce début de visite.',
+              statusCode: 422,
+            );
+          }
           // Refus serveur : l'opération part dans la liste des échecs, où le
           // commercial peut la réessayer ou la supprimer. Si elle fournissait
           // une référence, ses dépendantes sont bloquées — pas supprimées.
-          debugPrint('[OfflineQueue] Rejected by server: ${op.label} — $e');
+          debugPrint('[OfflineQueue] Rejected by server: ${op.label} — $error');
           await _removeFromQueue(prefs, op.id);
           final failed = await _loadQueue(prefs, key: _failedKey);
-          failed.add(op.withError(e.toString()));
+          failed.add(op.withError(error.toString()));
           await _saveQueue(prefs, failed, key: _failedKey);
           if (op.provides != null) {
-            await _blockRef(prefs, op.provides!, e.toString());
+            await _blockRef(prefs, op.provides!, error.toString());
           }
         }
       }
@@ -520,6 +917,8 @@ class OfflineQueueService {
     final blocked = _loadBlockedRefs(prefs);
     for (final ref in _referencedRefs(op)) {
       if (refs.containsKey(ref)) continue;
+      final providable = await _providableRefs(prefs, await _loadQueue(prefs));
+      if (!providable.contains(ref)) return orphanReason;
       return blocked[ref] ??
           'En attente d\'une création non encore synchronisée';
     }

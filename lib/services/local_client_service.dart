@@ -208,4 +208,17 @@ class LocalClientService {
     final resolved = await OfflineQueueService().resolvedRef(local.providesRef);
     return resolved ?? '{ref:${local.providesRef}}';
   }
+
+  /// Retire les copies locales dont l'envoi a été abandonné (opération
+  /// supprimée depuis la page Synchronisation).
+  Future<void> removeAll(Set<String> providesRefs) async {
+    if (providesRefs.isEmpty) return;
+    final prefs = await SharedPreferences.getInstance();
+    final items = await _load(prefs);
+    final before = items.length;
+    items.removeWhere((e) => providesRefs.contains(e.providesRef));
+    if (items.length != before) {
+      await _save(prefs, items);
+    }
+  }
 }

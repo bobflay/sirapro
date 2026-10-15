@@ -414,42 +414,16 @@ class VisitApiService {
     int perPage = 15,
   }) async {
     try {
-      final queryParams = {
-        'page': page.toString(),
-        'per_page': perPage.toString(),
-      };
-
-      final uri = Uri.parse('${ApiService.baseUrl}/api/visits')
-          .replace(queryParameters: queryParams);
-
-      final token = _apiService.token;
-
-      final response = await http.get(
-        uri,
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          if (token != null) 'Authorization': 'Bearer $token',
-        },
-      );
-
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        final body = jsonDecode(response.body) as Map<String, dynamic>;
-        return VisitsListResponse.fromJson(body);
+      // Via ApiService.get pour que la liste reste consultable hors ligne
+      // (dernière réponse mise en cache, préchargée par DataSyncService).
+      final response =
+          await _apiService.get('/api/visits?page=$page&per_page=$perPage');
+      if (response is Map<String, dynamic>) {
+        return VisitsListResponse.fromJson(response);
       }
-
-      // Handle error response
-      final body = response.body.isNotEmpty
-          ? jsonDecode(response.body) as Map<String, dynamic>?
-          : null;
-      final errorMessage = body?['message'] as String? ?? 'Failed to fetch visits';
-
-      throw VisitApiException(
-        errorMessage,
-        statusCode: response.statusCode,
-      );
-    } on http.ClientException {
-      throw VisitApiException('Connection failed. Please check your internet.');
+      throw VisitApiException('Failed to fetch visits');
+    } on ApiException catch (e) {
+      throw VisitApiException(e.message, statusCode: e.statusCode);
     } catch (e) {
       if (e is VisitApiException) rethrow;
       throw VisitApiException('An unexpected error occurred: $e');

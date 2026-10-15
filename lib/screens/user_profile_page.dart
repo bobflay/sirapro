@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import '../models/user.dart';
 import '../models/daily_report.dart';
 import '../services/auth_service.dart';
+import '../services/offline_queue_service.dart';
 import '../services/daily_report_service.dart';
 import '../services/routing_api_service.dart';
 import '../models/api_routing.dart';
@@ -12,6 +13,7 @@ import '../widgets/session_aware_app_bar.dart';
 import '../main.dart';
 import 'change_password_page.dart';
 import 'notification_settings_page.dart';
+import 'sync_page.dart';
 
 class UserProfilePage extends StatefulWidget {
   const UserProfilePage({super.key});
@@ -1062,12 +1064,52 @@ class _UserProfilePageState extends State<UserProfilePage> {
   }
 
   void _showLogoutDialog(BuildContext context) {
+    // Saisies hors ligne pas encore envoyées : elles restent sur le téléphone
+    // et partiront à la reconnexion, mais seulement si le MÊME commercial se
+    // reconnecte — on l'invite donc à synchroniser d'abord.
+    final pending = OfflineQueueService().pendingCount.value;
     showDialog(
       context: context,
       builder: (BuildContext dialogContext) {
         return AlertDialog(
           title: const Text('Déconnexion'),
-          content: const Text('Êtes-vous sûr de vouloir vous déconnecter ?'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (pending > 0) ...[
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.orange[50],
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.orange[300]!),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.cloud_off, color: Colors.orange[800], size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          '$pending opération(s) pas encore synchronisée(s). '
+                          'Synchronisez avant de vous déconnecter ; sinon, '
+                          'elles seront envoyées à votre prochaine connexion '
+                          'sur ce téléphone.',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.orange[900],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
+              const Text('Êtes-vous sûr de vouloir vous déconnecter ?'),
+            ],
+          ),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
@@ -1078,6 +1120,17 @@ class _UserProfilePageState extends State<UserProfilePage> {
               },
               child: const Text('Annuler'),
             ),
+            if (pending > 0)
+              TextButton(
+                onPressed: () {
+                  Navigator.of(dialogContext).pop();
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const SyncPage()),
+                  );
+                },
+                child: const Text('Synchroniser'),
+              ),
             ElevatedButton(
               onPressed: () {
                 Navigator.of(dialogContext).pop();

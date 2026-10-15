@@ -6,6 +6,7 @@ import 'dart:io';
 import '../models/order_api.dart';
 import '../services/order_service.dart';
 import '../services/offline_queue_service.dart';
+import '../services/wallet_service.dart';
 import '../services/api_service.dart';
 import '../utils/app_colors.dart';
 import '../utils/html_stub.dart'
@@ -230,6 +231,13 @@ class _ApiOrderDetailPageState extends State<ApiOrderDetailPage> {
               {'id': item.id, 'status': status},
             ],
           },
+          meta: WalletService.deliveryMeta(
+            orderReference: _order?.reference ?? '#${item.orderId}',
+            itemKey: 'item_${item.id}',
+            productName: item.productNameSnapshot ?? 'article',
+            amount: item.lineTotal,
+            delivered: delivered,
+          ),
         ));
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(

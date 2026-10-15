@@ -216,4 +216,58 @@ class LocalOrderService {
     }
     return updated;
   }
+
+  /// Applique les quantités corrigées d'une commande refusée (clés
+  /// [OfflineQueueService.orderLineKey]) : 0 retire la ligne, le total suit.
+  Future<LocalOrder?> updateQuantities(
+      String providesRef, Map<String, int> quantities) async {
+    final prefs = await SharedPreferences.getInstance();
+    final orders = await _load(prefs);
+    final index = orders.indexWhere((o) => o.providesRef == providesRef);
+    if (index == -1) return null;
+    final order = orders[index];
+
+    final items = <LocalOrderItem>[];
+    for (final item in order.items) {
+      final quantity = quantities[OfflineQueueService.orderLineKey(
+              {'product_id': item.productId, 'sale_type': item.saleType})] ??
+          item.quantity;
+      if (quantity <= 0) continue;
+      items.add(LocalOrderItem(
+        productId: item.productId,
+        productName: item.productName,
+        quantity: quantity,
+        saleType: item.saleType,
+        unitPrice: item.unitPrice,
+        lineTotal: item.unitPrice * quantity,
+        status: item.status,
+      ));
+    }
+
+    final updated = LocalOrder(
+      providesRef: order.providesRef,
+      reference: order.reference,
+      clientId: order.clientId,
+      clientName: order.clientName,
+      visitId: order.visitId,
+      createdAt: order.createdAt,
+      totalAmount: items.fold(0.0, (sum, it) => sum + it.lineTotal),
+      items: items,
+    );
+    orders[index] = updated;
+    await _save(prefs, orders);
+    return updated;
+  }
+
+  /// Retire les commandes locales dont la création a été abandonnée.
+  Future<void> removeAll(Set<String> providesRefs) async {
+    if (providesRefs.isEmpty) return;
+    final prefs = await SharedPreferences.getInstance();
+    final orders = await _load(prefs);
+    final before = orders.length;
+    orders.removeWhere((o) => providesRefs.contains(o.providesRef));
+    if (orders.length != before) {
+      await _save(prefs, orders);
+    }
+  }
 }
