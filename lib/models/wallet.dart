@@ -64,6 +64,10 @@ class WalletTransaction {
   final int? orderId; // Added to group transactions by order
   final DateTime createdAt;
 
+  /// Référence de la commande pour une livraison faite hors ligne, pas encore
+  /// synchronisée : transaction provisoire, calculée sur le téléphone.
+  final String? pendingReference;
+
   WalletTransaction({
     required this.id,
     required this.type,
@@ -75,7 +79,10 @@ class WalletTransaction {
     this.invoiceId,
     this.orderId,
     required this.createdAt,
+    this.pendingReference,
   });
+
+  bool get isPending => pendingReference != null;
 
   bool get isCredit => type == 'credit';
   bool get isDebit => type == 'debit';
@@ -214,6 +221,9 @@ class GroupedInvoiceTransactions {
     required this.totalAmount,
     required this.firstTransactionDate,
   });
+
+  /// Livraisons hors ligne d'une même commande, en attente de synchronisation.
+  bool get isPending => transactions.first.isPending;
 
   /// Returns the count of credit transactions
   int get creditCount => transactions.where((t) => t.isCredit).length;

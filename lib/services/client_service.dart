@@ -152,6 +152,45 @@ class ClientService {
     return null;
   }
 
+  /// Clients géolocalisés situés dans la zone donnée, reconstruits depuis le
+  /// cache des listes déjà téléchargées. Sert à la carte hors ligne : la
+  /// requête par zone change à chaque déplacement et n'est donc presque
+  /// jamais en cache telle quelle.
+  Future<List<Client>> cachedClientsInBounds({
+    required double north,
+    required double south,
+    required double east,
+    required double west,
+  }) async {
+    final pages =
+        await OfflineCacheService().valuesWithPrefix('GET:/api/clients?');
+    final byId = <int, Client>{};
+    for (final page in pages) {
+      if (page is! Map<String, dynamic>) continue;
+      final data = page['data'];
+      if (data is! List) continue;
+      for (final entry in data) {
+        if (entry is! Map<String, dynamic>) continue;
+        try {
+          final client = Client.fromJson(entry);
+          byId[client.id] = client;
+        } catch (_) {
+          // Entrée illisible : ignorée, les autres restent affichables.
+        }
+      }
+    }
+    // Zone qui traverse l'antiméridien : est < ouest.
+    bool inLongitude(double lng) =>
+        west <= east ? lng >= west && lng <= east : lng >= west || lng <= east;
+    return byId.values
+        .where((c) =>
+            c.hasLocation &&
+            c.latitude! <= north &&
+            c.latitude! >= south &&
+            inLongitude(c.longitude!))
+        .toList();
+  }
+
   /// Update an existing client
   ///
   /// [id] - The client ID to update

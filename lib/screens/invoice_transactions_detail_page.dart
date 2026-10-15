@@ -401,7 +401,10 @@ class _TransactionDetailSheet extends StatelessWidget {
                 const SizedBox(height: 32),
                 _buildDetailRow('Description', transaction.description ?? '-'),
                 const SizedBox(height: 16),
-                _buildDetailRow('Solde après', formatBalance(transaction.balanceAfter)),
+                if (transaction.isPending)
+                  _buildDetailRow('Statut', 'En attente de synchro')
+                else
+                  _buildDetailRow('Solde après', formatBalance(transaction.balanceAfter)),
                 const SizedBox(height: 16),
                 _buildDetailRow('Référence', transaction.referenceLabel),
                 const SizedBox(height: 16),

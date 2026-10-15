@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 
 import '../services/local_order_service.dart';
 import '../services/offline_queue_service.dart';
+import '../services/wallet_service.dart';
 import '../utils/app_colors.dart';
 
 /// Détail d'une commande créée hors ligne, avant sa synchronisation :
@@ -55,6 +56,13 @@ class _LocalOrderDetailPageState extends State<LocalOrderDetailPage> {
           {'product_id': item.productId, 'status': status},
         ],
       },
+      meta: WalletService.deliveryMeta(
+        orderReference: _order.reference,
+        itemKey: 'product_${item.productId}',
+        productName: item.productName,
+        amount: item.lineTotal,
+        delivered: delivered,
+      ),
     ));
 
     if (updated != null && mounted) {

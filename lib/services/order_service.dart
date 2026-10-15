@@ -4,6 +4,7 @@ import 'dart:convert';
 import '../models/order_api.dart';
 import '../models/invoice_print_data.dart';
 import 'api_service.dart';
+import 'offline_cache_service.dart';
 
 /// Response from listing orders
 class OrderListResponse {
@@ -265,30 +266,30 @@ class OrderService {
     String? fromDate,
     String? toDate,
   }) async {
+    // Build query parameters
+    final queryParams = <String, String>{
+      'page': page.toString(),
+      'per_page': perPage.toString(),
+    };
+
+    if (status != null && status.isNotEmpty) {
+      queryParams['status'] = status;
+    }
+    if (clientId != null) {
+      queryParams['client_id'] = clientId.toString();
+    }
+    if (fromDate != null && fromDate.isNotEmpty) {
+      queryParams['from_date'] = fromDate;
+    }
+    if (toDate != null && toDate.isNotEmpty) {
+      queryParams['to_date'] = toDate;
+    }
+
+    final queryString = queryParams.entries
+        .map((e) => '${Uri.encodeComponent(e.key)}=${Uri.encodeComponent(e.value)}')
+        .join('&');
+
     try {
-      // Build query parameters
-      final queryParams = <String, String>{
-        'page': page.toString(),
-        'per_page': perPage.toString(),
-      };
-
-      if (status != null && status.isNotEmpty) {
-        queryParams['status'] = status;
-      }
-      if (clientId != null) {
-        queryParams['client_id'] = clientId.toString();
-      }
-      if (fromDate != null && fromDate.isNotEmpty) {
-        queryParams['from_date'] = fromDate;
-      }
-      if (toDate != null && toDate.isNotEmpty) {
-        queryParams['to_date'] = toDate;
-      }
-
-      final queryString = queryParams.entries
-          .map((e) => '${Uri.encodeComponent(e.key)}=${Uri.encodeComponent(e.value)}')
-          .join('&');
-
       final uri = Uri.parse('${ApiService.baseUrl}/api/orders?$queryString');
       final token = _apiService.token;
 
@@ -320,17 +321,68 @@ class OrderService {
             }
           }
         }
+        await OfflineCacheService().put('GET:/api/orders?$queryString', body);
         return OrderListResponse.fromJson(body);
       }
 
       final errorMessage = body['message'] as String? ?? 'Erreur lors de la récupération des commandes';
       throw ApiException(errorMessage, statusCode: response.statusCode);
     } on http.ClientException {
+      // Hors ligne : resservir la dernière liste connue (mise en cache par la
+      // synchronisation de démarrage ou une consultation en ligne).
+      final cached = await _cachedOrders(queryString, clientId);
+      if (cached != null) return cached;
       throw ApiException('Erreur de connexion. Vérifiez votre connexion internet.');
     } catch (e) {
       if (e is ApiException) rethrow;
+      final cached = await _cachedOrders(queryString, clientId);
+      if (cached != null) return cached;
       throw ApiException('Une erreur inattendue est survenue: $e');
     }
+  }
+
+  /// Liste de commandes hors ligne : la réponse en cache pour ces paramètres,
+  /// sinon — pour la liste d'un client jamais consultée (client hors de la
+  /// tournée du jour, non préchargé) — ses commandes retrouvées dans toutes
+  /// les listes déjà en cache.
+  Future<OrderListResponse?> _cachedOrders(
+      String queryString, int? clientId) async {
+    final cache = OfflineCacheService();
+    final cached = await cache.get('GET:/api/orders?$queryString');
+    if (cached is Map<String, dynamic>) {
+      return OrderListResponse.fromJson(cached);
+    }
+    if (clientId == null) return null;
+
+    final byId = <dynamic, Map<String, dynamic>>{};
+    for (final page in await cache.valuesWithPrefix('GET:/api/orders?')) {
+      final data = page is Map<String, dynamic> ? page['data'] : null;
+      final list = data is Map<String, dynamic> ? data['data'] : null;
+      if (list is! List) continue;
+      for (final order in list.whereType<Map<String, dynamic>>()) {
+        final client = order['client'];
+        final orderClientId = order['client_id'] ??
+            (client is Map<String, dynamic> ? client['id'] : null);
+        if (orderClientId?.toString() == clientId.toString()) {
+          byId[order['id']] = order;
+        }
+      }
+    }
+    if (byId.isEmpty) return null;
+
+    final orders = byId.values.toList()
+      ..sort((a, b) => (b['created_at']?.toString() ?? '')
+          .compareTo(a['created_at']?.toString() ?? ''));
+    return OrderListResponse.fromJson({
+      'status': true,
+      'data': {
+        'current_page': 1,
+        'last_page': 1,
+        'total': orders.length,
+        'per_page': orders.length,
+        'data': orders,
+      },
+    });
   }
 
   /// Get a single order by ID

@@ -2,12 +2,19 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import 'alert_api_service.dart';
 import 'auth_service.dart';
 import 'client_service.dart';
+import 'daily_report_service.dart';
 import 'home_service.dart';
+import 'invoice_service.dart';
 import 'offline_queue_service.dart';
+import 'order_service.dart';
 import 'product_service.dart';
+import 'return_voucher_service.dart';
 import 'routing_api_service.dart';
+import 'stock_service.dart';
+import 'visit_api_service.dart';
 import 'wallet_service.dart';
 
 /// Synchronisation complète de l'app :
@@ -78,11 +85,34 @@ class DataSyncService {
         'Tournée du jour': () async {
           await RoutingApiService().getTodayRouting();
         },
+        'Stock commercial': () async {
+          await StockService().listStock();
+        },
+        'Commandes': () async {
+          await OrderService().listOrders();
+        },
+        'Rapports et commandes de la tournée': _pullRoutingClientHistory,
         'Tableau de bord': () async {
           await HomeService().getHomeData();
         },
         'Portefeuille': () async {
-          await WalletService().getWallet();
+          final wallet = WalletService();
+          await wallet.getWallet();
+          await wallet.getCashReceipts();
+          await wallet.getTransactions();
+        },
+        'Visites': () async {
+          await VisitApiService().getVisits();
+        },
+        'Bons de livraison': () async {
+          await InvoiceService().listInvoices();
+        },
+        'Bons de retour': _pullReturnVouchers,
+        'Rapport journalier': () async {
+          await DailyReportService().getDailyReport();
+        },
+        'Alertes': () async {
+          await AlertApiService().getAlerts();
         },
       };
 
@@ -119,6 +149,58 @@ class DataSyncService {
       final response = await service.getClients(page: page);
       hasMore = response.hasMore;
       page++;
+    }
+  }
+
+  /// Rapports de visite, commandes et alertes de chaque client de la tournée du jour
+  /// (mêmes paramètres que la fiche client, pour que les clés de cache
+  /// correspondent) : sans cela, ces onglets restent en erreur hors ligne
+  /// pour tout client qui n'a pas été ouvert en ligne auparavant.
+  Future<void> _pullRoutingClientHistory() async {
+    final routing = await RoutingApiService().getTodayRouting();
+    final clientIds = (routing.data.routing?.routingItems ?? const [])
+        .map((item) => item.client.id)
+        .where((id) => id > 0)
+        .toSet()
+        .toList();
+
+    // Par petits lots : assez rapide pour tenir dans le délai de l'étape,
+    // sans saturer un réseau faible. Un client en échec n'arrête pas les
+    // autres.
+    const batchSize = 4;
+    for (var i = 0; i < clientIds.length; i += batchSize) {
+      final batch = clientIds.skip(i).take(batchSize);
+      await Future.wait(batch.expand((id) => [
+            VisitApiService()
+                .getClientVisitReports(id)
+                .then((_) {}, onError: (Object e) {
+              debugPrint('[DataSync] reports of client $id failed: $e');
+            }),
+            OrderService()
+                .listOrders(clientId: id)
+                .then((_) {}, onError: (Object e) {
+              debugPrint('[DataSync] orders of client $id failed: $e');
+            }),
+            AlertApiService()
+                .getAlertsForClient(id)
+                .then((_) {}, onError: (Object e) {
+              debugPrint('[DataSync] alerts of client $id failed: $e');
+            }),
+          ]));
+    }
+  }
+
+  /// Première page des bons de retour (mêmes paramètres que l'écran liste)
+  /// et le détail de chacun, que l'écran de détail recharge par son id.
+  Future<void> _pullReturnVouchers() async {
+    final service = ReturnVoucherService();
+    final response = await service.getReturnVouchers(page: 1);
+    for (final voucher in response.vouchers) {
+      try {
+        await service.getReturnVoucher(voucher.id);
+      } catch (e) {
+        debugPrint('[DataSync] return voucher ${voucher.id} failed: $e');
+      }
     }
   }
 

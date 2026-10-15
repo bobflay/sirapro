@@ -845,23 +845,34 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
     Position position,
     StartVisitRequest request,
   ) async {
-    if (_client.latitude != null && _client.longitude != null) {
-      final distance = Geolocator.distanceBetween(
-        position.latitude,
-        position.longitude,
-        _client.latitude!,
-        _client.longitude!,
+    // Sans position du client sur le téléphone, la distance ne peut pas être
+    // contrôlée ici : le serveur, lui, la contrôle au rejeu et refuserait la
+    // visite (« Distance actuelle ») après coup, avec tout ce qui en dépend.
+    if (_client.latitude == null || _client.longitude == null) {
+      if (mounted) setState(() => _isLoadingVisit = false);
+      _showLocationError(
+        'Position du client inconnue',
+        'Ce point de vente n\'a pas de position GPS enregistrée sur le '
+        'téléphone : la visite ne peut pas démarrer hors ligne. '
+        'Réessayez une fois la connexion revenue.',
       );
-      if (distance > kVisitProximityThresholdMeters) {
-        if (mounted) setState(() => _isLoadingVisit = false);
-        _showLocationError(
-          'Trop loin du client',
-          'Vous êtes à ${distance.toStringAsFixed(0)} m du point de vente '
-          '(maximum ${kVisitProximityThresholdMeters.toStringAsFixed(0)} m). '
-          'Rapprochez-vous pour démarrer la visite.',
-        );
-        return;
-      }
+      return;
+    }
+    final distance = Geolocator.distanceBetween(
+      position.latitude,
+      position.longitude,
+      _client.latitude!,
+      _client.longitude!,
+    );
+    if (distance > kVisitProximityThresholdMeters) {
+      if (mounted) setState(() => _isLoadingVisit = false);
+      _showLocationError(
+        'Trop loin du client',
+        'Vous êtes à ${distance.toStringAsFixed(0)} m du point de vente '
+        '(maximum ${kVisitProximityThresholdMeters.toStringAsFixed(0)} m). '
+        'Rapprochez-vous pour démarrer la visite.',
+      );
+      return;
     }
 
     final startedAt = DateTime.now();
@@ -1312,6 +1323,38 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
     TerminateVisitRequest request,
     String status,
   ) async {
+    // Hors du rayon autorisé, le serveur exige un motif : en ligne il le
+    // demande, mais au rejeu personne ne peut répondre et la fin de visite
+    // serait refusée. Le motif est donc demandé ici, avant la mise en file.
+    if (request.distanceExceedReason == null &&
+        _client.latitude != null &&
+        _client.longitude != null) {
+      final distance = Geolocator.distanceBetween(
+        request.latitude,
+        request.longitude,
+        _client.latitude!,
+        _client.longitude!,
+      );
+      if (distance > kVisitProximityThresholdMeters) {
+        final reasonResult = await _showDistanceExceedReasonDialog(
+          distance: distance,
+          maxDistance: kVisitProximityThresholdMeters,
+          availableReasons: DistanceExceedReasons.reasons,
+        );
+        if (reasonResult == null) {
+          if (mounted) setState(() => _isLoadingVisit = false);
+          return;
+        }
+        request = TerminateVisitRequest(
+          status: request.status,
+          latitude: request.latitude,
+          longitude: request.longitude,
+          distanceExceedReason: reasonResult.reason,
+          distanceExceedReasonOther: reasonResult.otherText,
+        );
+      }
+    }
+
     final pathSegment = visitId < 0 ? '{ref:visit_$visitId}' : '$visitId';
     await OfflineQueueService().enqueue(OfflineOperation.json(
       label: 'Fin de visite — ${_client.name}',
@@ -3146,51 +3189,55 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
   }) {
     final isEnabled = onTap != null;
 
-    return InkWell(
-      onTap: isEnabled
-          ? onTap
-          : () {
-              // Show message when trying to tap disabled button
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Veuillez démarrer la visite pour accéder à cette action'),
-                  backgroundColor: Colors.orange,
-                  duration: Duration(seconds: 2),
+    // Largeur partagée entre les boutons : sur un écran étroit, le dernier
+    // (« Bon de Retour ») ne déborde plus de la carte.
+    return Expanded(
+      child: InkWell(
+        onTap: isEnabled
+            ? onTap
+            : () {
+                // Show message when trying to tap disabled button
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Veuillez démarrer la visite pour accéder à cette action'),
+                    backgroundColor: Colors.orange,
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+              },
+        borderRadius: BorderRadius.circular(12),
+        child: Opacity(
+          opacity: isEnabled ? 1.0 : 0.4,
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    icon,
+                    color: color,
+                    size: 28,
+                  ),
                 ),
-              );
-            },
-      borderRadius: BorderRadius.circular(12),
-      child: Opacity(
-        opacity: isEnabled ? 1.0 : 0.4,
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.1),
-                  shape: BoxShape.circle,
+                const SizedBox(height: 8),
+                Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey[800],
+                    height: 1.2,
+                  ),
                 ),
-                child: Icon(
-                  icon,
-                  color: color,
-                  size: 28,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                label,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.grey[800],
-                  height: 1.2,
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -4696,6 +4743,10 @@ class _OrdersBottomSheetState extends State<_OrdersBottomSheet> {
     if (mounted) _loadOrders();
   }
 
+  bool get _isOfflineError =>
+      _errorMessage != null &&
+      OfflineQueueService.isNetworkError(_errorMessage!);
+
   Future<void> _loadOrders() async {
     setState(() {
       _isLoading = true;
@@ -5110,16 +5161,32 @@ class _OrdersBottomSheetState extends State<_OrdersBottomSheet> {
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             Icon(
-                              Icons.error_outline,
+                              _isOfflineError
+                                  ? Icons.cloud_off
+                                  : Icons.error_outline,
                               size: 64,
-                              color: Colors.red[300],
+                              color: _isOfflineError
+                                  ? Colors.orange[300]
+                                  : Colors.red[300],
                             ),
                             const SizedBox(height: 16),
-                            Text(
-                              'Erreur de chargement',
-                              style: TextStyle(
-                                fontSize: 16,
-                                color: Colors.grey[600],
+                            Padding(
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 24),
+                              child: Text(
+                                // Client jamais consulté en ligne : pas
+                                // d'historique sur le téléphone.
+                                _isOfflineError
+                                    ? 'Hors ligne : historique des commandes '
+                                        'non disponible sur le téléphone.\n'
+                                        'Vous pouvez quand même créer une '
+                                        'commande.'
+                                    : 'Erreur de chargement',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  color: Colors.grey[600],
+                                ),
                               ),
                             ),
                             const SizedBox(height: 8),

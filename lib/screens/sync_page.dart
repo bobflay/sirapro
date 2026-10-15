@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:sirapro/services/data_sync_service.dart';
+import 'package:sirapro/services/local_client_photo_service.dart';
+import 'package:sirapro/services/local_client_service.dart';
+import 'package:sirapro/services/local_order_service.dart';
+import 'package:sirapro/services/local_visit_report_service.dart';
 import 'package:sirapro/services/offline_queue_service.dart';
 import 'package:sirapro/widgets/session_aware_app_bar.dart';
 
@@ -20,6 +24,7 @@ class _SyncPageState extends State<SyncPage> {
   bool _isSyncing = false;
   List<OfflineOperation> _pending = [];
   List<OfflineOperation> _failed = [];
+  Set<String> _orphaned = {};
 
   @override
   void initState() {
@@ -39,10 +44,12 @@ class _SyncPageState extends State<SyncPage> {
   Future<void> _reload() async {
     final pending = await _queueService.pendingOperations();
     final failed = await _queueService.failedOperations();
+    final orphaned = await _queueService.orphanedIds();
     if (mounted) {
       setState(() {
         _pending = pending;
         _failed = failed;
+        _orphaned = orphaned;
       });
     }
   }
@@ -302,7 +309,8 @@ class _SyncPageState extends State<SyncPage> {
     // Une opération bloquée attend une création refusée par le serveur, pas
     // le réseau : elle est signalée distinctement pour que l'agent sache
     // qu'une action est nécessaire (réessayer la création en échec).
-    final blocked = op.isBlocked;
+    final orphaned = _orphaned.contains(op.id);
+    final blocked = op.isBlocked || orphaned;
     final accent = blocked ? Colors.deepOrange : Colors.orange;
 
     return Container(
@@ -362,7 +370,7 @@ class _SyncPageState extends State<SyncPage> {
                 if (blocked) ...[
                   const SizedBox(height: 6),
                   Text(
-                    'Bloquée : ${op.blockedReason}',
+                    'Bloquée : ${orphaned ? OfflineQueueService.orphanReason : op.blockedReason}',
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
@@ -370,10 +378,27 @@ class _SyncPageState extends State<SyncPage> {
                     ),
                   ),
                   const SizedBox(height: 2),
-                  Text(
-                    'Réessayez l\'opération en échec ci-dessous pour la débloquer.',
-                    style: TextStyle(fontSize: 11, color: Colors.grey[600]),
-                  ),
+                  if (orphaned) ...[
+                    Text(
+                      'Elle ne peut pas être débloquée : supprimez-la, puis '
+                      'refaites la saisie si besoin.',
+                      style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                    ),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton.icon(
+                        onPressed: () => _discardOrphaned(op),
+                        icon: const Icon(Icons.delete_outline, size: 18),
+                        label: const Text('Supprimer'),
+                        style:
+                            TextButton.styleFrom(foregroundColor: Colors.red),
+                      ),
+                    ),
+                  ] else
+                    Text(
+                      'Réessayez l\'opération en échec ci-dessous pour la débloquer.',
+                      style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                    ),
                 ],
               ],
             ),
@@ -386,6 +411,267 @@ class _SyncPageState extends State<SyncPage> {
         ],
       ),
     );
+  }
+
+  /// Quantité disponible annoncée par un refus « Stock insuffisant pour
+  /// PRODUIT : 4 en stock, 11 demandé(s) », pour guider la correction.
+  static int? _availableStock(String? error, String productName) {
+    if (error == null) return null;
+    final match = RegExp(r'Stock insuffisant pour (.+?)\s*:\s*(\d+) en stock')
+        .firstMatch(error);
+    if (match == null ||
+        match.group(1)!.trim().toLowerCase() !=
+            productName.trim().toLowerCase()) {
+      return null;
+    }
+    return int.tryParse(match.group(2)!);
+  }
+
+  /// Correction des quantités d'une commande refusée (ex: stock
+  /// insuffisant) puis nouvel essai : ses livraisons bloquées repartent
+  /// avec elle.
+  Future<void> _editFailedOrder(OfflineOperation op) async {
+    final local =
+        op.provides != null ? await LocalOrderService().get(op.provides!) : null;
+    final lines = (op.body!['items'] as List)
+        .whereType<Map<String, dynamic>>()
+        .toList();
+    String nameOf(Map<String, dynamic> line) {
+      for (final item in local?.items ?? const <LocalOrderItem>[]) {
+        if (item.productId == line['product_id'] &&
+            item.saleType == line['sale_type']) {
+          return item.productName;
+        }
+      }
+      return 'Produit #${line['product_id']}';
+    }
+
+    final quantities = {
+      for (final line in lines)
+        OfflineQueueService.orderLineKey(line):
+            (line['quantity'] as num?)?.toInt() ?? 0,
+    };
+    if (!mounted) return;
+
+    final confirmed = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setSheetState) {
+          final hasItems = quantities.values.any((q) => q > 0);
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 20, 16, 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    'Modifier ${op.label}',
+                    style: const TextStyle(
+                        fontSize: 17, fontWeight: FontWeight.bold),
+                  ),
+                  if (op.error != null && op.error!.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      op.error!,
+                      style: TextStyle(fontSize: 12, color: Colors.red[700]),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  Flexible(
+                    child: ListView(
+                      shrinkWrap: true,
+                      children: [
+                        for (final line in lines)
+                          _buildQuantityRow(
+                            name: nameOf(line),
+                            available:
+                                _availableStock(op.error, nameOf(line)),
+                            quantity:
+                                quantities[OfflineQueueService.orderLineKey(line)]!,
+                            onChanged: (q) => setSheetState(() => quantities[
+                                OfflineQueueService.orderLineKey(line)] = q),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Une quantité à 0 retire l\'article de la commande, ainsi '
+                    'que sa livraison en attente.',
+                    style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                  ),
+                  const SizedBox(height: 12),
+                  ElevatedButton.icon(
+                    onPressed:
+                        hasItems ? () => Navigator.pop(context, true) : null,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Enregistrer et réessayer'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Theme.of(context).primaryColor,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+    if (confirmed != true) return;
+
+    if (op.provides != null) {
+      await LocalOrderService().updateQuantities(op.provides!, quantities);
+    }
+    await _queueService.retryFailedOrder(op.id, quantities);
+    await _reload();
+  }
+
+  Widget _buildQuantityRow({
+    required String name,
+    required int? available,
+    required int quantity,
+    required ValueChanged<int> onChanged,
+  }) {
+    final tooMany = available != null && quantity > available;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(name,
+                    style: const TextStyle(fontWeight: FontWeight.w600)),
+                if (available != null)
+                  Text(
+                    '$available en stock',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: tooMany ? Colors.red[700] : Colors.green[700],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          IconButton(
+            onPressed: quantity > 0 ? () => onChanged(quantity - 1) : null,
+            icon: const Icon(Icons.remove_circle_outline),
+          ),
+          SizedBox(
+            width: 32,
+            child: Text(
+              '$quantity',
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+          ),
+          IconButton(
+            onPressed: () => onChanged(quantity + 1),
+            icon: const Icon(Icons.add_circle_outline),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Suppression d'une opération en échec, après confirmation : une
+  /// création emporte ses dépendantes (ex: les livraisons d'une commande),
+  /// l'agent doit savoir lesquelles avant de valider.
+  Future<void> _discardFailed(OfflineOperation op) async {
+    final dependents = await _queueService.dependentsOf(op);
+    if (!mounted) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Supprimer cette opération ?'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('« ${op.label} » ne sera jamais envoyée.'),
+              if (dependents.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Text(
+                  '${dependents.length} opération(s) qui en dépendent seront '
+                  'aussi supprimées :',
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 6),
+                for (final d in dependents)
+                  Text('• ${d.label}', style: const TextStyle(fontSize: 13)),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Annuler'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Supprimer'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    // Copies locales (commande, client, photo, rapport) de la saisie
+    // abandonnée : sans quoi elles resteraient « en attente » à l'écran.
+    final refs = await _queueService.discardFailed(op.id);
+    await LocalOrderService().removeAll(refs);
+    await LocalClientService().removeAll(refs);
+    await LocalClientPhotoService().removeAll(refs);
+    await LocalVisitReportService().removeAll(refs);
+    await _reload();
+  }
+
+  /// Suppression d'une opération orpheline (sa création a disparu), après
+  /// confirmation. Ses éventuelles dépendantes partent avec elle.
+  Future<void> _discardOrphaned(OfflineOperation op) async {
+    final dependents = await _queueService.dependentsOf(op);
+    if (!mounted) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Supprimer cette opération ?'),
+        content: Text(
+          '« ${op.label} » ne sera jamais envoyée.'
+          '${dependents.isEmpty ? '' : '\n\n${dependents.length} opération(s) '
+              'qui en dépendent seront aussi supprimées.'}',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Annuler'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Supprimer'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    final refs = await _queueService.discardOrphaned(op.id);
+    await LocalOrderService().removeAll(refs);
+    await LocalClientService().removeAll(refs);
+    await LocalClientPhotoService().removeAll(refs);
+    await LocalVisitReportService().removeAll(refs);
+    await _reload();
   }
 
   Widget _buildFailedCard(OfflineOperation op) {
@@ -440,9 +726,15 @@ class _SyncPageState extends State<SyncPage> {
             ],
           ),
           const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
+          Wrap(
+            alignment: WrapAlignment.end,
             children: [
+              if (OfflineQueueService.isOrderCreation(op))
+                TextButton.icon(
+                  onPressed: () => _editFailedOrder(op),
+                  icon: const Icon(Icons.edit, size: 18),
+                  label: const Text('Modifier'),
+                ),
               TextButton.icon(
                 onPressed: () async {
                   await _queueService.retryFailed(op.id);
@@ -452,10 +744,7 @@ class _SyncPageState extends State<SyncPage> {
                 label: const Text('Réessayer'),
               ),
               TextButton.icon(
-                onPressed: () async {
-                  await _queueService.discardFailed(op.id);
-                  await _reload();
-                },
+                onPressed: () => _discardFailed(op),
                 icon: const Icon(Icons.delete_outline, size: 18),
                 label: const Text('Supprimer'),
                 style: TextButton.styleFrom(foregroundColor: Colors.red),

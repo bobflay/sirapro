@@ -1177,17 +1177,23 @@ class _EditOrderPageState extends State<EditOrderPage> {
                       ],
                       if (product.categoryName != null) ...[
                         const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: AppColors.primary.withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Text(
-                            product.categoryName!,
-                            style: const TextStyle(
-                              fontSize: 10,
-                              color: AppColors.primary,
+                        // Raccourcie quand les boutons de quantité prennent
+                        // la place (article déjà au panier).
+                        Flexible(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              product.categoryName!,
+                              style: const TextStyle(
+                                fontSize: 10,
+                                color: AppColors.primary,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
                         ),

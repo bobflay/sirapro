@@ -249,34 +249,19 @@ class InvoiceService {
   /// List user's invoices
   Future<InvoiceListResponse> listInvoices({int page = 1}) async {
     try {
-      final uri = Uri.parse('${ApiService.baseUrl}/api/invoices?page=$page');
-      final token = _apiService.token;
-
       debugPrint('[InvoiceService] Fetching invoices list...');
 
-      final response = await http.get(
-        uri,
-        headers: {
-          'Accept': 'application/json',
-          if (token != null) 'Authorization': 'Bearer $token',
-        },
-      );
-
-      debugPrint('[InvoiceService] List response status: ${response.statusCode}');
-      debugPrint('[InvoiceService] List response body: ${response.body}');
-
-      final body = jsonDecode(response.body) as Map<String, dynamic>;
-
-      if (response.statusCode == 200) {
-        return InvoiceListResponse.fromJson(body);
+      // Via ApiService.get pour que la liste reste consultable hors ligne
+      // (dernière réponse mise en cache, préchargée par DataSyncService).
+      final response = await _apiService.get('/api/invoices?page=$page');
+      if (response is Map<String, dynamic>) {
+        return InvoiceListResponse.fromJson(response);
       }
-
-      final errorMessage = body['message'] as String? ?? 'Erreur lors de la récupération des bons de livraison';
-      throw ApiException(errorMessage, statusCode: response.statusCode);
-    } on http.ClientException {
-      throw ApiException('Erreur de connexion. Vérifiez votre connexion internet.');
+      throw ApiException(
+          'Erreur lors de la récupération des bons de livraison');
+    } on ApiException {
+      rethrow;
     } catch (e) {
-      if (e is ApiException) rethrow;
       throw ApiException('Une erreur inattendue est survenue: $e');
     }
   }

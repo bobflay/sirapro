@@ -64,7 +64,10 @@ class _WalletPageState extends State<WalletPage>
 
       for (final transaction in dayTransactions) {
         // Prefer using order_id, then invoice_id, otherwise fall back to referenceType/referenceId
-        if (transaction.orderId != null) {
+        if (transaction.isPending) {
+          final key = 'Pending_${transaction.pendingReference}';
+          groupedByReference.putIfAbsent(key, () => []).add(transaction);
+        } else if (transaction.orderId != null) {
           final key = 'Order_${transaction.orderId}';
           if (!groupedByReference.containsKey(key)) {
             groupedByReference[key] = [];
@@ -118,7 +121,9 @@ class _WalletPageState extends State<WalletPage>
 
         return GroupedInvoiceTransactions(
           invoiceId: displayId,
-          invoiceNumber: '$label #${displayId ?? '?'}',
+          invoiceNumber: firstTransaction.isPending
+              ? 'Commande ${firstTransaction.pendingReference}'
+              : '$label #${displayId ?? '?'}',
           transactions: transactions,
           totalAmount: transactions.fold(
             0.0,
@@ -175,20 +180,26 @@ class _WalletPageState extends State<WalletPage>
     });
 
     try {
-      final responses = await Future.wait([
-        _walletService.getWallet(),
-        _walletService.getCashReceipts(),
-      ]);
-
-      final walletResponse = responses[0] as WalletResponse;
-      final receiptsResponse = responses[1] as CashReceiptsResponse;
+      // Les reçus sont secondaires : hors ligne sans reçus en cache, le solde
+      // et les transactions restent affichés.
+      final receiptsFuture = _walletService.getCashReceipts().then<
+          CashReceiptsResponse?>((r) => r, onError: (Object e) {
+        debugPrint('[WalletPage] cash receipts unavailable: $e');
+        return null;
+      });
+      final walletResponse = await _walletService.getWallet();
+      final receiptsResponse = await receiptsFuture;
+      // Livraisons faites hors ligne : affichées comme les transactions
+      // serveur, marquées « en attente », jusqu'à leur synchronisation.
+      final pendingCredits = await _walletService.pendingDeliveryCredits();
 
       if (mounted) {
         if (walletResponse.status && walletResponse.wallet != null) {
           setState(() {
             _wallet = walletResponse.wallet;
-            _groupTransactions(_wallet!.recentTransactions);
-            _cashReceipts = receiptsResponse.receipts;
+            _groupTransactions(
+                [...pendingCredits, ..._wallet!.recentTransactions]);
+            _cashReceipts = receiptsResponse?.receipts ?? _cashReceipts;
             _isLoading = false;
           });
         } else {
@@ -454,10 +465,14 @@ class _WalletPageState extends State<WalletPage>
                   Row(
                     children: [
                       Text(
-                        '${group.transactions.length} transaction${group.transactions.length > 1 ? 's' : ''}',
+                        group.isPending
+                            ? 'En attente de synchro'
+                            : '${group.transactions.length} transaction${group.transactions.length > 1 ? 's' : ''}',
                         style: TextStyle(
                           fontSize: 12,
-                          color: Colors.grey[600],
+                          color: group.isPending
+                              ? Colors.orange[800]
+                              : Colors.grey[600],
                         ),
                       ),
                       Text(
@@ -467,11 +482,15 @@ class _WalletPageState extends State<WalletPage>
                           color: Colors.grey[600],
                         ),
                       ),
-                      Text(
-                        _formatDateTime(group.firstTransactionDate),
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey[600],
+                      Flexible(
+                        child: Text(
+                          _formatDateTime(group.firstTransactionDate),
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[600],
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
                     ],
@@ -571,7 +590,7 @@ class _WalletPageState extends State<WalletPage>
   }
 
   Widget _buildRecentTransactionsList() {
-    if (_wallet == null || _wallet!.recentTransactions.isEmpty) {
+    if (_wallet == null || _transactionsByDay.isEmpty) {
       return Container(
         margin: const EdgeInsets.all(16),
         padding: const EdgeInsets.all(32),
@@ -1068,7 +1087,10 @@ class _TransactionDetailSheet extends StatelessWidget {
                 // Details
                 _buildDetailRow('Description', transaction.description ?? '-'),
                 const SizedBox(height: 16),
-                _buildDetailRow('Solde après', formatBalance(transaction.balanceAfter)),
+                if (transaction.isPending)
+                  _buildDetailRow('Statut', 'En attente de synchro')
+                else
+                  _buildDetailRow('Solde après', formatBalance(transaction.balanceAfter)),
                 const SizedBox(height: 16),
                 _buildDetailRow('Référence', transaction.referenceLabel),
                 const SizedBox(height: 16),

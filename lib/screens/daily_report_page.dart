@@ -50,7 +50,8 @@ class _DailyReportPageState extends State<DailyReportPage> {
           _isLoadingReport = false;
         });
       }
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint('[DailyReportPage] Failed to load daily report: $e\n$st');
       if (mounted) {
         setState(() {
           _isLoadingReport = false;
