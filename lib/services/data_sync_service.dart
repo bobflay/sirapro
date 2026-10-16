@@ -102,7 +102,7 @@ class DataSyncService {
           await wallet.getTransactions();
         },
         'Visites': () async {
-          await VisitApiService().getVisits();
+          await VisitApiService().getAllVisits();
         },
         'Bons de livraison': () async {
           await InvoiceService().listInvoices();
