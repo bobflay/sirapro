@@ -52,9 +52,9 @@ class _VisitsPageState extends State<VisitsPage>
     });
 
     try {
-      final response = await _visitApiService.getVisits();
+      final visits = await _visitApiService.getAllVisits();
       setState(() {
-        _visits = response.data;
+        _visits = visits;
         _isLoading = false;
       });
       _filterVisits();

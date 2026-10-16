@@ -430,6 +430,28 @@ class VisitApiService {
     }
   }
 
+  /// Get every visit of the user by walking all pages of `/api/visits`.
+  ///
+  /// [getVisits] alone only returns the first page, so lists and stats built
+  /// from it were capped at `per_page` items. Each page goes through
+  /// [getVisits], so every page is also cached for offline use.
+  Future<List<ApiVisit>> getAllVisits({int perPage = 100}) async {
+    // Garde-fou contre une méta incohérente renvoyée par le serveur.
+    const maxPages = 50;
+    final visits = <ApiVisit>[];
+    var page = 1;
+    while (true) {
+      final response = await getVisits(page: page, perPage: perPage);
+      visits.addAll(response.data);
+      final lastPage = response.meta?.lastPage ?? 1;
+      if (page >= lastPage || response.data.isEmpty || page >= maxPages) {
+        break;
+      }
+      page++;
+    }
+    return visits;
+  }
+
   /// Reset singleton for testing
   static void resetInstance() {
     _instance = null;

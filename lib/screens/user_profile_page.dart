@@ -466,16 +466,16 @@ class _UserProfilePageState extends State<UserProfilePage> {
     final tauxRealisation = visiteProg > 0
         ? (visiteEff / visiteProg * 100)
         : 0.0;
+    // Mêmes formules que le Rapport journalier.
     final clientsVisites = report.visits.clientsVisites;
-    final totalClients = report.visits.totalClients;
-    final tauxCouverture = totalClients > 0
-        ? (clientsVisites / totalClients * 100)
+    final clientsAcheteurs = report.visits.pointsDeVenteAchetes;
+    final tauxCouverture = clientsVisites > 0
+        ? (clientsAcheteurs / clientsVisites * 100)
         : 0.0;
     final refVendue = report.sales.referenceVendue;
-    final totalItems = report.sales.totalItems;
-    final tauxRef = totalItems > 0
-        ? (refVendue / totalItems * 100)
-        : 0.0;
+    final refParClient = clientsAcheteurs > 0
+        ? refVendue / clientsAcheteurs
+        : report.sales.referenceVendueRatio;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -513,7 +513,8 @@ class _UserProfilePageState extends State<UserProfilePage> {
             icon: Icons.people_outline,
             iconColor: Colors.orange,
             label: 'Taux de couverture',
-            count: '$clientsVisites / $totalClients',
+            count: '$clientsAcheteurs acheteur${clientsAcheteurs > 1 ? 's' : ''} / '
+                '$clientsVisites visité${clientsVisites > 1 ? 's' : ''}',
             percentage: tauxCouverture,
           ),
           const Divider(height: 1),
@@ -521,8 +522,9 @@ class _UserProfilePageState extends State<UserProfilePage> {
             icon: Icons.inventory_2_outlined,
             iconColor: Colors.purple,
             label: 'Référence vendue',
-            count: '$refVendue / $totalItems',
-            percentage: tauxRef,
+            count: '${refParClient.toStringAsFixed(1)} réf. / client '
+                '($refVendue réf. pour $clientsAcheteurs client${clientsAcheteurs > 1 ? 's' : ''})',
+            percentage: null,
           ),
         ],
       ),

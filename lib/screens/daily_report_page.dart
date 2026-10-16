@@ -129,12 +129,17 @@ class _DailyReportPageState extends State<DailyReportPage> {
     final visiteProg = _routingSummary?.totalClients ?? report.visits.visiteProgrammee;
     final visiteEff = _routingSummary?.completedClients ?? report.visits.visiteEffective;
     final tauxRealisation = visiteProg > 0 ? (visiteEff / visiteProg * 100) : 0.0;
+    // Taux de couverture = clients ayant acheté / clients visités.
     final clientsVisites = report.visits.clientsVisites;
-    final totalClients = report.visits.totalClients;
-    final tauxCouverture = totalClients > 0 ? (clientsVisites / totalClients * 100) : 0.0;
+    final clientsAcheteurs = report.visits.pointsDeVenteAchetes;
+    final tauxCouverture =
+        clientsVisites > 0 ? (clientsAcheteurs / clientsVisites * 100) : 0.0;
+    // Référence vendue = produits vendus / clients ayant acheté : une
+    // moyenne par client, pas un pourcentage, donc sans plafond.
     final refVendue = report.sales.referenceVendue;
-    final totalItems = report.sales.totalItems;
-    final tauxRef = totalItems > 0 ? (refVendue / totalItems * 100) : 0.0;
+    final refParClient = clientsAcheteurs > 0
+        ? refVendue / clientsAcheteurs
+        : report.sales.referenceVendueRatio;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -172,7 +177,8 @@ class _DailyReportPageState extends State<DailyReportPage> {
             icon: Icons.people_outline,
             iconColor: Colors.orange,
             label: 'Taux de couverture',
-            count: '$clientsVisites / $totalClients',
+            count: '$clientsAcheteurs acheteur${clientsAcheteurs > 1 ? 's' : ''} / '
+                '$clientsVisites visité${clientsVisites > 1 ? 's' : ''}',
             percentage: tauxCouverture,
           ),
           const Divider(height: 1),
@@ -180,8 +186,9 @@ class _DailyReportPageState extends State<DailyReportPage> {
             icon: Icons.inventory_2_outlined,
             iconColor: Colors.purple,
             label: 'Référence vendue',
-            count: '$refVendue / $totalItems',
-            percentage: tauxRef,
+            count: '${refParClient.toStringAsFixed(1)} réf. / client '
+                '($refVendue réf. pour $clientsAcheteurs client${clientsAcheteurs > 1 ? 's' : ''})',
+            percentage: null,
           ),
         ],
       ),
