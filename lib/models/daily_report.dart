@@ -167,6 +167,9 @@ class DailyReportVisits {
   final double tauxCouverture;
   final int clientsVisites;
   final int totalClients;
+
+  /// Clients distincts ayant passé commande dans la journée.
+  final int pointsDeVenteAchetes;
   final TempsTerrain tempsTerrain;
 
   DailyReportVisits({
@@ -176,6 +179,7 @@ class DailyReportVisits {
     required this.tauxCouverture,
     required this.clientsVisites,
     required this.totalClients,
+    this.pointsDeVenteAchetes = 0,
     required this.tempsTerrain,
   });
 
@@ -187,6 +191,8 @@ class DailyReportVisits {
       tauxCouverture: (json['taux_couverture'] as num?)?.toDouble() ?? 0.0,
       clientsVisites: (json['clients_visites'] as num?)?.toInt() ?? 0,
       totalClients: (json['total_clients'] as num?)?.toInt() ?? 0,
+      pointsDeVenteAchetes:
+          (json['points_de_vente_achetes'] as num?)?.toInt() ?? 0,
       tempsTerrain: TempsTerrain.fromJson(
         json['temps_terrain'] as Map<String, dynamic>? ?? {},
       ),
@@ -196,11 +202,16 @@ class DailyReportVisits {
 
 class DailyReportSales {
   final int referenceVendue;
+
+  /// Références vendues / clients ayant acheté : moyenne par client, sans
+  /// plafond (ce n'est pas un pourcentage).
+  final double referenceVendueRatio;
   final int totalItems;
   final double avgPerVisit;
 
   DailyReportSales({
     required this.referenceVendue,
+    this.referenceVendueRatio = 0.0,
     required this.totalItems,
     required this.avgPerVisit,
   });
@@ -208,6 +219,8 @@ class DailyReportSales {
   factory DailyReportSales.fromJson(Map<String, dynamic> json) {
     return DailyReportSales(
       referenceVendue: (json['reference_vendue'] as num?)?.toInt() ?? 0,
+      referenceVendueRatio:
+          (json['reference_vendue_ratio'] as num?)?.toDouble() ?? 0.0,
       totalItems: (json['total_items'] as num?)?.toInt() ?? 0,
       avgPerVisit: (json['avg_per_visit'] as num?)?.toDouble() ?? 0.0,
     );
