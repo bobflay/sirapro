@@ -1226,8 +1226,112 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
     );
   }
 
+  /// Commandes prises pendant la visite en cours dont des articles n'ont pas
+  /// encore été marqués livrés / non livrés, sous la forme
+  /// référence -> nombre d'articles en attente.
+  Future<Map<String, int>> _ordersWithPendingDelivery() async {
+    final visitId = _visitService.activeVisitId;
+    final visitStart = _visitService.activeVisitStartTime;
+
+    bool belongsToVisit(int? orderVisitId, DateTime? createdAt) {
+      if (visitId != null && orderVisitId == visitId) return true;
+      return visitStart != null &&
+          createdAt != null &&
+          !createdAt.isBefore(visitStart);
+    }
+
+    final pending = <String, int>{};
+
+    // Commandes créées hors ligne, pas encore synchronisées.
+    final localOrders = await LocalOrderService().pending();
+    for (final order in localOrders) {
+      if (order.clientId != _client.id) continue;
+      if (!belongsToVisit(order.visitId, order.createdAt)) continue;
+      final count = order.items.where((i) => i.status == 'pending').length;
+      if (count > 0) pending[order.reference] = count;
+    }
+
+    // Commandes serveur. Sans réseau la liste est indisponible : on s'en
+    // tient aux commandes locales plutôt que de gêner la clôture.
+    try {
+      final response = await _orderService.listOrders(
+        clientId: _client.id,
+        perPage: 50,
+      );
+      for (final order in response.orders) {
+        if (order.status == 'cancelled') continue;
+        final createdAt = order.createdAt != null
+            ? DateTime.tryParse(order.createdAt!)
+            : null;
+        if (!belongsToVisit(order.visitId, createdAt)) continue;
+        final count = order.orderItems.where((i) => i.isPending).length;
+        if (count > 0) pending[order.reference ?? '#${order.id}'] = count;
+      }
+    } catch (e) {
+      debugPrint('[ClientDetail] Vérification des livraisons impossible: $e');
+    }
+
+    return pending;
+  }
+
+  /// Avertit le commercial si des commandes de la visite ont encore des
+  /// articles sans statut de livraison. Retourne true pour poursuivre la
+  /// clôture, false s'il préfère revenir renseigner les livraisons.
+  Future<bool> _confirmPendingDeliveries() async {
+    final pending = await _ordersWithPendingDelivery();
+    if (pending.isEmpty || !mounted) return true;
+
+    final proceed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        icon: const Icon(Icons.warning_amber_rounded,
+            color: Colors.orange, size: 40),
+        title: const Text('Livraisons non renseignées'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Des articles de ces commandes ne sont pas encore marqués '
+              'livrés ou non livrés :',
+            ),
+            const SizedBox(height: 12),
+            ...pending.entries.map(
+              (e) => Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text(
+                  '• ${e.key} : ${e.value} article${e.value > 1 ? 's' : ''} en attente',
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Ouvrez la commande pour renseigner la livraison avant de '
+              'clôturer la visite.',
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Clôturer quand même'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Retour'),
+          ),
+        ],
+      ),
+    );
+    return proceed ?? false;
+  }
+
   /// Terminate the visit with the given status
   Future<void> _terminateVisit(String status) async {
+    if (!await _confirmPendingDeliveries()) return;
+    if (!mounted) return;
+
     // Check if we have an active visit ID
     final visitId = _visitService.activeVisitId;
     if (visitId == null) {
